@@ -303,3 +303,57 @@ def test_text_side_of_a_slanted_string():
     c, s = math.cos(math.radians(30)), math.sin(math.radians(30))
     nx, ny = text_side(c, s)
     assert (nx, ny) == (pytest.approx(-s), pytest.approx(c))
+
+
+# ---------------------------------------------------------------- devices on walls
+
+# a 6 x 4 m room with sockets on its four walls, each facing into the room
+SOCKET_ROOM = segments([rect(0, 0, 6, 4)])
+
+
+def socket(n, x, y, facing):
+    """A socket on a wall: one centre plane, along its wall."""
+    return Device(n, x, y, [(math.atan2(facing[0], -facing[1]), (n, 0))], facing=facing)
+
+
+SOCKETS = [socket(0, 1.0, 0.0, (0, 1)), socket(1, 3.0, 0.0, (0, 1)),     # bottom wall
+           socket(2, 5.2, 4.0, (0, -1)),                                 # top wall
+           socket(3, 0.0, 2.2, (1, 0)),                                  # left wall
+           socket(4, 6.0, 0.8, (-1, 0))]                                 # right wall
+
+
+def test_sockets_are_dimensioned_along_their_wall_from_the_nearest_corner():
+    result = plan(SOCKETS, segment_walls(SOCKET_ROOM))
+    found = dict((c.members[0].key, (kinds(c), along(c))) for c in result.chains)
+    assert found == {
+        0: ("WDD", [0.0, 1.0, 3.0]),        # bottom wall, from the left corner
+        2: ("DW", [5.2, 6.0]),              # top wall, from the right corner
+        3: ("DW", [2.2, 4.0]),              # left wall, from the top corner
+        4: ("WD", [0.0, 0.8]),              # right wall, from the bottom corner
+    }
+    assert not result.alone and result.no_wall == 0
+
+
+def test_dimension_lines_of_sockets_are_in_the_room():
+    result = plan(SOCKETS, segment_walls(SOCKET_ROOM))
+    lines = dict((c.members[0].key, c.line(0.5, 0.4)) for c in result.chains)
+    assert lines[0][0][1] == pytest.approx(0.5)             # bottom: text faces the room
+    assert lines[2][0][1] == pytest.approx(4.0 - 0.9)       # top: text would face the wall
+    assert lines[3][0][0] == pytest.approx(0.9)             # left: vertical text on the wall side
+    assert lines[4][0][0] == pytest.approx(6.0 - 0.5)       # right
+    for chain in result.chains:
+        (x0, y0), (x1, y1) = chain.line(0.5, 0.4)
+        assert 0 < x0 < 6 or 0 < y0 < 4
+
+
+def test_only_what_is_needed_keeps_every_wall():
+    devices = [socket(0, 2.0, 0.0, (0, 1)), socket(1, 2.0, 4.0, (0, -1))]   # lined up across
+    result = plan(devices, segment_walls(SOCKET_ROOM), every_row=False)
+    assert len(result.chains) == 2
+
+
+def test_sockets_on_one_wall_line_in_two_rooms():
+    walls = segments([rect(0, 0, 6, 4), rect(6.2, 0, 12.2, 4)])
+    devices = [socket(0, 2.0, 0.0, (0, 1)), socket(1, 11.0, 0.0, (0, 1))]
+    result = plan(devices, segment_walls(walls))
+    assert sorted(along(c) for c in result.chains) == [[0.0, 2.0], [11.0, 12.2]]

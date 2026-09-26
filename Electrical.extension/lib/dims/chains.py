@@ -20,6 +20,11 @@ positions that another piece in the same room already dimensions: one
 row and one column then fix a whole regular grid. Devices joined by rows
 and columns with no wall between them are one room.
 
+A device on a wall (facing set: the way out of the wall into the room)
+has one axis, along its wall, so its string runs along the wall from the
+nearest corner. The dimension line of such a string goes into the room,
+with more space when its text would face the wall.
+
 Walls come from find_wall(device, (dx, dy)): the first wall face from
 the device in that direction, as a Hit, or None.
 
@@ -51,11 +56,12 @@ class Device(object):
     the plan: the direction of the plane's normal (radians) and the
     caller's reference to the plane."""
 
-    def __init__(self, key, x, y, axes, z=0.0, label=""):
+    def __init__(self, key, x, y, axes, z=0.0, label="", facing=None):
         self.key = key
         self.x, self.y, self.z = x, y, z
         self.axes = list(axes)
         self.label = label
+        self.facing = facing        # (x, y) out of its wall into the room, for a device on a wall
 
 
 class Hit(object):
@@ -83,7 +89,7 @@ class Stop(object):
 class Chain(object):
     """One dimension string."""
 
-    def __init__(self, angle, across, stops, side, members, ends, other=None):
+    def __init__(self, angle, across, stops, side, members, ends, other=None, text_away=True):
         self.angle = angle          # direction of the string (radians)
         self.across = across        # position across the string (m, string frame)
         self.stops = stops          # [Stop] in order along the string
@@ -92,6 +98,7 @@ class Chain(object):
         self.ends = ends            # [start, end]: None, NO_WALL or SKEW
         self.other = other          # NEAREST: why the wall on the other side was not
                                     # taken instead (NO_WALL, SKEW), None: it was farther
+        self.text_away = text_away  # the text is on the far side of the line from the devices
 
     @property
     def walls(self):
@@ -102,10 +109,11 @@ class Chain(object):
         c, s = math.cos(self.angle), math.sin(self.angle)
         return (along * c - across * s, along * s + across * c)
 
-    def line(self, offset=0.0):
+    def line(self, offset=0.0, extra=0.0):
         """End points of the dimension line, `offset` from the devices on
-        the side of the text."""
-        across = self.across + self.side * offset
+        the side of the text (on a wall: into the room), and `extra` more
+        when the text would face the devices."""
+        across = self.across + self.side * (offset + (0.0 if self.text_away else extra))
         return self.point(self.stops[0].at, across), self.point(self.stops[-1].at, across)
 
 
@@ -259,7 +267,25 @@ def _chain(piece, alpha, ray, walls, tol, side):
     if len(stops) < 2:
         return None
     across = sum(i.across for i in piece) / len(piece)
-    return Chain(alpha, across, stops, side, [i.device for i in piece], ends, other)
+    members = [i.device for i in piece]
+    room = _room_side(members, alpha)
+    if room is None:
+        return Chain(alpha, across, stops, side, members, ends, other)
+    return Chain(alpha, across, stops, room, members, ends, other, text_away=room == side)
+
+
+def _room_side(devices, alpha):
+    """+1 / -1: the side across a string along `alpha` where the room is,
+    for devices on a wall (they face it), or None when one is not on a wall."""
+    c, s = math.cos(alpha), math.sin(alpha)
+    total = 0.0
+    for device in devices:
+        if device.facing is None:
+            return None
+        total += -device.facing[0] * s + device.facing[1] * c
+    if abs(total) < EPS:
+        return None
+    return 1 if total > 0 else -1
 
 
 def _pick(k, candidates, tol, every_row):
