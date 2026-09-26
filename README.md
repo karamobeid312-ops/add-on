@@ -9,6 +9,9 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
+The repository also holds a **Fire Alarm** extension that places smoke and
+heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors).
+
 ## What gets drawn
 
 | Item | How |
@@ -91,13 +94,60 @@ automatically and reset to these settings (size, Arial, transparent) on every
 run. Text is laid out so it never needs wrapping; if you see text wrap or
 touch, send a screenshot.
 
+## Fire alarm detectors
+
+`FireAlarm.extension` adds a **Fire Alarm** tab with a **Detectors** panel:
+
+- **Smoke Detectors** / **Heat Detectors** – select the spaces (or click the
+  button and pick them), and a detector is placed on the ceiling so that
+  detectors are at most the spacing apart and at most half of it from the
+  walls: **9 m / 4.5 m for smoke, 4.5 m / 2.25 m for heat**. Every point of
+  the ceiling is then within 0.71 × spacing of a detector. The new
+  detectors are selected when done, one undo removes them all, and a
+  summary lists each space with its count and ceiling height.
+- **FA Settings** – smoke and heat spacing, min distance from walls
+  (0.5 m) and the detector family type for smoke and for heat.
+
+![Detector layouts of the sample rooms](docs/detector-preview.png)
+
+*Sample rooms (`tools/preview_detectors.py`): dashed lines are the grid
+bays, circles show each detector's reach.*
+
+### How the detectors are laid out
+
+1. The grid is lined up with the space's main walls (rotated rooms get a
+   rotated grid).
+2. Along each direction the space is split into equal bays no longer than
+   the spacing, with a detector in the middle of each bay – e.g. a 20 × 12 m
+   office gets 3 × 2 smoke detectors, 6.67 m × 6 m apart, 3.33 m / 3 m from
+   the walls.
+3. In L, T and U shapes, around shafts and columns, the part of a bay
+   inside the space gets its detector in its middle. Spaces with square
+   walls are also tried as separate rectangles (the bar and the stem of a
+   T); the layout with fewer detectors is used.
+4. The whole ceiling is checked on a fine grid (spacing / 20) plus points
+   along every wall; any point out of reach gets another detector.
+
+Detectors stay at least 0.5 m from walls and columns, except in spaces
+too narrow for it, where they go on the centreline.
+
+### In Revit
+
+| Item | How |
+| --- | --- |
+| Spaces | MEP **Spaces** (or Rooms) in the model, pre-selected or picked. The outline is the space boundary at the wall finish face; shafts and columns cut out of it are kept clear. |
+| Ceiling | A ray is shot straight up from each detector point and the detector goes on the **ceiling** under the slab above – in this model or in a linked model. Where there is no ceiling under the slab it goes on the slab (floor or roof), and the summary says so; floors lower than 1.5 m (stages, raised floors) are ignored. |
+| Detector family | Any family in the **Fire Alarm Devices** category. Face-based families go on the ceiling face (host or linked ceiling), ceiling-hosted families on the ceiling (only ceilings in this model can host), level-based families at ceiling height. The type is asked the first time and remembered; change it in FA Settings. |
+| Detectors already there | Detectors of the same type already in the selected spaces can be replaced or kept. |
+
 ## Install
 
 1. Install pyRevit.
 2. Download this repository and unzip it somewhere permanent.
 3. In Revit: **pyRevit tab → Settings → Custom Extension Directories → Add
-   folder**, pick the folder that *contains* `SingleLineDiagram.extension`,
-   save and reload.
+   folder**, pick the folder that *contains* `SingleLineDiagram.extension`
+   and `FireAlarm.extension`, save and reload. Both tabs (SLD, Fire Alarm)
+   appear.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
@@ -109,6 +159,12 @@ python tools/preview_svg.py preview.svg
 
 draws the Al Yasat sample (`tools/sample_al_yasat.py`) as an SVG you can open
 in a browser. Edit the sample to try other arrangements.
+
+```
+python tools/preview_detectors.py detectors.svg [smoke spacing] [heat spacing]
+```
+
+draws the detector layout of the sample rooms (`tools/sample_rooms.py`).
 
 ## Project layout
 
@@ -125,7 +181,15 @@ SingleLineDiagram.extension/
     revit_sld.py   reads the Revit model, draws into a drafting view
     settings.py    per-user settings
     command.py     button entry points
-tools/             sample model and SVG preview
+FireAlarm.extension/
+  Fire Alarm.tab/Detectors.panel/   Smoke Detectors, Heat Detectors, FA Settings
+  lib/firealarm/
+    layout.py      detector points in a space outline (no Revit)
+    revit_fa.py    spaces, ceilings found by ray, placing the family
+    report.py      summary shown after placing
+    settings.py    per-user settings
+    command.py     button entry points
+tools/             sample models and SVG previews
 tests/             pytest tests (no Revit needed)
 ```
 
@@ -136,5 +200,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld` compatible with Python 2.7 (no f-strings, no type
-hints) so it runs in pyRevit's IronPython engine.
+Keep code in `lib/sld` and `lib/firealarm` compatible with Python 2.7 (no
+f-strings, no type hints) so it runs in pyRevit's IronPython engine.
