@@ -24,6 +24,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 BLUE = (30, 136, 229)
 AMBER = (255, 179, 0)
 RED = (229, 57, 53)
+GREEN = (67, 160, 71)
 GRAY = (120, 144, 156)
 LIGHT = (207, 216, 220)
 WHITE = (255, 255, 255)
@@ -240,6 +241,27 @@ def fa_settings(c, ink):
     settings_gear(c, ink, RED, bell)
 
 
+def dimension_devices(c, ink):
+    c.fill([rect(1.5, 3, 4.5, 30)], ink)                # walls
+    c.fill([rect(27.5, 3, 30.5, 30)], ink)
+    stroke(c, [(4.5, 10), (27.5, 10)], 1.6, GREEN)      # dimension line
+    for x in (12, 20):
+        stroke(c, [(x, 10), (x, 19)], 1.1, GREEN)       # witness lines
+        c.fill([circle(x, 22.5, 3.6)], RED)             # devices
+        c.fill([circle(x, 22.5, 1.2)], WHITE)
+    for x in (4.5, 12, 20, 27.5):
+        stroke(c, [(x - 1.9, 11.9), (x + 1.9, 8.1)], 1.6, GREEN)   # ticks
+
+
+def dim_settings(c, ink):
+    def glyph(c):
+        stroke(c, [(19.8, 24), (28.2, 24)], 1.4, WHITE)
+        for x in (19.8, 28.2):
+            stroke(c, [(x, 20.5), (x, 27.5)], 1.0, WHITE)
+            stroke(c, [(x - 1.3, 25.3), (x + 1.3, 22.7)], 1.4, WHITE)
+    settings_gear(c, ink, GREEN, glyph)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -250,6 +272,8 @@ ICONS = [
     (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
     (TAB + "Voltage Drop.panel/VD Report.pushbutton", vd_report),
     (TAB + "Voltage Drop.panel/Settings.pushbutton", vd_settings),
+    (TAB + "Dimensions.panel/Dimension Devices.pushbutton", dimension_devices),
+    (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
 ]
 
 
