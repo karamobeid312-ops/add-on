@@ -9,8 +9,13 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-The repository also holds a **Fire Alarm** extension that places smoke and
-heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors).
+Everything is on one **Electrical** ribbon tab, with three panels:
+
+| Panel | Buttons |
+| --- | --- |
+| **SLD** | Generate SLD, SLD Settings |
+| **Fire Alarm** | Smoke Detectors, Heat Detectors, FA Settings: places smoke and heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors) |
+| **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 
 ## What gets drawn
 
@@ -28,7 +33,7 @@ heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-de
 | **Feeders between boards** | Risers straight up from the way, jogging around any board in the way and lining up under the fed board's incomer. |
 | **Ratings** (optional) | Breaker rating and BS/IEC cable along each way, e.g. `63A TP` / `4Cx16mm² Cu/XLPE/PVC` / `+ 1Cx16mm² Cu/XLPE/PVC`. |
 
-Buttons on the **SLD** tab → **Electrical** panel:
+Buttons on the **Electrical** tab → **SLD** panel:
 
 - **Generate SLD** – creates a new drafting view `LV Schematic Diagram`
   (`LV Schematic Diagram 2`, ... on later runs; earlier diagrams are never
@@ -88,7 +93,7 @@ wire sizes Revit's wire size text is shown unchanged.
 
 Every size, text height and fixed label (`MCCB`, `ACB`, `FORM 2b`, `BUSBAR
 MOUNTED FUSE @ 20A`, `R<1Ω`...) is in
-[`lib/sld/style.py`](SingleLineDiagram.extension/lib/sld/style.py), in
+[`lib/sld/style.py`](Electrical.extension/lib/sld/style.py), in
 millimetres on paper. Text notes use types named `SLD <size>mm Arial`, created
 automatically and reset to these settings (size, Arial, transparent) on every
 run. Text is laid out so it never needs wrapping; if you see text wrap or
@@ -96,7 +101,7 @@ touch, send a screenshot.
 
 ## Fire alarm detectors
 
-`FireAlarm.extension` adds a **Fire Alarm** tab with a **Detectors** panel:
+The **Fire Alarm** panel of the **Electrical** tab:
 
 - **Smoke Detectors** / **Heat Detectors** – select the spaces (or click the
   button and pick them, in this model or in a linked model, or take all
@@ -142,14 +147,125 @@ too narrow for it, where they go on the centreline.
 | Detector family | Any family in the **Fire Alarm Devices** category. Face-based families go on the ceiling face (host or linked ceiling), ceiling-hosted families on the ceiling (only ceilings in this model can host), level-based families at ceiling height. The type is asked the first time and remembered; change it in FA Settings. |
 | Detectors already there | Detectors of the same type already in the selected spaces can be replaced or kept. |
 
+## Voltage drop
+
+The **Voltage Drop** panel of the **Electrical** tab:
+
+- **Calculate VD** – calculates the incoming cable of every panel, from the
+  transformer down, and every final circuit with a length. Writes
+  `VD Percent` and `VD Total Percent` on each panel and lists the results
+  in the output window: first a **To fix** list of what is missing in the
+  model (lengths, cable sizes, loads, breaker ratings), then every cable
+  that fails with the breaker or cable that would pass (e.g. `V.D 5.52% >
+  4%; use 4Cx25mm²`). Click an element id to select the panel.
+- **VD Report** – saves the calculation as an Excel file in the office
+  voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
+  MAX V.D %) with a REMARKS column, and next to it the same report as PDF
+  (saved by Excel, A3 landscape, page numbers), and opens the PDF. The
+  Excel cells hold formulas, so a length or load changed in Excel updates
+  the voltage drop. The PDF needs Microsoft Excel on the computer.
+- **VD Settings** – voltages (400 / 230 V, or the model's), power factor (0.85, or the model's), demand (MDL) or
+  connected (TCL) load, limits, default cable and installation, derating
+  values and the report title block (company, revision, issue).
+
+The SLD is not changed.
+
+### Typing the lengths
+
+Everything about a panel's incoming cable is typed on the **panel**. The
+first time you click **Calculate VD** it offers to add these instance
+parameters, and a **Voltage Drop Panels** schedule (panel name, supply
+from, MCB rating, mains, demand load and the VD parameters) where you type
+every length in one place:
+
+| Parameter | Type | On | What you type |
+| --- | --- | --- | --- |
+| `VD Length` | Text | panels, circuits, electrical and lighting fixtures, mechanical equipment | length of the incoming cable in metres: `175`, `175 m` (also `mm`, `ft`) |
+| `VD Installation` | Text | panels, circuits | `Cable Tray`, `Duct Bank` or `Ground`; empty = VD Settings |
+| `VD Cable` | Text | panels, circuits | when Revit's wire size is not the cable: `4Cx16`, `4x4Cx300`, `11x1Cx630 XLPE/SWA/PVC` |
+| `VD Load kW` | Text | panels, circuits | only to override the load: the maximum demand in kW |
+| `VD PF` | Text | panels, circuits | only to override the power factor: `0.9` or `90%` |
+| `VD Percent` | Number | panels, circuits | result: voltage drop of the incoming cable (%) |
+| `VD Total Percent` | Number | panels, circuits | result: cumulative voltage drop at the panel (%) |
+
+Every panel fed from another panel or a transformer gets a row (a missing
+length is reported). A main board with no supply circuit gets a row for the
+cable from the transformer when `VD Length` (and `VD Cable`, e.g.
+`11x1Cx630`) is typed on it.
+
+Final circuits (AHU, pumps, lights...) are calculated when `VD Length` is
+typed on their equipment or fixtures; with several on one circuit the
+farthest one counts. A value typed on a circuit is still used when the
+panel or fixture has none.
+
+### What is read from Revit
+
+For a panel's incoming cable:
+
+| Sheet column | Revit |
+| --- | --- |
+| FROM / TO | Supply From (the board feeding it) / Panel Name |
+| PHASE | the panel's distribution system |
+| VOLTAGE | 400 V three phase / 230 V single phase from VD Settings, as the office sheet; or, if VD Settings says so, the panel's distribution system |
+| TCL (kW) | Total Connected x PF |
+| MDL (kW) | `VD Load kW`, or Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
+| PF | 0.85 from VD Settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (VD Settings) the panel's own loads: true load / apparent load of its circuits |
+| Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
+| Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
+| Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
+
+A final circuit is read from the circuit (its panel, load, rating, poles,
+voltage, wire size), with the length from its loads.
+
+The cable tables are metric: with imperial wire sizes (`3-#4/0, 1-#4/0`)
+use a metric wire size table in Revit or type each cable in `VD Cable`.
+Set the **MCB Rating** (or Mains) of every panel: without it the breaker
+is the feeding circuit's Rating, which Revit sets to 20 A for new circuits.
+
+### How it is calculated
+
+As the office sheet:
+
+```
+I (A)       = MDL kVA x 1000 / (√3 x 400 V)          single phase: / 230 V
+breaker     In >= 1.1 x I
+cable       Iz = rating x runs x Cb x Ca x Cr x Cg >= In
+V.D (V)     = mV/A/m / runs x L (m) x I (A) / 1000
+V.D (%)     = V.D / V x 100
+cumulative  = V.D (%) + cumulative V.D (%) of the cable feeding the FROM board
+limit       2.5 % transformer to main board, 4 % to the final load
+```
+
+Ratings, mV/A/m and the derating factors Ca (temperature), Cb (depth) and
+Cr (soil thermal resistivity) are the office sheet's DUCAB XLPE tables, in
+[`lib/vdrop/tables.py`](Electrical.extension/lib/vdrop/tables.py). Where
+the tool differs from the sheet:
+
+- √3 instead of 1.73 (0.12 % lower).
+- Single phase cables use 230 V and 2/√3 x the three phase mV/A/m (the
+  sheet has no single phase rows).
+- The cumulative total starts again after a transformer or a UPS.
+- Cr uses the size bands of the table headings (multicore up to 16 / 150
+  mm², single core up to 150 / 300 mm²); the sheet's formula uses 16 / 240
+  for both. Same result with resistivity 0, as in the sheet.
+- Cb and Cr are picked by single core / multicore, the sheet picks them by
+  the number of phases.
+- Only XLPE cables: the sheet's `ref_PVC` tab is a copy of the XLPE data.
+
 ## Install
 
 1. Install pyRevit.
 2. Download this repository and unzip it somewhere permanent.
 3. In Revit: **pyRevit tab → Settings → Custom Extension Directories → Add
-   folder**, pick the folder that *contains* `SingleLineDiagram.extension`
-   and `FireAlarm.extension`, save and reload. Both tabs (SLD, Fire Alarm)
-   appear.
+   folder**, pick the folder that *contains* `Electrical.extension`, save
+   and reload. The **Electrical** tab appears.
+
+Updating from a version with three tabs (SLD, Fire Alarm, Voltage Drop):
+delete the old `SingleLineDiagram.extension`, `FireAlarm.extension` and
+`VoltageDrop.extension` folders, then reload.
+
+Button icons are drawn by `tools/make_icons.py` (`icon.png`, and
+`icon.dark.png` for Revit's dark theme).
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
@@ -168,11 +284,21 @@ python tools/preview_detectors.py detectors.svg [smoke spacing] [heat spacing]
 
 draws the detector layout of the sample rooms (`tools/sample_rooms.py`).
 
+```
+python tools/preview_vd_report.py report.xlsx
+```
+
+saves the voltage drop report of the sample cables (`tools/sample_vd.py`,
+the rows of an office voltage drop sheet).
+
 ## Project layout
 
 ```
-SingleLineDiagram.extension/
-  SLD.tab/Electrical.panel/   Generate SLD, SLD Settings buttons
+Electrical.extension/
+  Electrical.tab/
+    SLD.panel/            Generate SLD, SLD Settings
+    Fire Alarm.panel/     Smoke Detectors, Heat Detectors, FA Settings
+    Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -183,15 +309,23 @@ SingleLineDiagram.extension/
     revit_sld.py   reads the Revit model, draws into a drafting view
     settings.py    per-user settings
     command.py     button entry points
-FireAlarm.extension/
-  Fire Alarm.tab/Detectors.panel/   Smoke Detectors, Heat Detectors, FA Settings
   lib/firealarm/
     layout.py      detector points in a space outline (no Revit)
     revit_fa.py    spaces (here or in links), ceilings found by ray, placing
     report.py      summary shown after placing
     settings.py    per-user settings
     command.py     button entry points
-tools/             sample models and SVG previews
+  lib/vdrop/
+    calc.py        voltage drop, cable and breaker checks, suggestions (no Revit)
+    tables.py      cable ratings, mV/A/m, derating factors of the office sheet
+    parse.py       reading the typed lengths, cables, installations
+    report.py      the report in the office sheet layout, results summary
+    excel.py       saving the report as PDF with Excel (COM)
+    xlsx.py        small .xlsx writer (standard library only)
+    revit_vd.py    panels and circuits to rows, results to parameters, setup
+    settings.py    per-user settings
+    command.py     button entry points
+tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
 
@@ -202,5 +336,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld` and `lib/firealarm` compatible with Python 2.7 (no
+Keep code in `lib/sld`, `lib/firealarm` and `lib/vdrop` compatible with Python 2.7 (no
 f-strings, no type hints) so it runs in pyRevit's IronPython engine.
