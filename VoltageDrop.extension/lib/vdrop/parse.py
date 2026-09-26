@@ -111,6 +111,14 @@ def metric_size(wire_size_text):
     return int(size) if size == int(size) else size
 
 
+def power_factor(text):
+    """Power factor from '0.9', '0,9' or '90%' (or 90), or None."""
+    value = number(text)
+    if value is not None and 1 < value <= 100:
+        value /= 100.0
+    return value if value is not None and 0 < value <= 1 else None
+
+
 REVIT_UNIT_TO_VOLTS = 0.3048 ** 2   # Revit's internal unit of voltage, in V
 
 

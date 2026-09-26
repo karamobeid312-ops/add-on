@@ -155,8 +155,10 @@ too narrow for it, where they go on the centreline.
   4%; use 4Cx25mm²`). Click an element id to select the panel.
 - **VD Report** – saves the calculation as an Excel file in the office
   voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
-  MAX V.D %) with a REMARKS column, and opens it. The cells hold formulas,
-  so a length or load changed in Excel updates the voltage drop.
+  MAX V.D %) with a REMARKS column, and next to it the same report as PDF
+  (saved by Excel, A3 landscape, page numbers), and opens the PDF. The
+  Excel cells hold formulas, so a length or load changed in Excel updates
+  the voltage drop. The PDF needs Microsoft Excel on the computer.
 - **VD Settings** – voltages (400 / 230 V, or the model's), default power factor, demand (MDL) or
   connected (TCL) load, limits, default cable and installation, derating
   values and the report title block (company, revision, issue).
@@ -177,6 +179,7 @@ every length in one place:
 | `VD Installation` | Text | panels, circuits | `Cable Tray`, `Duct Bank` or `Ground`; empty = VD Settings |
 | `VD Cable` | Text | panels, circuits | when Revit's wire size is not the cable: `4Cx16`, `4x4Cx300`, `11x1Cx630 XLPE/SWA/PVC` |
 | `VD Load kW` | Text | panels, circuits | only to override the load: the maximum demand in kW |
+| `VD PF` | Text | panels, circuits | only to override the power factor: `0.9` or `90%` |
 | `VD Percent` | Number | panels, circuits | result: voltage drop of the incoming cable (%) |
 | `VD Total Percent` | Number | panels, circuits | result: cumulative voltage drop at the panel (%) |
 
@@ -201,7 +204,7 @@ For a panel's incoming cable:
 | VOLTAGE | 400 V three phase / 230 V single phase from VD Settings, as the office sheet; or, if VD Settings says so, the panel's distribution system |
 | TCL (kW) | Total Connected x PF |
 | MDL (kW) | `VD Load kW`, or Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
-| PF | the feeding circuit's power factor, else VD Settings |
+| PF | `VD PF`, else the panel's own loads (true load / apparent load of its circuits), else the feeding circuit's, else VD Settings (reported in To fix) |
 | Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
 | Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
 | Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
@@ -307,6 +310,7 @@ VoltageDrop.extension/
     tables.py      cable ratings, mV/A/m, derating factors of the office sheet
     parse.py       reading the typed lengths, cables, installations
     report.py      the report in the office sheet layout, results summary
+    excel.py       saving the report as PDF with Excel (COM)
     xlsx.py        small .xlsx writer (standard library only)
     revit_vd.py    panels and circuits to rows, results to parameters, setup
     settings.py    per-user settings

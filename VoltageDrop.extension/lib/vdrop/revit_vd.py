@@ -6,7 +6,8 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
 For each panel (board, DB, transformer, UPS) the row of its incoming cable
 comes from the panel: FROM = the board supplying it, breaker = MCB Rating
-(else Mains), loads = Total Estimated Demand / Total Connected, phases =
+(else Mains), loads = Total Estimated Demand / Total Connected, power factor
+= VD PF typed on it, else true / apparent load of its circuits, phases =
 its distribution system (and its voltage, if VD Settings says to use the
 model's voltages), and what is typed on it. The circuit
 feeding it is only used for what the panel doesn't give (the wire size,
@@ -21,6 +22,7 @@ Parameters (instance; the tool adds them on first use):
   VD Installation   Cable Tray / Duct Bank / Ground      Text    panels, circuits
   VD Cable          e.g. 4x4Cx300 XLPE/SWA/PVC           Text    panels, circuits
   VD Load kW        maximum demand load in kW            Text    panels, circuits
+  VD PF             power factor, e.g. 0.9               Text    panels, circuits
   VD Percent        result: V.D of the incoming cable    Number  panels, circuits
   VD Total Percent  result: cumulative V.D               Number  panels, circuits
 
@@ -43,6 +45,7 @@ P_LENGTH = "VD Length"
 P_INSTALLATION = "VD Installation"
 P_CABLE = "VD Cable"
 P_LOAD = "VD Load kW"
+P_PF = "VD PF"
 P_VD = "VD Percent"
 P_TOTAL = "VD Total Percent"
 # Where each parameter goes. Lengths can also be typed on the loads of final
@@ -52,6 +55,7 @@ _ON_LOADS = _ON_PANELS + ("OST_ElectricalFixtures", "OST_LightingFixtures",
                           "OST_MechanicalEquipment")
 PARAMETERS = [(P_LENGTH, "text", _ON_LOADS), (P_INSTALLATION, "text", _ON_PANELS),
               (P_CABLE, "text", _ON_PANELS), (P_LOAD, "text", _ON_PANELS),
+              (P_PF, "text", _ON_PANELS),
               (P_VD, "number", _ON_PANELS), (P_TOTAL, "number", _ON_PANELS)]
 PARAMETER_GROUP = "Voltage Drop"
 SCHEDULE_NAME = "Voltage Drop Panels"
@@ -188,6 +192,15 @@ class _Equipment(object):
         dist = _distribution(element)
         self.phases = _phases(dist)
         self.voltage = _voltage(dist, self.phases)
+        self.true_kw = 0.0            # sum of the loads of its circuits
+        self.apparent_kva = 0.0
+
+    @property
+    def load_pf(self):
+        """Power factor of everything the panel feeds, None when unloaded."""
+        if self.apparent_kva > 0 and self.true_kw > 0:
+            return min(self.true_kw / self.apparent_kva, 1.0)
+        return None
 
 
 def _kind(element):
@@ -294,6 +307,14 @@ def _typed_load(element, notes):
     return None
 
 
+def _typed_pf(element, notes):
+    text = _text(element, P_PF)
+    value = parse.power_factor(text)
+    if text and value is None:
+        notes.append(u"VD PF '%s' not understood" % text)
+    return value
+
+
 def _typed_cable(element, names, notes):
     """Cable typed in VD Cable (or the SLD's cable override)."""
     for name in names:
@@ -331,15 +352,23 @@ def _circuit_number(system, bip_name, attr):
     return value if value is not None else _attr(system, attr)
 
 
-def _circuit_values(system):
-    """(power factor, TCL kW, voltage, rating) of a circuit, None when missing."""
-    pf = _attr(system, "PowerFactor")
-    pf = pf if pf and 0 < pf <= 1 else None
+def _circuit_loads(system):
+    """(true load kW, apparent load kVA) of a circuit, None when missing."""
     kilo = INTERNAL_POWER / 1000.0
-    tcl = _positive(_circuit_number(system, "RBS_ELEC_TRUE_LOAD", "TrueLoad"), kilo)
-    if tcl is None:
-        apparent = _positive(_circuit_number(system, "RBS_ELEC_APPARENT_LOAD", "ApparentLoad"), kilo)
-        tcl = apparent * (pf or 1.0) if apparent else None
+    return (_positive(_circuit_number(system, "RBS_ELEC_TRUE_LOAD", "TrueLoad"), kilo),
+            _positive(_circuit_number(system, "RBS_ELEC_APPARENT_LOAD", "ApparentLoad"), kilo))
+
+
+def _circuit_values(system):
+    """(power factor, TCL kW, voltage, rating) of a circuit, None when missing.
+    The power factor is true load / apparent load, else Revit's value."""
+    true, apparent = _circuit_loads(system)
+    if true and apparent:
+        pf = min(true / apparent, 1.0)
+    else:
+        pf = _attr(system, "PowerFactor")
+        pf = pf if pf and 0 < pf <= 1 else None
+    tcl = true if true else (apparent * (pf or 1.0) if apparent else None)
     return (pf, tcl, parse.volts(_circuit_number(system, "RBS_ELEC_VOLTAGE", "Voltage")),
             _positive(_circuit_number(system, "RBS_ELEC_CIRCUIT_RATING_PARAM", "Rating")))
 
@@ -378,8 +407,10 @@ def _panel_feeder(panel, system, source, values, model):
     typed = [el, system]          # typed on the panel, else on the circuit
     notes = []
     length = _first(typed, _length, notes)
-    pf, circuit_tcl, circuit_voltage, rating = (
+    circuit_pf, circuit_tcl, circuit_voltage, rating = (
         _circuit_values(system) if system is not None else (None, None, None, None))
+    # typed on the panel (or its circuit), else the panel's own loads
+    pf = _first(typed, _typed_pf, notes) or panel.load_pf or circuit_pf
     pf_used = pf or values["power_factor"]
     tcl = panel.connected_kva * pf_used if panel.connected_kva else circuit_tcl
     mdl = _first(typed, _typed_load, notes)
@@ -420,7 +451,8 @@ def _final_feeder(system, source, loads, values, model):
     if length is None and not notes:
         model.skipped += 1
         return
-    pf, tcl, voltage, rating = _circuit_values(system)
+    circuit_pf, tcl, voltage, rating = _circuit_values(system)
+    pf = _typed_pf(system, notes) or circuit_pf
     poles = _attr(system, "PolesNumber") or 3
     number = _attr(system, "CircuitNumber") or ""
     model.feeders.append(Feeder(
@@ -450,6 +482,9 @@ def collect(doc, values):
             source = equipment.get(system.BaseEquipment.UniqueId)
             if source is None:
                 continue
+            true, apparent = _circuit_loads(system)
+            source.true_kw += true or 0.0
+            source.apparent_kva += apparent or 0.0
             elements = list(system.Elements)
             panels = [e.UniqueId for e in elements
                       if e.UniqueId in equipment and e.UniqueId != source.id]
@@ -667,6 +702,7 @@ def _schedule(doc):
     from Autodesk.Revit.DB import ScheduleSortGroupField, ViewSchedule
     for view in FilteredElementCollector(doc).OfClass(ViewSchedule):
         if view.Name == SCHEDULE_NAME:
+            _add_missing_fields(doc, view)
             return view
     schedule = ViewSchedule.CreateSchedule(doc, ElementId(BuiltInCategory.OST_ElectricalEquipment))
     schedule.Name = SCHEDULE_NAME
@@ -684,6 +720,23 @@ def _schedule(doc):
     if "RBS_ELEC_PANEL_NAME" in added:
         definition.AddSortGroupField(ScheduleSortGroupField(added["RBS_ELEC_PANEL_NAME"].FieldId))
     return schedule
+
+
+def _add_missing_fields(doc, schedule):
+    """VD parameters added since the schedule was made (e.g. VD PF)."""
+    definition = schedule.Definition
+    present = set()
+    for i in range(definition.GetFieldCount()):
+        try:
+            present.add(definition.GetField(i).GetName())
+        except Exception:
+            pass
+    fields = list(definition.GetSchedulableFields())
+    for name, _, _ in PARAMETERS:
+        if name not in present:
+            field = _schedulable(doc, fields, name=name)
+            if field is not None:
+                definition.AddField(field)
 
 
 def setup(doc, missing):

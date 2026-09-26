@@ -148,6 +148,12 @@ def to_fix(result, schedule="Voltage Drop Panels"):
     if n:
         lines.append("%s no load in the model, so no current: connect the loads, or type "
                      "the demand in VD Load kW." % _plural(n, "cable has", "cables have"))
+    assumed = [r for r in rows if r.pf_assumed and r.load_kw is not None]
+    if assumed:
+        lines.append("%s no power factor in the model, so PF %s from VD Settings is used: "
+                     "type VD PF on the panel, or give the loads a power factor." % (
+                         _plural(len(assumed), "cable has", "cables have"),
+                         format_number(assumed[0].power_factor)))
     small = [r for r in rows if r.breaker_ok is False]
     if small:
         text = "%s below 1.1 x Ib" % _plural(len(small), "breaker is", "breakers are")
@@ -362,4 +368,5 @@ def build(result, settings, info=None):
         first("total"), first("total"), first("limit")))
     sheet.freeze = (FIRST_ROW, COL["length"])
     sheet.print_rows = (GROUP_ROW, HEADER_ROW)
+    sheet.footer = u"&L&8%s %s&R&8Page &P of &N" % (TITLE, info.project or "")
     return book

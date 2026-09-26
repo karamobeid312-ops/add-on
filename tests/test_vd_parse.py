@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from vdrop.parse import (Cable, cable, format_number, installation, insulation, length_m,
-                         metric_size, number, volts)
+                         metric_size, number, power_factor, volts)
 
 
 def test_length():
@@ -62,3 +62,10 @@ def test_volts():
     assert abs(volts(120 / 0.3048 ** 2) - 120) < 1e-9
     assert volts(480) == 480 and volts(400) == 400 and volts(230) == 230
     assert volts(0) is None and volts(None) is None and volts(5) is None
+
+
+def test_power_factor():
+    assert power_factor("0.9") == 0.9 and power_factor("0,85") == 0.85
+    assert power_factor("90%") == 0.9 and power_factor("90") == 0.9
+    assert power_factor("1") == 1.0
+    assert power_factor("") is None and power_factor("0") is None and power_factor("150") is None

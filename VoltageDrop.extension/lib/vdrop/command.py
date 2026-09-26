@@ -5,7 +5,7 @@ import re
 
 from pyrevit import forms, revit, script
 
-from vdrop import VERSION, calc, report, revit_vd, settings
+from vdrop import VERSION, calc, excel, report, revit_vd, settings
 from vdrop.parse import format_number
 
 TITLE = "Voltage Drop"
@@ -162,8 +162,19 @@ def export_report():
         forms.alert("Could not save the report:\n%s\n\nIf it is open in Excel, close it "
                     "and try again." % error, title=TITLE)
         return
-    _open(path)
-    forms.alert(report.headline(result), expanded="Saved to %s" % path, title=TITLE)
+    pdf_path = os.path.splitext(path)[0] + ".pdf"
+    try:
+        excel.save_pdf(path, pdf_path)
+    except Exception as error:
+        _open(path)
+        forms.alert("%s\n\nThe Excel report is saved, but not the PDF: %s.\n\nIf the PDF "
+                    "is open in a viewer, close it and try again." % (
+                        report.headline(result), error),
+                    expanded="Excel: %s" % path, title=TITLE)
+        return
+    _open(pdf_path)
+    forms.alert(report.headline(result),
+                expanded="Excel: %s\nPDF: %s" % (path, pdf_path), title=TITLE)
 
 
 # ---------------------------------------------------------------- settings
@@ -173,7 +184,7 @@ _SETTINGS = [
     ("voltage_3ph", "Three phase voltage", "V"),
     ("voltage_1ph", "Single phase voltage", "V"),
     ("voltage_source", "Voltage used", ""),
-    ("power_factor", "Power factor (when the circuit has none)", ""),
+    ("power_factor", "Power factor (when the model has none)", ""),
     ("load_basis", "Load for the current", ""),
     ("limit_transformer", "Max V.D transformer to main board", "%"),
     ("limit_total", "Max V.D to the final load", "%"),

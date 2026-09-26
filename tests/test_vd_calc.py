@@ -279,3 +279,14 @@ def test_wrong_voltage_is_reported():
     assert "voltage 37.2 V looks wrong" in row.problems
     assert row.status() != "OK"
     assert not next(calculate([feeder(0, "MDB", "DB-1")]).rows()).problems
+
+
+def test_power_factor_from_the_model_or_settings():
+    f = feeder(0, "MDB", "DB-1")          # PF 0.85 given
+    f.power_factor = 0.92
+    row = next(calculate([f]).rows())
+    assert row.power_factor == 0.92 and not row.pf_assumed
+    assert close(row.kva, 10 / 0.92)
+    f.power_factor = None                 # none in the model: VD Settings
+    row = next(calculate([f], Settings(power_factor=0.8)).rows())
+    assert row.power_factor == 0.8 and row.pf_assumed
