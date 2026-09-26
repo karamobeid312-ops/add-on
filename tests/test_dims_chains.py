@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from dims.chains import Device, Hit, plan, segment_walls, text_side
+from dims.chains import BOTH, NEAREST, NONE, Device, Hit, plan, segment_walls, text_side
 from firealarm.layout import layout_detectors, point_in_loops, segments
 from sample_rooms import ROOMS, rect, rotated
 
@@ -16,8 +16,8 @@ def devices(points, angle=0.0, axes=(0, 1)):
             for n, (x, y) in enumerate(points)]
 
 
-def run(points, walls, angle=0.0, **options):
-    return plan(devices(points, angle), segment_walls(walls), **options)
+def run(points, segs, angle=0.0, **options):
+    return plan(devices(points, angle), segment_walls(segs), **options)
 
 
 def along(chain):
@@ -40,7 +40,7 @@ OFFICE = [(x, y) for y in (3.0, 9.0) for x in (10 / 3.0, 10.0, 50 / 3.0)]
 
 
 def test_every_row_and_column_from_wall_to_wall():
-    result = run(OFFICE, segments([rect(0, 0, 20, 12)]))
+    result = run(OFFICE, segments([rect(0, 0, 20, 12)]), walls=BOTH)
     rows, columns = horizontal(result), vertical(result)
     assert len(rows) == 2 and len(columns) == 3
     for chain in rows:
@@ -62,7 +62,7 @@ def test_only_what_is_needed_fixes_a_grid_with_one_row_and_one_column():
 
 
 def test_dimension_lines_sit_on_the_text_side():
-    result = run(OFFICE, segments([rect(0, 0, 20, 12)]))
+    result = run(OFFICE, segments([rect(0, 0, 20, 12)]), walls=BOTH)
     for chain in horizontal(result):
         (x0, y0), (x1, y1) = chain.line(0.5)
         assert y0 == pytest.approx(chain.members[0].y + 0.5)    # above the row
@@ -73,13 +73,56 @@ def test_dimension_lines_sit_on_the_text_side():
         assert (y0, y1) == (pytest.approx(0.0), pytest.approx(12.0))
 
 
+def test_strings_start_at_the_nearest_wall():
+    result = run(OFFICE, segments([rect(0, 0, 20, 12)]))
+    for chain in horizontal(result):
+        assert kinds(chain) == "WDDD" and along(chain)[0] == 0.0    # as near: the start wall
+    for chain in vertical(result):
+        assert kinds(chain) == "WDD" and along(chain)[0] == 0.0
+    assert not result.alone and result.no_wall == 0
+
+
+# as the first test drawing: a room with a fixture in its middle, and a long
+# corridor (225 mm wall between them) with one fixture near each end
+ROOM = rect(0, 0, 6.0, 4.35)
+CORRIDOR = rect(6.225, 0, 8.625, 10.0)
+
+
+def test_each_fixture_is_dimensioned_from_its_nearest_walls():
+    result = run([(3.0, 2.175), (7.88, 8.045), (7.335, 2.385)], segments([ROOM, CORRIDOR]))
+    found = sorted((kinds(c), round(c.stops[-1].at - c.stops[0].at, 3), round(c.angle, 3))
+                   for c in result.chains)
+    assert found == sorted([
+        ("WD", 3.0, 0.0), ("WD", 2.175, 1.571),         # room: as near both ways, start wall
+        ("DW", 0.745, 0.0), ("DW", 1.955, 1.571),       # corridor, top: right and top walls
+        ("WD", 1.11, 0.0), ("WD", 2.385, 1.571),        # corridor, bottom: left and bottom walls
+    ])
+    assert not result.alone and result.no_wall == 0
+
+
+def test_nearest_wall_takes_the_other_end_when_one_is_open():
+    walls = [((0, 0), (0, 10))]                         # only a wall on the left
+    result = run([(8.0, 5.0)], walls)
+    row = horizontal(result)[0]
+    assert kinds(row) == "WD" and along(row) == [0.0, 8.0]
+    assert result.no_wall == 0                          # the open end is not needed
+
+
+def test_nearest_wall_passes_over_a_wall_that_is_not_square():
+    walls = [((0, 0), (0, 10)), ((9, 0), (10, 10))]    # the right wall is slanted
+    result = run([(7.0, 5.0)], walls)
+    row = horizontal(result)[0]
+    assert kinds(row) == "WD" and along(row) == [0.0, 7.0]
+    assert result.skew == 0
+
+
 # two offices side by side, 200 mm wall between them, rows lined up
 TWO_OFFICES = segments([rect(0, 0, 6, 5), rect(6.2, 0, 12.2, 5)])
 TWO_POINTS = [(1.5, 2.5), (4.5, 2.5), (7.7, 2.5), (10.7, 2.5)]
 
 
 def test_a_wall_between_two_devices_cuts_the_row():
-    result = run(TWO_POINTS, TWO_OFFICES)
+    result = run(TWO_POINTS, TWO_OFFICES, walls=BOTH)
     rows = sorted(horizontal(result), key=lambda c: c.stops[0].at)
     assert [along(c) for c in rows] == [[0.0, 1.5, 4.5, 6.0], [6.2, 7.7, 10.7, 12.2]]
     assert len(vertical(result)) == 4
@@ -102,7 +145,7 @@ def test_rotated_room_gets_rotated_strings():
     angle = math.radians(30)
     outline = rotated(rect(0, 0, 15, 10), 30)
     points = rotated([(3.75, 2.5), (11.25, 2.5), (3.75, 7.5), (11.25, 7.5)], 30)
-    result = run(points, segments([outline]), angle=angle)
+    result = run(points, segments([outline]), angle=angle, walls=BOTH)
     assert len(result.chains) == 4
     for chain in result.chains:
         assert kinds(chain) == "WDDW"
@@ -143,14 +186,14 @@ def test_no_walls_found_leaves_the_ends_open():
 
 
 def test_between_devices_only():
-    result = run(OFFICE, segments([rect(0, 0, 20, 12)]), to_walls=False)
+    result = run(OFFICE, segments([rect(0, 0, 20, 12)]), walls=NONE)
     assert all(kinds(c) in ("DDD", "DD") for c in result.chains)
     assert result.no_wall == 0 and result.skew == 0
 
 
 def test_between_devices_only_leaves_single_devices_alone():
     points = [(3.0, 3.0), (3.0, 9.0), (17.0, 6.0)]     # a column of two, one on its own
-    result = run(points, segments([rect(0, 0, 20, 12)]), to_walls=False)
+    result = run(points, segments([rect(0, 0, 20, 12)]), walls=NONE)
     assert len(result.chains) == 1 and kinds(result.chains[0]) == "DD"
     # rows: each device is alone along x; the lone device is alone both ways
     assert len(result.alone) == 4
@@ -160,7 +203,7 @@ def test_family_with_one_centre_plane_is_dimensioned_one_way():
     walls = segments([rect(0, 0, 10, 10)])
     result = plan(devices([(3, 5), (7, 5)], axes=(0,)), segment_walls(walls))
     assert len(result.chains) == 1
-    assert kinds(horizontal(result)[0]) == "WDDW"
+    assert kinds(horizontal(result)[0]) == "WDD"
 
 
 def test_devices_turned_a_quarter_turn_are_dimensioned_together():
@@ -174,7 +217,7 @@ def test_devices_turned_a_quarter_turn_are_dimensioned_together():
 
 def test_devices_at_the_same_place_share_a_stop():
     walls = segments([rect(0, 0, 10, 10)])
-    result = run([(3, 5), (3.005, 5), (7, 5)], walls)
+    result = run([(3, 5), (3.005, 5), (7, 5)], walls, walls=BOTH)
     row = horizontal(result)[0]
     assert kinds(row) == "WDDW" and len(row.members) == 3
     assert not result.alone
@@ -182,25 +225,30 @@ def test_devices_at_the_same_place_share_a_stop():
 
 def test_device_on_the_wall_is_not_dimensioned_to_it():
     walls = segments([rect(0, 0, 10, 10)])
-    result = run([(0.0, 5.0), (4.0, 5.0)], walls)
+    result = run([(0.0, 5.0), (4.0, 5.0)], walls, walls=BOTH)
     row = horizontal(result)[0]
     assert kinds(row) == "DDW" and along(row) == [0.0, 4.0, 10.0]
     assert result.no_wall == 0
+    # the wall it is on is the nearest: nothing to add
+    row = horizontal(run([(0.0, 5.0), (4.0, 5.0)], walls))[0]
+    assert kinds(row) == "DD" and along(row) == [0.0, 4.0]
 
 
 @pytest.mark.parametrize("name,loops", [r for r in ROOMS if not r[0].startswith("Round")])
 @pytest.mark.parametrize("spacing", [9.0, 4.5])
 @pytest.mark.parametrize("every_row", [True, False])
-def test_sample_rooms_every_detector_is_dimensioned_both_ways(name, loops, spacing, every_row):
+@pytest.mark.parametrize("walls", [NEAREST, BOTH])
+def test_sample_rooms_every_detector_is_dimensioned_both_ways(name, loops, spacing, every_row,
+                                                              walls):
     lay = layout_detectors(loops, spacing)
-    result = run(lay.points, segments(loops), angle=lay.angle, every_row=every_row)
+    result = run(lay.points, segments(loops), angle=lay.angle, every_row=every_row, walls=walls)
     assert not result.alone and result.no_wall == 0 and result.skew == 0
     positions = {0: set(), 1: set()}
     for chain in result.chains:
         k = 0 if abs(math.sin(chain.angle - lay.angle)) < 1e-9 else 1
         ats = [s.at for s in chain.stops]
         assert ats == sorted(ats) and len(set(round(a, 6) for a in ats)) == len(ats)
-        assert chain.walls == 2                     # every string ends on the walls
+        assert chain.walls == (2 if walls == BOTH else 1)
         for device in chain.members:
             c, s = math.cos(chain.angle), math.sin(chain.angle)
             positions[k].add(round(device.x * c + device.y * s, 3))

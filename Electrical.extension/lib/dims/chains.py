@@ -10,9 +10,10 @@ dimensioned together, in rows along one axis and columns along the other:
    in order along it.
 2. A row is cut where a wall runs between two of its devices, so each
    piece stays in one room.
-3. Each piece is a string: the wall face before its first device, the
-   devices, the wall face after its last one. A wall face that is not
-   square to the string cannot be dimensioned; that end is left open.
+3. Each piece is a string from the nearest wall face: the one before its
+   first device or the one after its last device, whichever is nearer
+   (walls BOTH: from wall to wall; NONE: between the devices only). A wall
+   face that is not square to the string cannot be dimensioned.
 
 With every_row False, a piece is left out when its devices only repeat
 positions that another piece in the same room already dimensions: one
@@ -34,6 +35,10 @@ ANGLE_TOL = 1e-4        # rad: axes and walls this close are parallel
 WALL_GAP = 0.01         # m: a wall face closer than this to the device is not dimensioned
 QUARTER = math.pi / 2
 EPS = 1e-9
+
+NEAREST = "nearest"             # walls in a string: the nearest one
+BOTH = "both"                   # from wall to wall
+NONE = "none"                   # between the devices only
 
 NO_WALL = "no wall"             # why a string end has no wall
 SKEW = "not square"
@@ -207,35 +212,46 @@ def _rooms(pieces):
     return lambda device: find(id(device))
 
 
+_NO_END = (None, None, None)
+
+
 def _end(hit, along, sign):
-    """(wall Stop or None, why none) at one end of a string."""
+    """(wall Stop or None, distance or None, why no wall) at one end of a
+    string. A wall at the device (nearer than WALL_GAP) has a distance but
+    no stop: the device is on it."""
     if hit is None:
-        return None, NO_WALL
+        return None, None, NO_WALL
     if not hit.square:
-        return None, SKEW
+        return None, None, SKEW
     if hit.distance < WALL_GAP:
-        return None, None
-    return Stop(along + sign * hit.distance, hit.ref), None
+        return None, hit.distance, None
+    return Stop(along + sign * hit.distance, hit.ref), hit.distance, None
 
 
-def _chain(piece, alpha, ray, to_walls, tol, side):
+def _chain(piece, alpha, ray, walls, tol, side):
     """The string of a piece of row, or None when it has fewer than two stops."""
     first, last = piece[0], piece[-1]
     stops, ends = [], [None, None]
-    if to_walls:
-        stop, ends[0] = _end(ray(first.device, -1), first.along, -1)
-        if stop is not None:
-            stops.append(stop)
     at = None
     for item in piece:
         if at is not None and item.along - at <= tol:
             continue            # devices at the same place share a stop
         stops.append(Stop(item.along, item.ref, item.device))
         at = item.along
-    if to_walls:
-        stop, ends[1] = _end(ray(last.device, 1), last.along, 1)
-        if stop is not None:
-            stops.append(stop)
+    if walls != NONE:
+        start = _end(ray(first.device, -1), first.along, -1)
+        end = _end(ray(last.device, 1), last.along, 1)
+        if walls == NEAREST and (start[1] is not None or end[1] is not None):
+            # keep the nearer wall, the start one when they are as near
+            if end[1] is None or (start[1] is not None and start[1] <= end[1] + tol):
+                end = _NO_END
+            else:
+                start = _NO_END
+        if start[0] is not None:
+            stops.insert(0, start[0])
+        if end[0] is not None:
+            stops.append(end[0])
+        ends = [start[2], end[2]]
     if len(stops) < 2:
         return None
     across = sum(i.across for i in piece) / len(piece)
@@ -265,7 +281,7 @@ def _pick(k, candidates, tol, every_row):
             if not gain:
                 continue
             chain = candidates[n][1]
-            # most new positions, then both walls, most devices, bottom row / left column
+            # most new positions, then most walls, most devices, bottom row / left column
             key = (gain, chain.walls, len(chain.members),
                    -chain.across if k == 0 else chain.across)
             if best_key is None or key > best_key:
@@ -278,14 +294,14 @@ def _pick(k, candidates, tol, every_row):
     return chosen, [i for i in items if cluster[id(i)] in uncovered]
 
 
-def plan(devices, find_wall, every_row=True, to_walls=True, right=(1.0, 0.0), up=(0.0, 1.0),
+def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up=(0.0, 1.0),
          tol=ALIGN_TOL):
     """Dimension strings for `devices` ([Device]).
 
     find_wall(device, (dx, dy)) -> Hit or None. every_row False: only the
-    strings needed to fix every position. to_walls False: strings between
-    devices only (walls still cut the rows). right / up: the view's
-    directions, to know which side of a string has the text."""
+    strings needed to fix every position. walls: NEAREST, BOTH or NONE
+    (walls still cut the rows). right / up: the view's directions, to know
+    which side of a string has the text."""
     result = Plan()
     for angle, members in _groups(devices):
         cache, rays, sides, pieces = {}, {}, {}, []
@@ -311,7 +327,7 @@ def plan(devices, find_wall, every_row=True, to_walls=True, right=(1.0, 0.0), up
         room = _rooms(pieces)
         found = {}                                      # (k, room) -> [(piece, chain)]
         for k, piece in pieces:
-            chain = _chain(piece, angle + k * QUARTER, rays[k], to_walls, tol, sides[k])
+            chain = _chain(piece, angle + k * QUARTER, rays[k], walls, tol, sides[k])
             found.setdefault((k, room(piece[0].device)), []).append((piece, chain))
 
         chosen = []

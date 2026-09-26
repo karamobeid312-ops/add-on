@@ -16,7 +16,7 @@ Everything is on one **Electrical** ribbon tab, with four panels:
 | **SLD** | Generate SLD, SLD Settings |
 | **Fire Alarm** | Smoke Detectors, Heat Detectors, FA Settings: places smoke and heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
-| **Dimensions** | Dimension Devices, Dim Settings: dimension strings from wall to device to device to wall in floor and ceiling plans, see [Dimensions](#dimensions) |
+| **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 
 ## What gets drawn
 
@@ -260,8 +260,8 @@ The **Dimensions** panel of the **Electrical** tab:
 
 - **Dimension Devices** – dimensions the devices of a floor plan or
   ceiling plan (smoke and heat detectors, lights...) with a string along
-  each row and each column of devices: from the wall, device to device, to
-  the wall. Select the devices first, or the spaces or rooms they are in,
+  each row and each column of devices: from the nearest wall, device to
+  device. Select the devices first, or the spaces or rooms they are in,
   or after clicking take *All devices in this view*, *Pick devices*, or the
   devices in spaces or rooms you pick (in this model or in a linked model).
   When the devices are of more than one category you tick the ones to
@@ -269,8 +269,9 @@ The **Dimensions** panel of the **Electrical** tab:
   them all, and a summary lists what could not be dimensioned.
 - **Dim Settings** – dimension type (the model's default until you pick
   one), distance from the devices to the dimension line (5 mm on the
-  printed sheet), every row and column or only what is needed, and from
-  wall to wall or between devices only.
+  printed sheet), every row and column or only what is needed, and the
+  walls: the nearest one only, both (wall to wall), or none (between
+  devices only).
 
 ![Dimension strings of the sample rooms](docs/dims-preview.png)
 
@@ -284,10 +285,12 @@ needed on the right.*
    Smoke / Heat Detectors in a rotated room get strings square to the room.
 2. Devices lined up across (within 20 mm) are a row. A row is cut where a
    wall runs between two of its devices, so a string never crosses a wall.
-3. A string goes from the wall face before its first device to the wall
-   face after its last one. A wall that is not square to the string (round
-   walls, devices not turned with the room) cannot be dimensioned, and that
-   end is left open.
+3. A string starts at the nearest wall face: the one before its first
+   device or the one after its last device, whichever is nearer (the one
+   before when they are as near). A wall that is not square to the string
+   (round walls, devices not turned with the room) cannot be dimensioned,
+   so the wall at the other end is taken. Dim Settings can also give both
+   walls, or none.
 4. *Only what is needed* leaves out a row whose devices only repeat
    positions that another row of the same room already dimensions: a
    regular grid then gets one string along and one across.
