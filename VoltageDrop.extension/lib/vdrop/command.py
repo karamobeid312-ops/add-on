@@ -26,9 +26,9 @@ def _ready(doc):
     if not missing:
         return True
     add = forms.alert(
-        "These voltage drop parameters are not in this project yet:\n\n    %s\n\n"
-        "Add them now, with a '%s' schedule listing every circuit to type the "
-        "cable lengths in?" % ("\n    ".join(missing), revit_vd.SCHEDULE_NAME),
+        "These voltage drop parameters are missing, or not yet on panels and fixtures:"
+        "\n\n    %s\n\nAdd them now, with a '%s' schedule listing every panel to type "
+        "the lengths in?" % ("\n    ".join(missing), revit_vd.SCHEDULE_NAME),
         yes=True, no=True, title=TITLE)
     if not add:
         return revit_vd.P_LENGTH not in missing
@@ -36,15 +36,16 @@ def _ready(doc):
         schedule = revit_vd.setup(doc, missing)
     except Exception as error:
         forms.alert("Could not add the parameters: %s\n\nAdd them by hand as instance "
-                    "parameters of Electrical Circuits and Electrical Equipment (see the "
-                    "README)." % error, title=TITLE)
+                    "parameters (see the README)." % error, title=TITLE)
         return False
     if schedule is not None:
         revit.uidoc.ActiveView = schedule
-    forms.alert("Parameters added.\n\nType each cable length in metres in the VD Length "
-                "column%s, then click Calculate VD again.\n\nFeeders to boards are always "
-                "calculated; final circuits only when they have a length." % (
-                    " of the '%s' schedule" % revit_vd.SCHEDULE_NAME if schedule else ""),
+    forms.alert("Parameters added.\n\nFor each panel, type the length of its incoming cable "
+                "in metres in VD Length%s.\n\nFor final circuits (AHU, pumps, lights...), "
+                "type VD Length on the equipment or fixture; the farthest one counts.\n\n"
+                "Then click Calculate VD again." % (
+                    " (the '%s' schedule lists every panel)" % revit_vd.SCHEDULE_NAME
+                    if schedule else ""),
                 title=TITLE)
     return False
 
@@ -72,6 +73,12 @@ def _show(result, model, written):
     for line in notes + model.warnings + result.warnings:
         output.print_md("- " + line)
 
+    fixes = report.to_fix(result, revit_vd.SCHEDULE_NAME)
+    if fixes:
+        output.print_md("## To fix")
+        for line in fixes:
+            output.print_md("- " + line)
+
     attention = [r for r in result.rows() if r.status() != "OK"]
     if attention:
         output.print_md("## Needs a look")
@@ -92,9 +99,8 @@ def calculate():
     values = settings.load()
     model, result = _calculate(doc, values)
     if not list(result.rows()):
-        forms.alert("No circuits to calculate.\n\nType the cable lengths in the VD Length "
-                    "parameter of the circuits (the '%s' schedule lists them)."
-                    % revit_vd.SCHEDULE_NAME, title=TITLE)
+        forms.alert("Nothing to calculate: no panel is fed from another panel or a "
+                    "transformer, and no final circuit has a VD Length.", title=TITLE)
         return
     written = revit_vd.write_results(doc, result, model.elements)
     _show(result, model, written)
@@ -129,8 +135,8 @@ def export_report():
     values = settings.load()
     model, result = _calculate(doc, values)
     if not list(result.rows()):
-        forms.alert("No circuits to report: type the cable lengths in VD Length first.",
-                    title=TITLE)
+        forms.alert("Nothing to report: no panel is fed from another panel or a "
+                    "transformer, and no final circuit has a VD Length.", title=TITLE)
         return
     project = revit_vd.project_info(doc)
     path = forms.save_file(file_ext="xlsx", default_name=_file_name(project))

@@ -8,8 +8,10 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from sample_vd import feeders
-from vdrop.calc import Settings, calculate
-from vdrop.report import COL, COLUMNS, FIRST_ROW, HEADER_ROW, ReportInfo, build, headline
+from vdrop.calc import Feeder, Settings, calculate
+from vdrop.parse import Cable
+from vdrop.report import (COL, COLUMNS, FIRST_ROW, HEADER_ROW, ReportInfo, build, headline,
+                          to_fix)
 from vdrop.xlsx import col_letter
 
 NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
@@ -225,3 +227,27 @@ def test_every_part_is_well_formed():
                           "xl/worksheets/sheet1.xml"}
     for xml in parts.values():
         ET.fromstring(xml)
+
+
+def test_to_fix_names_the_missing_inputs():
+    feeders = [
+        Feeder(0, "T-SVC", "T-SVC", "SWB", target_id="SWB", tcl_kw=250, breaker=20,
+               source_kind="transformer", notes=["wire size '3-#4/0, 1-#4/0' is not in mm²"]),
+        Feeder(1, "SWB", "SWB", "MDP-1", target_id="MDP-1", tcl_kw=14, breaker=20,
+               notes=["wire size '3-#12, 1-#12' is not in mm²"]),
+        Feeder(2, "SWB", "SWB", "LP-1", length=20, breaker=63, cable=Cable(1, 4, 16)),
+    ]
+    lines = to_fix(calculate(feeders))
+    assert lines[0].startswith("2 cables have no VD Length")
+    assert lines[1].startswith(u"2 cables have no cable size in mm² (Revit's wire size "
+                               u"'3-#4/0, 1-#4/0' is not in mm²)")
+    assert lines[2].startswith("1 cable has no load in the model")
+    assert lines[3] == ("2 breakers are below 1.1 x Ib (all are 20 A, Revit's default circuit "
+                        "Rating: set the MCB Rating of the panel).")
+    assert len(lines) == 4
+    assert to_fix(calculate(feeders_ok())) == []
+
+
+def feeders_ok():
+    return [Feeder(0, "MDB", "MDB", "DB-1", length=20, mdl_kw=10, breaker=40,
+                   cable=Cable(1, 4, 16))]

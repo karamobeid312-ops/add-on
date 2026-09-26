@@ -215,6 +215,15 @@ def test_missing_length_and_cable():
     assert rows["DB-1"].status() == "INCOMPLETE"
     assert "no total: MDB -> SMDB is incomplete" in rows["DB-1"].problems
     assert "no cable size" in rows["DB-2"].problems
+    # nothing to add up without its own length: no chained note
+    assert not [p for p in rows["DB-2"].problems if p.startswith("no total")]
+
+
+def test_reading_notes_are_not_repeated():
+    f = feeder(0, "MDB", "DB-1", length=None, size=None)
+    f.notes = ["VD Length 'abc' not understood", "wire size '3-#12' is not in mm²"]
+    row = next(calculate([f]).rows())
+    assert row.problems == f.notes
 
 
 def test_board_without_incomer_and_feed_loop():

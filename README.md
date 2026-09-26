@@ -146,11 +146,13 @@ too narrow for it, where they go on the centreline.
 
 `VoltageDrop.extension` adds a **Voltage Drop** tab with a **Calculation** panel:
 
-- **Calculate VD** – calculates every cable from the transformer to the
-  final loads with the lengths you typed, writes `VD Percent` and
-  `VD Total Percent` on each circuit and lists the results in the output
-  window, with what fails and the breaker or cable that would pass
-  (e.g. `V.D 5.52% > 4%; use 4Cx25mm²`). Click a circuit id to select it.
+- **Calculate VD** – calculates the incoming cable of every panel, from the
+  transformer down, and every final circuit with a length. Writes
+  `VD Percent` and `VD Total Percent` on each panel and lists the results
+  in the output window: first a **To fix** list of what is missing in the
+  model (lengths, cable sizes, loads, breaker ratings), then every cable
+  that fails with the breaker or cable that would pass (e.g. `V.D 5.52% >
+  4%; use 4Cx25mm²`). Click an element id to select the panel.
 - **VD Report** – saves the calculation as an Excel file in the office
   voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
   MAX V.D %) with a REMARKS column, and opens it. The cells hold formulas,
@@ -163,39 +165,53 @@ The SLD is not changed.
 
 ### Typing the lengths
 
-The first time you click **Calculate VD** it offers to add these instance
-parameters to Electrical Circuits and Electrical Equipment, and a
-**Voltage Drop Circuits** schedule (panel, circuit, load name, rating, wire
-size and the VD parameters) where you type every length in one place:
+Everything about a panel's incoming cable is typed on the **panel**. The
+first time you click **Calculate VD** it offers to add these instance
+parameters, and a **Voltage Drop Panels** schedule (panel name, supply
+from, MCB rating, mains, demand load and the VD parameters) where you type
+every length in one place:
 
-| Parameter | Type | What you type |
-| --- | --- | --- |
-| `VD Length` | Text | cable length in metres: `175`, `175 m` (also `mm`, `ft`) |
-| `VD Installation` | Text | `Cable Tray`, `Duct Bank` or `Ground`; empty = VD Settings |
-| `VD Cable` | Text | only when Revit's wire size is not the cable: `4Cx16`, `4x4Cx300`, `11x1Cx630 XLPE/SWA/PVC` |
-| `VD Load kW` | Text | only to override the load: the maximum demand in kW |
-| `VD Percent` | Number | result: voltage drop of the cable (%) |
-| `VD Total Percent` | Number | result: cumulative voltage drop (%) |
+| Parameter | Type | On | What you type |
+| --- | --- | --- | --- |
+| `VD Length` | Text | panels, circuits, electrical and lighting fixtures, mechanical equipment | length of the incoming cable in metres: `175`, `175 m` (also `mm`, `ft`) |
+| `VD Installation` | Text | panels, circuits | `Cable Tray`, `Duct Bank` or `Ground`; empty = VD Settings |
+| `VD Cable` | Text | panels, circuits | when Revit's wire size is not the cable: `4Cx16`, `4x4Cx300`, `11x1Cx630 XLPE/SWA/PVC` |
+| `VD Load kW` | Text | panels, circuits | only to override the load: the maximum demand in kW |
+| `VD Percent` | Number | panels, circuits | result: voltage drop of the incoming cable (%) |
+| `VD Total Percent` | Number | panels, circuits | result: cumulative voltage drop at the panel (%) |
 
-Feeders to boards are always calculated (a missing length is reported);
-final circuits only when they have a `VD Length`.
+Every panel fed from another panel or a transformer gets a row (a missing
+length is reported). A main board with no supply circuit gets a row for the
+cable from the transformer when `VD Length` (and `VD Cable`, e.g.
+`11x1Cx630`) is typed on it.
 
-The cable from the transformer to a main board: if the transformer is in
-the model and circuited to the board, that circuit is used. Otherwise type
-`VD Length` (and `VD Cable`, e.g. `11x1Cx630`) on the main board itself.
+Final circuits (AHU, pumps, lights...) are calculated when `VD Length` is
+typed on their equipment or fixtures; with several on one circuit the
+farthest one counts. A value typed on a circuit is still used when the
+panel or fixture has none.
 
 ### What is read from Revit
 
+For a panel's incoming cable:
+
 | Sheet column | Revit |
 | --- | --- |
-| FROM / TO | the circuit's panel / the board it feeds, or the load name |
-| PHASE, VOLTAGE | circuit poles (3 = three phase) and voltage |
-| TCL (kW) | circuit true load |
-| MDL (kW) | `VD Load kW`, or the fed board's Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
-| PF | circuit power factor (default in VD Settings) |
-| Breaker rating | circuit rating (main board incomer: the board's Mains) |
-| Runs, cores, CSA | `VD Cable`, else `SLD Cable`, else number of runs, hot + neutral conductors and Revit's metric wire size |
+| FROM / TO | Supply From (the board feeding it) / Panel Name |
+| PHASE, VOLTAGE | the panel's distribution system (line to line voltage) |
+| TCL (kW) | Total Connected x PF |
+| MDL (kW) | `VD Load kW`, or Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
+| PF | the feeding circuit's power factor, else VD Settings |
+| Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
+| Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
 | Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
+
+A final circuit is read from the circuit (its panel, load, rating, poles,
+voltage, wire size), with the length from its loads.
+
+The cable tables are metric: with imperial wire sizes (`3-#4/0, 1-#4/0`)
+use a metric wire size table in Revit or type each cable in `VD Cable`.
+Set the **MCB Rating** (or Mains) of every panel: without it the breaker
+is the feeding circuit's Rating, which Revit sets to 20 A for new circuits.
 
 ### How it is calculated
 
@@ -291,7 +307,7 @@ VoltageDrop.extension/
     parse.py       reading the typed lengths, cables, installations
     report.py      the report in the office sheet layout, results summary
     xlsx.py        small .xlsx writer (standard library only)
-    revit_vd.py    circuits to rows, results to parameters, parameters + schedule
+    revit_vd.py    panels and circuits to rows, results to parameters, setup
     settings.py    per-user settings
     command.py     button entry points
 tools/             sample models, SVG and report previews

@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
-"""Revit side: read every power circuit as a voltage drop row, write the
-results back and add the parameters used to type the lengths.
+"""Revit side: read the incoming cable of every panel from the panel, write
+the results back on it, and add the parameters used to type the lengths.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
-Parameters (instance, on Electrical Circuits and Electrical Equipment; the
-tool adds them on first use):
+For each panel (board, DB, transformer, UPS) the row of its incoming cable
+comes from the panel: FROM = the board supplying it, breaker = MCB Rating
+(else Mains), loads = Total Estimated Demand / Total Connected, voltage and
+phases = its distribution system, and what is typed on it. The circuit
+feeding it is only used for what the panel doesn't give (the wire size,
+which Revit keeps only on the circuit, or a value typed on the circuit).
 
-  VD Length         cable length in metres, typed by you        Text
-  VD Installation   Cable Tray / Duct Bank / Ground (optional)   Text
-  VD Cable          e.g. 4x4Cx300 XLPE/SWA/PVC (optional)        Text
-  VD Load kW        maximum demand load in kW (optional)         Text
-  VD Percent        result: voltage drop of the cable (%)        Number
-  VD Total Percent  result: cumulative voltage drop (%)          Number
+Final circuits (fixtures, mechanical equipment) are calculated when a
+length is typed on their loads (the longest one counts) or on the circuit.
 
-On a main board with no supply circuit, VD Length / VD Cable / VD Load kW
-describe the cable from the transformer.
+Parameters (instance; the tool adds them on first use):
+
+  VD Length         cable length in metres               Text    panels, circuits, loads
+  VD Installation   Cable Tray / Duct Bank / Ground      Text    panels, circuits
+  VD Cable          e.g. 4x4Cx300 XLPE/SWA/PVC           Text    panels, circuits
+  VD Load kW        maximum demand load in kW            Text    panels, circuits
+  VD Percent        result: V.D of the incoming cable    Number  panels, circuits
+  VD Total Percent  result: cumulative V.D               Number  panels, circuits
+
+On a main board with no supply circuit, VD Length / VD Cable describe the
+cable from the transformer.
 """
 from __future__ import division
 
@@ -35,10 +44,16 @@ P_CABLE = "VD Cable"
 P_LOAD = "VD Load kW"
 P_VD = "VD Percent"
 P_TOTAL = "VD Total Percent"
-PARAMETERS = [(P_LENGTH, "text"), (P_INSTALLATION, "text"), (P_CABLE, "text"),
-              (P_LOAD, "text"), (P_VD, "number"), (P_TOTAL, "number")]
+# Where each parameter goes. Lengths can also be typed on the loads of final
+# circuits (fixtures, mechanical equipment).
+_ON_PANELS = ("OST_ElectricalEquipment", "OST_ElectricalCircuit")
+_ON_LOADS = _ON_PANELS + ("OST_ElectricalFixtures", "OST_LightingFixtures",
+                          "OST_MechanicalEquipment")
+PARAMETERS = [(P_LENGTH, "text", _ON_LOADS), (P_INSTALLATION, "text", _ON_PANELS),
+              (P_CABLE, "text", _ON_PANELS), (P_LOAD, "text", _ON_PANELS),
+              (P_VD, "number", _ON_PANELS), (P_TOTAL, "number", _ON_PANELS)]
 PARAMETER_GROUP = "Voltage Drop"
-SCHEDULE_NAME = "Voltage Drop Circuits"
+SCHEDULE_NAME = "Voltage Drop Panels"
 
 # Revit stores power and voltage in kg.ft²/s³ (and per A): 1 unit = 0.3048² W.
 INTERNAL_POWER = 0.3048 ** 2
@@ -152,9 +167,11 @@ def _id_int(element_id):
         return element_id.IntegerValue
 
 
-# ---------------------------------------------------------------- equipment
+# ---------------------------------------------------------------- panels
 
 class _Equipment(object):
+    """A panel (or transformer / UPS): its own values and what is typed on it."""
+
     def __init__(self, element):
         self.element = element
         self.id = element.UniqueId
@@ -164,8 +181,12 @@ class _Equipment(object):
                                     INTERNAL_POWER / 1000.0)
         self.connected_kva = _positive(_bip_double(element, "RBS_ELEC_PANEL_TOTALLOAD_PARAM"),
                                        INTERNAL_POWER / 1000.0)
-        self.mains = parse.number(_bip_text(element, "RBS_ELEC_MAINS"))
-        self.phases = _phases(element)
+        # the breaker of the incoming cable: MCB Rating, else Mains (A)
+        self.breaker = (_positive(_bip_double(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM")) or
+                        _positive(_bip_double(element, "RBS_ELEC_MAINS")))
+        dist = _distribution(element)
+        self.phases = _phases(dist)
+        self.voltage = _voltage(dist, self.phases)
 
 
 def _kind(element):
@@ -194,16 +215,32 @@ def _kind(element):
     return BOARD
 
 
-def _phases(element):
+def _distribution(element):
+    """The panel's distribution system (a transformer's primary side)."""
+    try:
+        return element.Document.GetElement(element.get_Parameter(
+            BuiltInParameter.RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM).AsElementId())
+    except Exception:
+        return None
+
+
+def _phases(dist):
     try:
         from Autodesk.Revit.DB.Electrical import ElectricalPhase
-        dist = element.Document.GetElement(element.get_Parameter(
-            BuiltInParameter.RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM).AsElementId())
         if dist is not None and dist.ElectricalPhase == ElectricalPhase.SinglePhase:
             return 1
     except Exception:
         pass
     return 3
+
+
+def _voltage(dist, phases):
+    """Line to line voltage (three phase) or line to ground (single phase), V."""
+    try:
+        voltage = dist.VoltageLineToLine if phases == 3 else dist.VoltageLineToGround
+        return _positive(voltage.ActualValue, INTERNAL_POWER)
+    except Exception:
+        return None
 
 
 def _equipment(doc):
@@ -216,7 +253,7 @@ def _equipment(doc):
     return out
 
 
-# ---------------------------------------------------------------- circuits
+# ---------------------------------------------------------------- typed values
 
 def _circuit_kind(system):
     try:
@@ -226,12 +263,34 @@ def _circuit_kind(system):
         return ""
 
 
+def _first(elements, read, notes):
+    """First value found by read(element, notes) on the elements, in order."""
+    for element in elements:
+        if element is None:
+            continue
+        before = len(notes)
+        value = read(element, notes)
+        if value is not None or len(notes) > before:
+            return value
+    return None
+
+
 def _installation(element, notes):
     text = _text(element, P_INSTALLATION)
     value = parse.installation(text)
     if text and value is None:
         notes.append(u"VD Installation '%s' not understood" % text)
     return value
+
+
+def _typed_load(element, notes):
+    text = _text(element, P_LOAD)
+    value = parse.number(text)
+    if value is not None and value > 0:
+        return value
+    if text:
+        notes.append(u"VD Load kW '%s' not understood" % text)
+    return None
 
 
 def _typed_cable(element, names, notes):
@@ -245,34 +304,43 @@ def _typed_cable(element, names, notes):
             return cable
         if name == P_CABLE:
             notes.append(u"VD Cable '%s' not understood" % text)
+            return None
     return None
 
 
-def _revit_cable(system):
+def _revit_cable(system, notes):
+    """Cable from the circuit's wire size, the only place Revit keeps it."""
+    if system is None:
+        return None
     hots = _attr(system, "HotConductorsNumber") or 0
     neutrals = _attr(system, "NeutralConductorsNumber") or 0
-    size = parse.metric_size(_bip_text(system, "RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM"))
+    text = _bip_text(system, "RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM")
+    size = parse.metric_size(text)
     if size is None:
+        notes.append(u"wire size '%s' is not in mm²" % text if text else "no wire size")
         return None
     return parse.Cable(runs=max(int(_attr(system, "RunsNumber") or 1), 1),
                        cores=int(hots + neutrals) or None, size=size)
 
 
-def _loads(system, element, target, pf, values, notes):
-    """(TCL kW, MDL kW or None)."""
+def _circuit_values(system):
+    """(power factor, TCL kW, voltage, rating) of a circuit, None when missing."""
+    pf = _attr(system, "PowerFactor")
+    pf = pf if pf and 0 < pf <= 1 else None
     tcl = _positive(_attr(system, "TrueLoad"), INTERNAL_POWER / 1000.0)
     if tcl is None:
         apparent = _positive(_attr(system, "ApparentLoad"), INTERNAL_POWER / 1000.0)
-        tcl = apparent * (pf or values["power_factor"]) if apparent else None
-    text = _text(element, P_LOAD)
-    typed = parse.number(text)
-    if typed is not None and typed > 0:
-        return tcl, typed
-    if text:
-        notes.append(u"VD Load kW '%s' not understood" % text)
-    if values["load_basis"] == MDL and target is not None and target.demand_kva:
-        return tcl, target.demand_kva * (pf or values["power_factor"])
-    return tcl, None
+        tcl = apparent * (pf or 1.0) if apparent else None
+    return (pf, tcl, _positive(_attr(system, "Voltage"), INTERNAL_POWER),
+            _positive(_attr(system, "Rating")))
+
+
+def _order(system):
+    if system is None:
+        return None
+    number = _attr(system, "CircuitNumber") or ""
+    slot = _attr(system, "StartSlot")
+    return (slot if slot and slot > 0 else 10 ** 6, natural_key(number))
 
 
 class Model(object):
@@ -285,88 +353,122 @@ class Model(object):
         self.warnings = []
 
 
-def _circuit_feeder(system, equipment, values, model):
-    source = equipment.get(system.BaseEquipment.UniqueId)
-    if source is None:
-        return
-    fed = []
-    try:
-        fed = [equipment[e.UniqueId] for e in system.Elements
-               if e.UniqueId in equipment and e.UniqueId != source.id]
-    except Exception:
-        pass
-    target = fed[0] if fed else None
+# ---------------------------------------------------------------- rows
+
+def _panel_feeder(panel, system, source, values, model):
+    """The cable feeding a panel, read from the panel. The circuit feeding it
+    (None for a main board fed straight from the transformer) is only used
+    for what the panel doesn't give."""
+    el = panel.element
+    typed = [el, system]          # typed on the panel, else on the circuit
     notes = []
-    length = _length(system, notes)
-    if target is None and length is None and not notes:
+    length = _first(typed, _length, notes)
+    pf, circuit_tcl, circuit_voltage, rating = (
+        _circuit_values(system) if system is not None else (None, None, None, None))
+    pf_used = pf or values["power_factor"]
+    tcl = panel.connected_kva * pf_used if panel.connected_kva else circuit_tcl
+    mdl = _first(typed, _typed_load, notes)
+    if mdl is None and values["load_basis"] == MDL and panel.demand_kva:
+        mdl = panel.demand_kva * pf_used
+    cable = (_typed_cable(el, (P_CABLE, "SLD Incoming Cable"), notes) or
+             (_typed_cable(system, (P_CABLE, "SLD Cable"), notes) if system is not None else None))
+    if cable is None and not [n for n in notes if n.startswith("VD Cable")]:
+        cable = _revit_cable(system, notes)
+    if source is None:
+        source_id, source_name, kind = "%s:%s" % (TRANSFORMER_SOURCE, panel.id), TRANSFORMER_SOURCE, TRANSFORMER
+    else:
+        source_id, source_name, kind = source.id, source.name, source.kind
+    model.feeders.append(Feeder(
+        id=panel.id, source_id=source_id, source=source_name, target=panel.name,
+        target_id=panel.id, length=length, phases=panel.phases,
+        voltage=panel.voltage or circuit_voltage, tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
+        breaker=panel.breaker or rating, installation=_first(typed, _installation, notes),
+        cable=cable, source_kind=kind, order=_order(system), ref=el.Id, notes=notes))
+    model.elements[panel.id] = el
+
+
+def _longest(loads, notes):
+    """Longest VD Length typed on the fixtures / equipment of a circuit."""
+    lengths = [_length(e, notes) for e in loads]
+    lengths = [l for l in lengths if l is not None]
+    return max(lengths) if lengths else None
+
+
+def _final_feeder(system, source, loads, values, model):
+    """A circuit to fixtures or equipment: length from the farthest one (or
+    typed on the circuit), the rest from the circuit."""
+    notes = []
+    length = _longest(loads, notes)
+    if length is None and not notes:
+        length = _length(system, notes)
+    if length is None and not notes:
         model.skipped += 1
         return
+    pf, tcl, voltage, rating = _circuit_values(system)
     poles = _attr(system, "PolesNumber") or 3
-    pf = _attr(system, "PowerFactor")
-    pf = pf if pf and 0 < pf <= 1 else None
-    tcl, mdl = _loads(system, system, target, pf, values, notes)
     number = _attr(system, "CircuitNumber") or ""
-    slot = _attr(system, "StartSlot")
-    name = target.name if target else (_attr(system, "LoadName") or "CKT %s" % number)
     model.feeders.append(Feeder(
-        id=system.UniqueId, source_id=source.id, source=source.name, target=name,
-        target_id=target.id if target else None, length=length,
-        phases=3 if poles >= 3 else 1,
-        voltage=_positive(_attr(system, "Voltage"), INTERNAL_POWER),
-        tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
-        breaker=_positive(_attr(system, "Rating")),
+        id=system.UniqueId, source_id=source.id, source=source.name,
+        target=_attr(system, "LoadName") or "CKT %s" % number, length=length,
+        phases=3 if poles >= 3 else 1, voltage=voltage, tcl_kw=tcl,
+        mdl_kw=_typed_load(system, notes), power_factor=pf, breaker=rating,
         installation=_installation(system, notes),
-        cable=_typed_cable(system, (P_CABLE, "SLD Cable"), notes) or _revit_cable(system),
-        source_kind=source.kind,
-        order=(slot if slot and slot > 0 else 10 ** 6, natural_key(number)),
-        ref=system.Id, notes=notes))
+        cable=_typed_cable(system, (P_CABLE, "SLD Cable"), notes) or _revit_cable(system, notes),
+        source_kind=source.kind, order=_order(system), ref=system.Id, notes=notes))
     model.elements[system.UniqueId] = system
 
 
-def _incomer_feeder(board, values, model):
-    """Transformer -> main board cable, typed on a board with no supply."""
-    notes = []
-    length = _length(board.element, notes)
-    if length is None and not notes:
-        return
-    pf = values["power_factor"]
-    typed = parse.number(_text(board.element, P_LOAD))
-    demand = board.demand_kva * pf if board.demand_kva else None
-    connected = board.connected_kva * pf if board.connected_kva else None
-    mdl = typed if typed else (demand if values["load_basis"] == MDL else None)
-    feeder_id = board.id + ":incomer"
-    model.feeders.append(Feeder(
-        id=feeder_id, source_id="%s:%s" % (TRANSFORMER_SOURCE, board.id),
-        source=TRANSFORMER_SOURCE, target=board.name, target_id=board.id, length=length,
-        phases=board.phases, tcl_kw=connected, mdl_kw=mdl, breaker=board.mains,
-        installation=_installation(board.element, notes),
-        cable=_typed_cable(board.element, (P_CABLE, "SLD Incoming Cable"), notes),
-        source_kind=TRANSFORMER, ref=board.element.Id, notes=notes))
-    model.elements[feeder_id] = board.element
-
-
 def collect(doc, values):
-    """Model with a Feeder per power circuit (feeders to boards always, final
-    circuits when they have a VD Length) and per main board incomer."""
+    """Model with a row for the incoming cable of every panel (read from the
+    panel) and for every final circuit with a length."""
     model = Model()
     equipment = _equipment(doc)
-    fed_ids = set()
+    feeding = {}      # panel id -> (circuit, source panel)
+    finals = []
     for system in FilteredElementCollector(doc).OfClass(ElectricalSystem):
         try:
             if system.SystemType != ElectricalSystemType.PowerCircuit:
                 continue
             if system.BaseEquipment is None or _circuit_kind(system):
                 continue
-            for e in system.Elements:
-                if e.UniqueId in equipment and e.UniqueId != system.BaseEquipment.UniqueId:
-                    fed_ids.add(e.UniqueId)
-            _circuit_feeder(system, equipment, values, model)
+            source = equipment.get(system.BaseEquipment.UniqueId)
+            if source is None:
+                continue
+            elements = list(system.Elements)
+            panels = [e.UniqueId for e in elements
+                      if e.UniqueId in equipment and e.UniqueId != source.id]
+            for panel_id in panels:
+                if panel_id in feeding:
+                    model.warnings.append("%s is fed by more than one circuit; using the one "
+                                          "from %s." % (equipment[panel_id].name,
+                                                        feeding[panel_id][1].name))
+                else:
+                    feeding[panel_id] = (system, source)
+            if not panels:
+                finals.append((system, source, elements))
         except Exception as error:
             model.warnings.append(u"Circuit %s skipped: %s" % (
                 _attr(system, "CircuitNumber") or "?", error))
-    for board in equipment.values():
-        if board.kind == BOARD and board.id not in fed_ids:
-            _incomer_feeder(board, values, model)
+
+    for panel in equipment.values():
+        try:
+            if panel.id in feeding:
+                system, source = feeding[panel.id]
+                _panel_feeder(panel, system, source, values, model)
+            elif panel.kind == BOARD:
+                # main board fed straight from the transformer: a row only
+                # when its incoming cable is described on it
+                notes = []
+                if _length(panel.element, notes) is not None or notes:
+                    _panel_feeder(panel, None, None, values, model)
+        except Exception as error:
+            model.warnings.append(u"%s skipped: %s" % (panel.name, error))
+    for system, source, loads in finals:
+        try:
+            _final_feeder(system, source, loads, values, model)
+        except Exception as error:
+            model.warnings.append(u"Circuit %s skipped: %s" % (
+                _attr(system, "CircuitNumber") or "?", error))
     return model
 
 
@@ -418,12 +520,42 @@ def write_results(doc, result, elements):
 
 # ---------------------------------------------------------------- setup
 
-def missing_parameters(doc):
-    names = set()
+def _bindings(doc):
+    """{parameter name: (definition, binding)} of the project parameters."""
+    out = {}
     iterator = doc.ParameterBindings.ForwardIterator()
     while iterator.MoveNext():
-        names.add(iterator.Key.Name)
-    return [name for name, _ in PARAMETERS if name not in names]
+        out[iterator.Key.Name] = (iterator.Key, iterator.Current)
+    return out
+
+
+def _categories(doc, names):
+    out = []
+    for name in names:
+        try:
+            category = Category.GetCategory(doc, getattr(BuiltInCategory, name))
+        except Exception:
+            category = None
+        if category is not None:
+            out.append(category)
+    return out
+
+
+def missing_parameters(doc):
+    """VD parameters not in the project, or not on all their categories."""
+    bound = _bindings(doc)
+    out = []
+    for name, _, categories in PARAMETERS:
+        if name not in bound:
+            out.append(name)
+            continue
+        try:
+            on = bound[name][1].Categories
+            if any(not on.Contains(c) for c in _categories(doc, categories)):
+                out.append(name)
+        except Exception:
+            pass
+    return out
 
 
 def _creation_options(name, kind):
@@ -438,37 +570,50 @@ def _creation_options(name, kind):
         return ExternalDefinitionCreationOptions(name, ptype)
 
 
-def _bind(doc, definition, binding):
+def _bind(doc, definition, binding, again=False):
+    """Insert (or, with again, re-insert) a binding in the Electrical group."""
+    bindings = doc.ParameterBindings
+    insert = bindings.ReInsert if again else bindings.Insert
     try:
         from Autodesk.Revit.DB import GroupTypeId
-        return doc.ParameterBindings.Insert(definition, binding, GroupTypeId.Electrical)
+        return insert(definition, binding, GroupTypeId.Electrical)
     except Exception:
         pass
     try:
         from Autodesk.Revit.DB import BuiltInParameterGroup
-        return doc.ParameterBindings.Insert(definition, binding,
-                                            BuiltInParameterGroup.PG_ELECTRICAL)
+        return insert(definition, binding, BuiltInParameterGroup.PG_ELECTRICAL)
     except Exception:
-        return doc.ParameterBindings.Insert(definition, binding)
+        return insert(definition, binding)
 
 
 def _add_parameters(doc, names):
-    """Shared parameters bound to circuits and equipment. The shared
+    """Shared parameters for `names` bound to their categories; the ones
+    already in the project get the categories they lack. The shared
     parameter file is a temporary one; the user's own file is restored."""
     app = doc.Application
+    bound = _bindings(doc)
+    for name, _, categories in PARAMETERS:
+        if name in names and name in bound:
+            definition, binding = bound[name]
+            for category in _categories(doc, categories):
+                if not binding.Categories.Contains(category):
+                    binding.Categories.Insert(category)
+            _bind(doc, definition, binding, again=True)
+    new = [p for p in PARAMETERS if p[0] in names and p[0] not in bound]
+    if not new:
+        return
     previous = app.SharedParametersFilename
     path = os.path.join(tempfile.gettempdir(), "VoltageDrop_parameters.txt")
     open(path, "w").close()
     app.SharedParametersFilename = path
     try:
         group = app.OpenSharedParameterFile().Groups.Create(PARAMETER_GROUP)
-        categories = app.Create.NewCategorySet()
-        for bic in (BuiltInCategory.OST_ElectricalCircuit, BuiltInCategory.OST_ElectricalEquipment):
-            categories.Insert(Category.GetCategory(doc, bic))
-        binding = app.Create.NewInstanceBinding(categories)
-        for name, kind in PARAMETERS:
-            if name in names:
-                _bind(doc, group.Definitions.Create(_creation_options(name, kind)), binding)
+        for name, kind, categories in new:
+            category_set = app.Create.NewCategorySet()
+            for category in _categories(doc, categories):
+                category_set.Insert(category)
+            _bind(doc, group.Definitions.Create(_creation_options(name, kind)),
+                  app.Create.NewInstanceBinding(category_set))
     finally:
         try:
             app.SharedParametersFilename = previous or ""
@@ -494,36 +639,39 @@ def _schedulable(doc, fields, bip_name=None, name=None):
     return None
 
 
+# Panel Name, Supply From, MCB Rating, Mains, Total Estimated Demand
+_PANEL_FIELDS = ("RBS_ELEC_PANEL_NAME", "RBS_ELEC_PANEL_SUPPLY_FROM_PARAM",
+                 "RBS_ELEC_PANEL_MCB_RATING_PARAM", "RBS_ELEC_MAINS",
+                 "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM")
+
+
 def _schedule(doc):
-    """'Voltage Drop Circuits' schedule: panel, circuit, load name, rating,
-    wire size and the VD parameters, sorted by panel and circuit."""
+    """'Voltage Drop Panels' schedule: every panel with its supply, breaker,
+    demand load and the VD parameters, sorted by panel name."""
     from Autodesk.Revit.DB import ScheduleSortGroupField, ViewSchedule
     for view in FilteredElementCollector(doc).OfClass(ViewSchedule):
         if view.Name == SCHEDULE_NAME:
             return view
-    schedule = ViewSchedule.CreateSchedule(doc, ElementId(BuiltInCategory.OST_ElectricalCircuit))
+    schedule = ViewSchedule.CreateSchedule(doc, ElementId(BuiltInCategory.OST_ElectricalEquipment))
     schedule.Name = SCHEDULE_NAME
     definition = schedule.Definition
     fields = list(definition.GetSchedulableFields())
     added = {}
-    for bip_name in ("RBS_ELEC_CIRCUIT_PANEL_PARAM", "RBS_ELEC_CIRCUIT_NUMBER",
-                     "RBS_ELEC_CIRCUIT_NAME", "RBS_ELEC_CIRCUIT_RATING_PARAM",
-                     "RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM"):
+    for bip_name in _PANEL_FIELDS:
         field = _schedulable(doc, fields, bip_name=bip_name)
         if field is not None:
             added[bip_name] = definition.AddField(field)
-    for name, _ in PARAMETERS:
+    for name, _, _ in PARAMETERS:
         field = _schedulable(doc, fields, name=name)
         if field is not None:
             definition.AddField(field)
-    for bip_name in ("RBS_ELEC_CIRCUIT_PANEL_PARAM", "RBS_ELEC_CIRCUIT_NUMBER"):
-        if bip_name in added:
-            definition.AddSortGroupField(ScheduleSortGroupField(added[bip_name].FieldId))
+    if "RBS_ELEC_PANEL_NAME" in added:
+        definition.AddSortGroupField(ScheduleSortGroupField(added["RBS_ELEC_PANEL_NAME"].FieldId))
     return schedule
 
 
 def setup(doc, missing):
-    """Add the missing parameters and the circuits schedule (one undo).
+    """Add the missing parameters (one undo) and the panels schedule.
     Returns the schedule, or None if it could not be made."""
     t = Transaction(doc, "Voltage Drop Parameters")
     t.Start()
