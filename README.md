@@ -157,7 +157,7 @@ too narrow for it, where they go on the centreline.
   voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
   MAX V.D %) with a REMARKS column, and opens it. The cells hold formulas,
   so a length or load changed in Excel updates the voltage drop.
-- **VD Settings** – voltages, default power factor, demand (MDL) or
+- **VD Settings** – voltages (400 / 230 V, or the model's), default power factor, demand (MDL) or
   connected (TCL) load, limits, default cable and installation, derating
   values and the report title block (company, revision, issue).
 
@@ -197,7 +197,8 @@ For a panel's incoming cable:
 | Sheet column | Revit |
 | --- | --- |
 | FROM / TO | Supply From (the board feeding it) / Panel Name |
-| PHASE, VOLTAGE | the panel's distribution system (line to line voltage) |
+| PHASE | the panel's distribution system |
+| VOLTAGE | 400 V three phase / 230 V single phase from VD Settings, as the office sheet; or, if VD Settings says so, the panel's distribution system |
 | TCL (kW) | Total Connected x PF |
 | MDL (kW) | `VD Load kW`, or Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
 | PF | the feeding circuit's power factor, else VD Settings |

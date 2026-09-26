@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-from vdrop.parse import Cable, cable, format_number, installation, insulation, length_m, metric_size, number
+from vdrop.parse import (Cable, cable, format_number, installation, insulation, length_m,
+                         metric_size, number, volts)
 
 
 def test_length():
@@ -53,3 +54,11 @@ def test_metric_size_and_numbers():
     assert number("") is None
     assert format_number(4.0) == "4" and format_number(2.5) == "2.5"
     assert format_number(0.12345, 3) == "0.123" and format_number(None) == ""
+
+
+def test_volts():
+    # circuits give Revit's internal unit, voltage types give volts
+    assert abs(volts(400 / 0.3048 ** 2) - 400) < 1e-9
+    assert abs(volts(120 / 0.3048 ** 2) - 120) < 1e-9
+    assert volts(480) == 480 and volts(400) == 400 and volts(230) == 230
+    assert volts(0) is None and volts(None) is None and volts(5) is None

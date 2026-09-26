@@ -6,8 +6,9 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
 For each panel (board, DB, transformer, UPS) the row of its incoming cable
 comes from the panel: FROM = the board supplying it, breaker = MCB Rating
-(else Mains), loads = Total Estimated Demand / Total Connected, voltage and
-phases = its distribution system, and what is typed on it. The circuit
+(else Mains), loads = Total Estimated Demand / Total Connected, phases =
+its distribution system (and its voltage, if VD Settings says to use the
+model's voltages), and what is typed on it. The circuit
 feeding it is only used for what the panel doesn't give (the wire size,
 which Revit keeps only on the circuit, or a value typed on the circuit).
 
@@ -238,7 +239,7 @@ def _voltage(dist, phases):
     """Line to line voltage (three phase) or line to ground (single phase), V."""
     try:
         voltage = dist.VoltageLineToLine if phases == 3 else dist.VoltageLineToGround
-        return _positive(voltage.ActualValue, INTERNAL_POWER)
+        return parse.volts(voltage.ActualValue)
     except Exception:
         return None
 
@@ -323,16 +324,30 @@ def _revit_cable(system, notes):
                        cores=int(hots + neutrals) or None, size=size)
 
 
+def _circuit_number(system, bip_name, attr):
+    """A circuit value from its parameter (always in Revit's internal units),
+    else from the ElectricalSystem property."""
+    value = _bip_double(system, bip_name)
+    return value if value is not None else _attr(system, attr)
+
+
 def _circuit_values(system):
     """(power factor, TCL kW, voltage, rating) of a circuit, None when missing."""
     pf = _attr(system, "PowerFactor")
     pf = pf if pf and 0 < pf <= 1 else None
-    tcl = _positive(_attr(system, "TrueLoad"), INTERNAL_POWER / 1000.0)
+    kilo = INTERNAL_POWER / 1000.0
+    tcl = _positive(_circuit_number(system, "RBS_ELEC_TRUE_LOAD", "TrueLoad"), kilo)
     if tcl is None:
-        apparent = _positive(_attr(system, "ApparentLoad"), INTERNAL_POWER / 1000.0)
+        apparent = _positive(_circuit_number(system, "RBS_ELEC_APPARENT_LOAD", "ApparentLoad"), kilo)
         tcl = apparent * (pf or 1.0) if apparent else None
-    return (pf, tcl, _positive(_attr(system, "Voltage"), INTERNAL_POWER),
-            _positive(_attr(system, "Rating")))
+    return (pf, tcl, parse.volts(_circuit_number(system, "RBS_ELEC_VOLTAGE", "Voltage")),
+            _positive(_circuit_number(system, "RBS_ELEC_CIRCUIT_RATING_PARAM", "Rating")))
+
+
+def _model_voltage(values, voltage):
+    """The model's voltage when VD Settings says so; None means the VD
+    Settings voltage (400 V three phase, 230 V single phase)."""
+    return voltage if values.get("voltage_source") == "model" else None
 
 
 def _order(system):
@@ -381,7 +396,8 @@ def _panel_feeder(panel, system, source, values, model):
     model.feeders.append(Feeder(
         id=panel.id, source_id=source_id, source=source_name, target=panel.name,
         target_id=panel.id, length=length, phases=panel.phases,
-        voltage=panel.voltage or circuit_voltage, tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
+        voltage=_model_voltage(values, panel.voltage or circuit_voltage),
+        tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
         breaker=panel.breaker or rating, installation=_first(typed, _installation, notes),
         cable=cable, source_kind=kind, order=_order(system), ref=el.Id, notes=notes))
     model.elements[panel.id] = el
@@ -410,7 +426,7 @@ def _final_feeder(system, source, loads, values, model):
     model.feeders.append(Feeder(
         id=system.UniqueId, source_id=source.id, source=source.name,
         target=_attr(system, "LoadName") or "CKT %s" % number, length=length,
-        phases=3 if poles >= 3 else 1, voltage=voltage, tcl_kw=tcl,
+        phases=3 if poles >= 3 else 1, voltage=_model_voltage(values, voltage), tcl_kw=tcl,
         mdl_kw=_typed_load(system, notes), power_factor=pf, breaker=rating,
         installation=_installation(system, notes),
         cable=_typed_cable(system, (P_CABLE, "SLD Cable"), notes) or _revit_cable(system, notes),

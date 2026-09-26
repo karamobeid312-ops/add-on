@@ -163,6 +163,7 @@ def export_report():
 _SETTINGS = [
     ("voltage_3ph", "Three phase voltage", "V"),
     ("voltage_1ph", "Single phase voltage", "V"),
+    ("voltage_source", "Voltage used", ""),
     ("power_factor", "Power factor (when the circuit has none)", ""),
     ("load_basis", "Load for the current", ""),
     ("limit_transformer", "Max V.D transformer to main board", "%"),
@@ -183,9 +184,15 @@ _BASIS = {calc.MDL: "MDL - demand load of the fed board",
           calc.TCL: "TCL - connected load"}
 
 
+_VOLTAGE_SOURCE = {"settings": "the voltages above (as the office sheet)",
+                   "model": "each panel's distribution system in Revit"}
+
+
 def _shown(key, value):
     if key == "load_basis":
         return _BASIS[value]
+    if key == "voltage_source":
+        return _VOLTAGE_SOURCE[value]
     if isinstance(value, float):
         return format_number(value, 3)
     return value
