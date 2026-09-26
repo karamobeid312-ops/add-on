@@ -262,3 +262,32 @@ def test_report_shows_the_add_in_version():
     _, parts = _saved_report()
     values = [v for _, v in _cells(parts["xl/worksheets/sheet1.xml"]).values()]
     assert "Voltage Drop add-in" in values and VERSION in values
+
+
+def test_headings_read_bottom_to_top_and_nothing_is_cut():
+    from vdrop import report
+    from vdrop.xlsx import text_points, width_units, wrap_lines
+    settings = Settings()
+    result = calculate(feeders(), settings)
+    sheet = build(result, settings, ReportInfo()).sheets[0]
+    assert sheet.heights[HEADER_ROW] == report.HEADER_HEIGHT
+    for i, (key, heading, _, fmt) in enumerate(COLUMNS):
+        col, width = i + 1, sheet.widths[i + 1]
+        style = sheet.cells[(HEADER_ROW, col)][1]
+        if key in report._HORIZONTAL:
+            assert style.rotation == 0
+        else:
+            assert style.rotation == 90
+            lines = wrap_lines(heading, report.HEADER_HEIGHT - 12, report.HEADER_SIZE, True)
+            assert width_units(len(lines) * report.HEADER_SIZE * 1.25) < width, key
+            # no word longer than the heading row
+            assert all(text_points(w, report.HEADER_SIZE, True) < report.HEADER_HEIGHT
+                       for w in heading.split())
+        if key == "remarks":
+            continue
+        cable_rows = [r for (r, c) in sheet.cells
+                      if c == COL["from"] and r >= FIRST_ROW and sheet.value(r, c)]
+        assert len(cable_rows) == len(list(result.rows()))
+        for r in cable_rows:
+            shown = report._shown(sheet.value(r, col), fmt)
+            assert width_units(text_points(shown)) < width, (key, r, shown, width)
