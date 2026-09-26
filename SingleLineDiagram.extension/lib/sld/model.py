@@ -1,36 +1,84 @@
 # -*- coding: utf-8 -*-
-"""Revit-independent data model and tree builder for the single line diagram.
+"""Revit-independent model of the LV schematic.
 
-Kept free of any Revit imports so it runs under IronPython 2.7 (pyRevit's
-default engine), CPython 3 and plain CPython for unit tests.
+Turns flat equipment/circuit lists (read from Revit) into boards with
+numbered ways, following the office drawing standard:
+
+* A *board* (MDB, SMDB, USMDB...) is drawn as a full switchboard with a
+  busbar and every outgoing way. Equipment is a board when it feeds other
+  equipment, is fed from a UPS/transformer, or has no upstream supply.
+* A *main board* is a board with no upstream board (fed from a transformer
+  or the utility). It is drawn in the SUBSTATION band with ACB, meters, SPD.
+* A *DB* (LDB, PDB, DB-...) only feeds final circuits and is drawn as a
+  box at the end of its way.
+* A *UPS* (or a transformer fed from a board) is drawn between the ways
+  that supply it and the board it feeds.
+
+Kept free of Revit imports so it runs under IronPython 2.7, CPython 3 and
+pytest.
 """
 from __future__ import division
 
 import re
 
-EQUIPMENT = "equipment"
-BRANCH_CIRCUIT = "branch_circuit"
+from sld import style
+
+# equipment roles
+BOARD = "board"
+MAIN_BOARD = "main_board"
+DB = "db"
+UPS = "ups"
+TRANSFORMER = "transformer"
+
+# way kinds
+FEEDER = "feeder"          # to another board, via a riser
+TO_UPS = "to_ups"          # into a UPS / pass-through box
+DB_BOX = "db_box"          # final DB drawn as a box
+ISOLATOR = "isolator"      # single piece of equipment / final circuit
+SPARE = "spare"
+PFC = "pfc"                # power factor correction bank
+
+_SYMBOL_ROLES = {
+    "BOARD": BOARD, "SMDB": BOARD, "MAIN": MAIN_BOARD, "MDB": MAIN_BOARD,
+    "DB": DB, "UPS": UPS, "TRANSFORMER": TRANSFORMER, "TR": TRANSFORMER,
+}
+_SYMBOL_WAYS = {
+    "ISOLATOR": ISOLATOR, "LOAD": ISOLATOR, "SPARE": SPARE, "PFC": PFC,
+    "DB": DB_BOX,
+}
+_PFC_RE = re.compile(r"\bPFC\b|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
+_POLES = {1: "SP", 2: "DP", 3: "TP", 4: "TPN"}
 
 
 class EquipmentInfo(object):
-    """A piece of electrical equipment (panel, switchboard, transformer...)."""
+    """A piece of electrical equipment read from the model."""
 
-    def __init__(self, id, name, details=None):
+    def __init__(self, id, name, level_name="", level_elevation=0.0,
+                 location="", form="", ways=None, family_name="",
+                 part_type="", symbol="", description=None,
+                 incoming_cable="", details=None):
         self.id = id
         self.name = name
+        self.level_name = level_name or ""
+        self.level_elevation = level_elevation or 0.0
+        self.location = location or ""
+        self.form = form or ""
+        self.ways = ways                      # declared number of ways
+        self.family_name = family_name or ""
+        self.part_type = (part_type or "").lower()
+        self.symbol = (symbol or "").strip().upper()   # 'SLD Symbol' override
+        self.description = [d for d in (description or []) if d]
+        self.incoming_cable = incoming_cable or ""
         self.details = [d for d in (details or []) if d]
 
 
 class CircuitInfo(object):
-    """A power circuit fed from `source_id`.
-
-    `fed_equipment_ids` are downstream equipment on the circuit (a feeder);
-    `branch_load_count` counts ordinary loads (lights, receptacles...).
-    """
+    """A power circuit fed from `source_id`."""
 
     def __init__(self, id, source_id, circuit_number="", load_name="",
                  rating="", poles="", voltage="", load="", wire_size="",
-                 fed_equipment_ids=None, branch_load_count=0, cable=""):
+                 fed_equipment_ids=None, branch_load_count=0, cable="",
+                 start_slot=None, is_spare=False, symbol=""):
         self.id = id
         self.source_id = source_id
         self.circuit_number = circuit_number or ""
@@ -40,64 +88,105 @@ class CircuitInfo(object):
         self.voltage = voltage or ""
         self.load = load or ""
         self.wire_size = wire_size or ""
-        self.cable = cable or ""  # e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC
         self.fed_equipment_ids = list(fed_equipment_ids or [])
         self.branch_load_count = branch_load_count
+        self.cable = cable or ""  # e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC
+        self.start_slot = start_slot
+        self.is_spare = is_spare
+        self.symbol = (symbol or "").strip().upper()
 
-    def breaker_text(self):
-        """e.g. '20 A / 3P'."""
-        parts = []
-        if self.rating:
-            parts.append(self.rating)
-        if self.poles:
-            parts.append("%sP" % self.poles)
-        return " / ".join(parts)
-
-    def feeder_label_lines(self):
-        """Lines printed next to the breaker symbol of a feeder."""
-        lines = []
-        if self.circuit_number:
-            lines.append("CKT %s" % self.circuit_number)
-        if self.breaker_text():
-            lines.append(self.breaker_text())
-        lines.extend(self.cable_lines())
-        return lines
+    def cable_text(self):
+        """BS/IEC cable description, or Revit's raw wire size as fallback."""
+        return self.cable or self.wire_size
 
     def cable_lines(self):
         """Cable text split so the earth core ('+ 1Cx...') gets its own line."""
         parts = [p for p in self.cable_text().split(" + ") if p]
         return parts[:1] + ["+ " + p for p in parts[1:]]
 
-    def cable_text(self):
-        """BS/IEC cable description, or Revit's raw wire size as fallback."""
-        return self.cable or self.wire_size
+    def breaker_text(self):
+        """e.g. '63A TP'."""
+        rating = re.sub(r"\s+", "", self.rating or "")
+        try:
+            poles = _POLES.get(int(self.poles), "%sP" % self.poles)
+        except (TypeError, ValueError):
+            poles = ""
+        return " ".join(p for p in (rating, poles) if p)
 
 
-class DiagramNode(object):
-    def __init__(self, kind, id, title, details=None, feeder=None):
+class Way(object):
+    def __init__(self, circuit, kind, label, name, target=None):
+        self.circuit = circuit
         self.kind = kind
-        self.id = id
-        self.title = title
-        self.details = list(details or [])
-        self.feeder = feeder  # CircuitInfo feeding this node, None for roots
-        self.children = []
+        self.label = label        # way number printed at the busbar: 1, R9...
+        self.name = name          # text at the end of the way
+        self.target = target      # EquipmentInfo fed by this way, if any
 
-    def iter_nodes(self):
+    @property
+    def target_id(self):
+        return self.target.id if self.target is not None else None
+
+    def rating_lines(self):
+        """Breaker rating and cable, printed along the way."""
+        if self.circuit is None or self.kind == SPARE:
+            return []
+        lines = []
+        if self.circuit.breaker_text():
+            lines.append(self.circuit.breaker_text())
+        lines.extend(self.circuit.cable_lines())
+        return lines
+
+
+class PassThrough(object):
+    """A UPS (or transformer fed from a board) drawn above its input ways."""
+
+    def __init__(self, equipment, board, input_ways):
+        self.equipment = equipment
+        self.board = board              # Board whose ways feed it
+        self.input_ways = input_ways
+        self.outputs = []               # Boards it feeds
+
+
+class Board(object):
+    def __init__(self, equipment, role):
+        self.equipment = equipment
+        self.role = role
+        self.ways = []
+        self.pass_throughs = []
+        self.feed_way = None            # Way on the parent board feeding this
+        self.feed_pass_through = None   # or the PassThrough feeding this
+        self.parent = None              # parent Board
+        self.transformer = None         # EquipmentInfo drawn under a main board
+        self.children = []              # Boards fed from this one
+
+    @property
+    def id(self):
+        return self.equipment.id
+
+    @property
+    def name(self):
+        return self.equipment.name
+
+    @property
+    def is_main(self):
+        return self.role == MAIN_BOARD
+
+    def iter_tree(self):
         yield self
         for child in self.children:
-            for n in child.iter_nodes():
-                yield n
+            for b in child.iter_tree():
+                yield b
 
 
-class Diagram(object):
+class Schematic(object):
     def __init__(self, roots, warnings):
         self.roots = roots
         self.warnings = warnings
 
-    def iter_nodes(self):
+    def boards(self):
         for root in self.roots:
-            for n in root.iter_nodes():
-                yield n
+            for b in root.iter_tree():
+                yield b
 
 
 def natural_key(text):
@@ -106,83 +195,214 @@ def natural_key(text):
             for tok in re.findall(r"\d+|\D+", text or "")]
 
 
-def _circuit_sort_key(circuit):
-    return (natural_key(circuit.circuit_number), (circuit.load_name or "").lower())
+def _circuit_sort_key(c):
+    slot = c.start_slot if c.start_slot is not None else 10 ** 6
+    return (slot, natural_key(c.circuit_number), (c.load_name or "").lower())
 
 
-def build_diagram(equipment, circuits, include_branch_circuits=False):
-    """Turn flat equipment/circuit lists into a forest of DiagramNodes.
+def way_label(circuit, phases=3, numbering="slots"):
+    """Way number as printed on the board.
 
-    Roots are equipment not fed from any other known equipment. Equipment
-    left unreached (i.e. part of a feed loop) is promoted to a root and a
-    warning is recorded, so every piece of equipment appears exactly once.
+    With numbering='slots' and a 3-phase board, slots 1-3 are way 1,
+    4-6 way 2...; a single-pole circuit also gets its phase: R9, Y9, B9.
+    With numbering='revit' Revit's circuit number is printed unchanged.
+    """
+    if numbering == "slots" and circuit.start_slot and phases == 3:
+        slot = int(circuit.start_slot)
+        way = (slot - 1) // 3 + 1
+        try:
+            poles = int(circuit.poles)
+        except (TypeError, ValueError):
+            poles = 3
+        if poles == 1:
+            return "RYB"[(slot - 1) % 3] + str(way)
+        return str(way)
+    if numbering == "slots" and circuit.start_slot:
+        return str(circuit.start_slot)
+    return circuit.circuit_number
+
+
+def _role(eq, fed_by_role, feeds_equipment, has_feeder):
+    if eq.symbol in _SYMBOL_ROLES:
+        return _SYMBOL_ROLES[eq.symbol]
+    family = eq.family_name.upper()
+    if eq.part_type == "transformer" or "TRANSFORMER" in family:
+        return TRANSFORMER
+    if "UPS" in family:
+        return UPS
+    if not has_feeder or fed_by_role == TRANSFORMER:
+        return MAIN_BOARD
+    if (feeds_equipment or fed_by_role == UPS or eq.part_type == "switchboard"
+            or re.search(style.BOARD_NAME_PATTERN, eq.name or "", re.IGNORECASE)):
+        return BOARD
+    return DB
+
+
+def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
+    """Build boards/ways from flat equipment and circuit lists.
+
+    phases_of: optional {equipment id: phase count} used for way numbering.
     """
     warnings = []
-    equipment_by_id = {}
-    for eq in equipment:
-        equipment_by_id[eq.id] = eq
+    eq_by_id = dict((e.id, e) for e in equipment)
+    phases_of = phases_of or {}
 
-    circuits_by_source = {}
-    feeder_of = {}  # equipment id -> CircuitInfo feeding it
+    by_source = {}
+    feeders = {}   # equipment id -> [circuits feeding it]
     for c in sorted(circuits, key=_circuit_sort_key):
-        if c.source_id not in equipment_by_id:
+        if c.source_id not in eq_by_id:
             continue
-        circuits_by_source.setdefault(c.source_id, []).append(c)
-        for fed_id in c.fed_equipment_ids:
-            if fed_id == c.source_id or fed_id not in equipment_by_id:
-                continue
-            if fed_id in feeder_of:
-                warnings.append(
-                    "%s is fed by more than one circuit; using %s." % (
-                        equipment_by_id[fed_id].name,
-                        _describe(feeder_of[fed_id], equipment_by_id)))
-                continue
-            feeder_of[fed_id] = c
+        by_source.setdefault(c.source_id, []).append(c)
+        for fed in c.fed_equipment_ids:
+            if fed != c.source_id and fed in eq_by_id:
+                feeders.setdefault(fed, []).append(c)
 
-    visited = set()
+    def primary_feeder(eq_id):
+        lst = feeders.get(eq_id)
+        return lst[0] if lst else None
 
-    def make_equipment_node(eq_id, feeder):
-        eq = equipment_by_id[eq_id]
-        visited.add(eq_id)
-        node = DiagramNode(EQUIPMENT, eq.id, eq.name, eq.details, feeder)
-        for c in circuits_by_source.get(eq_id, []):
-            for fed_id in c.fed_equipment_ids:
-                if feeder_of.get(fed_id) is c and fed_id not in visited:
-                    node.children.append(make_equipment_node(fed_id, c))
-            if include_branch_circuits and c.branch_load_count > 0:
-                node.children.append(_branch_node(c))
-        return node
+    feeds_equipment = set(c.source_id for c in circuits
+                          if c.source_id in eq_by_id and
+                          any(f in eq_by_id and f != c.source_id for f in c.fed_equipment_ids))
 
-    roots = []
-    ordered = sorted(equipment_by_id.values(), key=lambda e: natural_key(e.name))
-    for eq in ordered:
-        if eq.id not in feeder_of:
-            roots.append(make_equipment_node(eq.id, None))
-    for eq in ordered:
-        if eq.id not in visited:
-            warnings.append(
-                "%s is part of a feed loop; drawn as a separate source." % eq.name)
-            roots.append(make_equipment_node(eq.id, None))
+    # Roles need the role of the upstream equipment; resolve top-down lazily.
+    roles = {}
 
-    return Diagram(roots, warnings)
+    def role_of(eq_id, stack=()):
+        if eq_id in roles:
+            return roles[eq_id]
+        feeder = primary_feeder(eq_id)
+        up_role = None
+        if feeder is not None and feeder.source_id not in stack:
+            up_role = role_of(feeder.source_id, stack + (eq_id,))
+        roles[eq_id] = _role(eq_by_id[eq_id], up_role, eq_id in feeds_equipment,
+                             feeder is not None)
+        return roles[eq_id]
+
+    for e in equipment:
+        role_of(e.id)
+
+    for eq_id, lst in feeders.items():
+        extra = [c for c in lst[1:]
+                 if not (roles[eq_id] in (UPS, TRANSFORMER) and c.source_id == lst[0].source_id)]
+        for c in extra:
+            warnings.append("%s is fed by more than one circuit; using %s." % (
+                eq_by_id[eq_id].name, _describe(lst[0], eq_by_id)))
+
+    boards = {}
+    for e in equipment:
+        if roles[e.id] in (BOARD, MAIN_BOARD):
+            boards[e.id] = Board(e, roles[e.id])
+    pass_throughs = {}
+
+    def is_primary(c, eq_id):
+        lst = feeders.get(eq_id, [])
+        if not lst:
+            return False
+        if roles[eq_id] in (UPS, TRANSFORMER):
+            return c.source_id == lst[0].source_id
+        return lst[0] is c
+
+    for board in boards.values():
+        phases = phases_of.get(board.id, 3)
+        for c in by_source.get(board.id, []):
+            target = None
+            for fed in c.fed_equipment_ids:
+                if fed in eq_by_id and fed != board.id and is_primary(c, fed):
+                    target = fed
+                    break
+            label = way_label(c, phases, numbering)
+            if c.symbol in _SYMBOL_WAYS:
+                kind = _SYMBOL_WAYS[c.symbol]
+            elif c.is_spare:
+                kind = SPARE
+            elif target is not None:
+                kind = {BOARD: FEEDER, MAIN_BOARD: FEEDER, DB: DB_BOX,
+                        UPS: TO_UPS, TRANSFORMER: TO_UPS}[roles[target]]
+            elif _PFC_RE.search(c.load_name or ""):
+                kind = PFC
+            else:
+                kind = ISOLATOR
+            if kind == SPARE:
+                name = "SPARE"
+            elif target is not None:
+                name = eq_by_id[target].name
+            else:
+                name = c.load_name or ("CKT %s" % c.circuit_number)
+            board.ways.append(Way(c, kind, label, name,
+                                  eq_by_id[target] if target is not None else None))
+
+    # Pass-through boxes (UPS) sit on the board that feeds them.
+    for board in boards.values():
+        groups = {}
+        for w in board.ways:
+            if w.kind == TO_UPS:
+                groups.setdefault(w.target_id, []).append(w)
+        for target_id, ways in groups.items():
+            pt = PassThrough(eq_by_id[target_id], board, ways)
+            board.pass_throughs.append(pt)
+            pass_throughs[target_id] = pt
+
+    # Link boards to what feeds them.
+    for board in boards.values():
+        feeder = primary_feeder(board.id)
+        if feeder is None:
+            continue
+        src = feeder.source_id
+        if src in boards:
+            parent = boards[src]
+            way = next((w for w in parent.ways if w.target_id == board.id), None)
+            if way is not None and way.kind == FEEDER:
+                board.feed_way = way
+                board.parent = parent
+        elif src in pass_throughs:
+            pt = pass_throughs[src]
+            pt.outputs.append(board)
+            board.feed_pass_through = pt
+            board.parent = pt.board
+        elif roles.get(src) == TRANSFORMER:
+            board.transformer = eq_by_id[src]
+            board.equipment.incoming_cable = (board.equipment.incoming_cable or
+                                              feeder.cable_text())
+
+    for board in boards.values():
+        if board.parent is not None:
+            board.parent.children.append(board)
+    for board in boards.values():
+        board.children.sort(key=lambda b: _child_order(board, b))
+
+    roots = sorted([b for b in boards.values() if b.parent is None],
+                   key=lambda b: natural_key(b.name))
+    for b in roots:
+        b.role = MAIN_BOARD
+    # Feed loops: boards never reached from a root.
+    reached = set()
+    for r in roots:
+        for b in r.iter_tree():
+            reached.add(b.id)
+    for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
+        if b.id not in reached:
+            warnings.append("%s is part of a feed loop; drawn as a separate source." % b.name)
+            if b.parent is not None:
+                b.parent.children.remove(b)
+            b.parent, b.feed_way, b.feed_pass_through = None, None, None
+            b.role = MAIN_BOARD
+            roots.append(b)
+            for x in b.iter_tree():
+                reached.add(x.id)
+
+    return Schematic(roots, warnings)
 
 
-def _branch_node(circuit):
-    title = circuit.load_name or ("Circuit %s" % circuit.circuit_number)
-    details = []
-    first = []
-    if circuit.circuit_number:
-        first.append("CKT %s" % circuit.circuit_number)
-    if circuit.breaker_text():
-        first.append(circuit.breaker_text())
-    if first:
-        details.append(", ".join(first))
-    if circuit.load:
-        details.append(circuit.load)
-    details.extend(circuit.cable_lines())
-    return DiagramNode(BRANCH_CIRCUIT, circuit.id, title, details, circuit)
+def _child_order(parent, child):
+    if child.feed_way is not None:
+        return (parent.ways.index(child.feed_way), 0)
+    if child.feed_pass_through is not None:
+        pt = child.feed_pass_through
+        return (parent.ways.index(pt.input_ways[0]), pt.outputs.index(child) + 1)
+    return (10 ** 6, 0)
 
 
-def _describe(circuit, equipment_by_id):
-    src = equipment_by_id.get(circuit.source_id)
+def _describe(circuit, eq_by_id):
+    src = eq_by_id.get(circuit.source_id)
     return "%s CKT %s" % (src.name if src else "?", circuit.circuit_number)

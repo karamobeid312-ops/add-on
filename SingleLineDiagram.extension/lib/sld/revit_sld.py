@@ -1,35 +1,48 @@
 # -*- coding: utf-8 -*-
-"""Revit side: read the electrical model and draw the diagram.
+"""Revit side: read the electrical model and draw the LV schematic.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
+
+Optional parameters (project or shared, type Text) refine the drawing:
+
+  Electrical Equipment
+    SLD Symbol          MAIN / BOARD / DB / UPS / TRANSFORMER (force a symbol)
+    SLD Form            e.g. "FORM 2b" or "FORM4-TYPE6"
+    SLD Ways            e.g. "18"
+    SLD Location        e.g. "ELEC. ROOM GF-48" (default: room name + number)
+    SLD Description     transformer text, one item per line
+                        (e.g. "11/0.4kV", "1000KVA", "OIL TYPE", "TRANSFORMER")
+    SLD Incoming Cable  main board incoming cable, e.g. "7 SC 630mm² Cu/XLPE/AWA/PVC"
+  Electrical Circuits
+    SLD Cable           cable text printed exactly as typed
+    SLD Symbol          ISOLATOR / DB / SPARE / PFC (force the way symbol)
 """
 from __future__ import division
 
-import datetime
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, BuiltInParameter, CurveArray, ElementTypeGroup,
-    FilteredElementCollector, HorizontalTextAlignment, Line, StorageType,
-    TextNote, TextNoteOptions, Transaction, VerticalTextAlignment, View,
-    ViewDrafting, ViewFamily, ViewFamilyType, XYZ,
+    Arc, BuiltInCategory, BuiltInParameter, CurveArray, ElementId,
+    ElementTypeGroup, FilteredElementCollector, HorizontalTextAlignment, Line,
+    StorageType, TextNote, TextNoteOptions, TextNoteType, Transaction,
+    VerticalTextAlignment, View, ViewDrafting, ViewFamily, ViewFamilyType, XYZ,
 )
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
+from sld import style
 from sld.cables import (cable_from_revit_values, conductor_code, construction,
                         insulation_code)
-from sld.layout import BOTTOM, CENTER, layout_diagram
-from sld.model import CircuitInfo, EquipmentInfo, build_diagram
+from sld.geometry import CENTER, MIDDLE, RIGHT, TOP
+from sld.layout import LayoutSettings, layout_schematic
+from sld.model import CircuitInfo, EquipmentInfo, build_schematic
 
-VIEW_NAME = "Single Line Diagram"
-
-# Optional text parameter on circuits. When filled in, its value is printed
-# as the cable description instead of the one generated from the circuit.
-CABLE_OVERRIDE_PARAM = "SLD Cable"
+VIEW_NAME = "LV Schematic Diagram"
+MM_PER_FOOT = 304.8
 
 # Outer sheath; Revit has no setting for it, so it is fixed here.
 CABLE_SHEATH = "PVC"
-INCHES_PER_FOOT = 12.0
 
+
+# ---------------------------------------------------------------- parameters
 
 def _param_text(element, bip):
     """Formatted parameter value (with units) or '' when missing/empty."""
@@ -46,8 +59,17 @@ def _param_text(element, bip):
     return (value or "").strip()
 
 
-def _equipment_name(element):
-    return _param_text(element, BuiltInParameter.RBS_ELEC_PANEL_NAME) or element.Name
+def _lookup(element, name):
+    """Value of a named (project/shared) parameter as text, or ''."""
+    try:
+        p = element.LookupParameter(name)
+        if p is None or not p.HasValue:
+            return ""
+        if p.StorageType == StorageType.String:
+            return (p.AsString() or "").strip()
+        return (p.AsValueString() or "").strip()
+    except Exception:
+        return ""
 
 
 def _int_attr(obj, name, default=0):
@@ -57,6 +79,107 @@ def _int_attr(obj, name, default=0):
     except Exception:
         return default
 
+
+# ---------------------------------------------------------------- equipment
+
+def _equipment_name(element):
+    return _param_text(element, BuiltInParameter.RBS_ELEC_PANEL_NAME) or element.Name
+
+
+def _level(doc, element):
+    level_id = getattr(element, "LevelId", None)
+    if level_id is None or level_id == ElementId.InvalidElementId:
+        try:
+            level_id = element.get_Parameter(
+                BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM).AsElementId()
+        except Exception:
+            level_id = None
+    level = doc.GetElement(level_id) if level_id is not None else None
+    if level is None:
+        return "", 0.0
+    try:
+        return level.Name, level.Elevation
+    except Exception:
+        return level.Name, 0.0
+
+
+def _location(element):
+    override = _lookup(element, "SLD Location")
+    if override:
+        return override.upper()
+    try:
+        room = element.Room
+    except Exception:
+        room = None
+    if room is None:
+        return ""
+    name = _param_text(room, BuiltInParameter.ROOM_NAME)
+    number = _param_text(room, BuiltInParameter.ROOM_NUMBER)
+    return " ".join(p for p in (name, number) if p).upper()
+
+
+def _family_name(element):
+    try:
+        return element.Symbol.Family.Name
+    except Exception:
+        return ""
+
+
+def _part_type(element):
+    try:
+        from Autodesk.Revit.DB import PartType
+        value = element.Symbol.Family.get_Parameter(
+            BuiltInParameter.FAMILY_CONTENT_PART_TYPE).AsInteger()
+        if value == int(PartType.Transformer):
+            return "transformer"
+        if value == int(PartType.SwitchBoard):
+            return "switchboard"
+        if value == int(PartType.PanelBoard):
+            return "panelboard"
+    except Exception:
+        pass
+    return ""
+
+
+def _phases(doc, element):
+    try:
+        from Autodesk.Revit.DB.Electrical import ElectricalPhase
+        dist_id = element.get_Parameter(
+            BuiltInParameter.RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM).AsElementId()
+        dist = doc.GetElement(dist_id)
+        if dist is not None and dist.ElectricalPhase == ElectricalPhase.SinglePhase:
+            return 1
+    except Exception:
+        pass
+    return 3
+
+
+def _ways(element, phases):
+    declared = _lookup(element, "SLD Ways")
+    if declared:
+        return declared
+    try:
+        poles = element.get_Parameter(BuiltInParameter.RBS_ELEC_MAX_POLE_BREAKERS).AsInteger()
+        if poles:
+            return str(poles // phases if phases == 3 else poles)
+    except Exception:
+        pass
+    return None
+
+
+def _description(element, part_type):
+    text = _lookup(element, "SLD Description")
+    if text:
+        return [l.strip() for l in text.replace("\r", "").split("\n") if l.strip()]
+    if part_type == "transformer":
+        try:
+            return [element.Name, "TRANSFORMER"]
+        except Exception:
+            return ["TRANSFORMER"]
+    return []
+
+
+# ---------------------------------------------------------------- circuits
 
 def _cable_build(system):
     """'Cu/XLPE/PVC' from the circuit's wire type (material/insulation)."""
@@ -73,12 +196,9 @@ def _cable_build(system):
 
 def _cable_text(system, wire_size):
     """BS/IEC cable text, e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC."""
-    try:
-        override = system.LookupParameter(CABLE_OVERRIDE_PARAM)
-        if override is not None and override.HasValue and (override.AsString() or "").strip():
-            return override.AsString().strip()
-    except Exception:
-        pass
+    override = _lookup(system, "SLD Cable")
+    if override:
+        return override
     return cable_from_revit_values(
         hots=_int_attr(system, "HotConductorsNumber"),
         neutrals=_int_attr(system, "NeutralConductorsNumber"),
@@ -89,25 +209,54 @@ def _cable_text(system, wire_size):
     )
 
 
+def _circuit_type(system):
+    """'spare', 'space' or '' (normal)."""
+    try:
+        from Autodesk.Revit.DB.Electrical import CircuitType
+        ct = system.CircuitType
+        if ct == CircuitType.Spare:
+            return "spare"
+        if ct == CircuitType.Space:
+            return "space"
+    except Exception:
+        pass
+    return ""
+
+
+def _start_slot(system):
+    try:
+        slot = int(system.StartSlot)
+        return slot if slot > 0 else None
+    except Exception:
+        return None
+
+
 def extract(doc):
-    """Collect EquipmentInfo/CircuitInfo lists from the model."""
-    equipment = []
-    ids = set()
+    """Collect EquipmentInfo/CircuitInfo lists (and phase counts) from the model."""
+    equipment, ids, phases_of = [], set(), {}
     collector = (FilteredElementCollector(doc)
                  .OfCategory(BuiltInCategory.OST_ElectricalEquipment)
                  .WhereElementIsNotElementType())
     for el in collector:
-        details = [
-            _param_text(el, BuiltInParameter.RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM),
-        ]
-        mains = _param_text(el, BuiltInParameter.RBS_ELEC_MAINS)
-        if mains:
-            details.append("Mains: %s" % mains)
-        total = _param_text(el, BuiltInParameter.RBS_ELEC_PANEL_TOTALLOAD_PARAM)
-        if total:
-            details.append("Load: %s" % total)
-        equipment.append(EquipmentInfo(el.UniqueId, _equipment_name(el), details))
+        level_name, elevation = _level(doc, el)
+        part_type = _part_type(el)
+        phases = _phases(doc, el)
+        equipment.append(EquipmentInfo(
+            id=el.UniqueId,
+            name=_equipment_name(el),
+            level_name=level_name,
+            level_elevation=elevation,
+            location=_location(el),
+            form=_lookup(el, "SLD Form"),
+            ways=_ways(el, phases),
+            family_name=_family_name(el),
+            part_type=part_type,
+            symbol=_lookup(el, "SLD Symbol"),
+            description=_description(el, part_type),
+            incoming_cable=_lookup(el, "SLD Incoming Cable"),
+        ))
         ids.add(el.UniqueId)
+        phases_of[el.UniqueId] = phases
 
     circuits = []
     for system in FilteredElementCollector(doc).OfClass(ElectricalSystem):
@@ -116,8 +265,15 @@ def extract(doc):
         source = system.BaseEquipment
         if source is None:
             continue  # circuit not connected to a panel
+        kind = _circuit_type(system)
+        if kind == "space":
+            continue
         fed, branch_count = [], 0
-        for el in system.Elements:
+        try:
+            elements = list(system.Elements)
+        except Exception:
+            elements = []
+        for el in elements:
             if el.UniqueId in ids:
                 fed.append(el.UniqueId)
             else:
@@ -133,12 +289,17 @@ def extract(doc):
             voltage=_param_text(system, BuiltInParameter.RBS_ELEC_VOLTAGE),
             load=_param_text(system, BuiltInParameter.RBS_ELEC_APPARENT_LOAD),
             wire_size=wire_size,
-            cable=_cable_text(system, wire_size),
+            cable="" if kind == "spare" else _cable_text(system, wire_size),
             fed_equipment_ids=fed,
             branch_load_count=branch_count,
+            start_slot=_start_slot(system),
+            is_spare=(kind == "spare"),
+            symbol=_lookup(system, "SLD Symbol"),
         ))
-    return equipment, circuits
+    return equipment, circuits, phases_of
 
+
+# ---------------------------------------------------------------- drawing
 
 def _unique_view_name(doc, base):
     existing = set(v.Name for v in FilteredElementCollector(doc).OfClass(View))
@@ -157,8 +318,40 @@ def _drafting_view_type(doc):
     raise Exception("No drafting view type found in this project.")
 
 
-def _xyz(x_in, y_in):
-    return XYZ(x_in / INCHES_PER_FOOT, y_in / INCHES_PER_FOOT, 0.0)
+def _xyz(x_mm, y_mm):
+    return XYZ(x_mm / MM_PER_FOOT, y_mm / MM_PER_FOOT, 0.0)
+
+
+class _TextTypes(object):
+    """Finds or creates one 'SLD <size>mm Arial' text type per text size."""
+
+    def __init__(self, doc):
+        self.doc = doc
+        self.cache = {}
+        self.existing = dict((t.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString(), t)
+                             for t in FilteredElementCollector(doc).OfClass(TextNoteType))
+        self.default = doc.GetElement(doc.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType))
+
+    def get(self, size_mm):
+        key = round(size_mm, 2)
+        if key in self.cache:
+            return self.cache[key]
+        name = "SLD %smm %s" % (("%.2f" % key).rstrip("0").rstrip("."), style.TEXT_FONT)
+        text_type = self.existing.get(name)
+        if text_type is None:
+            text_type = self.default.Duplicate(name)
+            text_type.get_Parameter(BuiltInParameter.TEXT_SIZE).Set(size_mm / MM_PER_FOOT)
+            text_type.get_Parameter(BuiltInParameter.TEXT_FONT).Set(style.TEXT_FONT)
+            try:
+                text_type.get_Parameter(BuiltInParameter.TEXT_BACKGROUND).Set(1)  # transparent
+            except Exception:
+                pass
+        self.cache[key] = text_type.Id
+        return text_type.Id
+
+
+_H_ALIGN = {CENTER: HorizontalTextAlignment.Center, RIGHT: HorizontalTextAlignment.Right}
+_V_ALIGN = {TOP: VerticalTextAlignment.Top, MIDDLE: VerticalTextAlignment.Middle}
 
 
 def render(doc, drawing, view_name=VIEW_NAME):
@@ -168,7 +361,7 @@ def render(doc, drawing, view_name=VIEW_NAME):
     """
     view = ViewDrafting.Create(doc, _drafting_view_type(doc).Id)
     view.Name = _unique_view_name(doc, view_name)
-    view.Scale = 1  # 1:1 so layout inches == paper inches
+    view.Scale = 1  # 1:1 so layout millimetres == paper millimetres
 
     short = doc.Application.ShortCurveTolerance
     curves = CurveArray()
@@ -176,41 +369,43 @@ def render(doc, drawing, view_name=VIEW_NAME):
         a, b = _xyz(ln.x1, ln.y1), _xyz(ln.x2, ln.y2)
         if a.DistanceTo(b) > short:
             curves.Append(Line.CreateBound(a, b))
+    for arc in drawing.arcs:
+        if arc.r * (arc.a1 - arc.a0) / MM_PER_FOOT > short:
+            curves.Append(Arc.Create(_xyz(arc.cx, arc.cy), arc.r / MM_PER_FOOT,
+                                     arc.a0, arc.a1, XYZ.BasisX, XYZ.BasisY))
     if not curves.IsEmpty:
         doc.Create.NewDetailCurveArray(view, curves)
 
-    type_id = doc.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType)
-    min_w = TextNote.GetMinimumAllowedWidth(doc, type_id)
-    max_w = TextNote.GetMaximumAllowedWidth(doc, type_id)
+    types = _TextTypes(doc)
     for t in drawing.texts:
+        type_id = types.get(t.size)
         opts = TextNoteOptions(type_id)
-        opts.HorizontalAlignment = (HorizontalTextAlignment.Center if t.align == CENTER
-                                    else HorizontalTextAlignment.Left)
-        opts.VerticalAlignment = (VerticalTextAlignment.Bottom if t.valign == BOTTOM
-                                  else VerticalTextAlignment.Top)
-        width = min(max(t.width / INCHES_PER_FOOT, min_w), max_w)
+        opts.HorizontalAlignment = _H_ALIGN.get(t.align, HorizontalTextAlignment.Left)
+        opts.VerticalAlignment = _V_ALIGN.get(t.valign, VerticalTextAlignment.Bottom)
+        if t.rotation:
+            opts.Rotation = t.rotation
+        min_w = TextNote.GetMinimumAllowedWidth(doc, type_id)
+        max_w = TextNote.GetMaximumAllowedWidth(doc, type_id)
+        width = min(max(t.width / MM_PER_FOOT, min_w), max_w)
         TextNote.Create(doc, view.Id, _xyz(t.x, t.y), width, t.text, opts)
     return view
 
 
-def generate(doc, include_branch_circuits=False):
-    """Build and draw the diagram. Returns (view or None, diagram)."""
-    equipment, circuits = extract(doc)
-    diagram = build_diagram(equipment, circuits, include_branch_circuits)
-    if not diagram.roots:
-        return None, diagram
+def generate(doc, settings=None, numbering="slots"):
+    """Build and draw the schematic. Returns (view or None, schematic)."""
+    equipment, circuits, phases_of = extract(doc)
+    schematic = build_schematic(equipment, circuits, phases_of, numbering)
+    if not schematic.roots:
+        return None, schematic
 
-    project = doc.ProjectInformation.Name if doc.ProjectInformation else ""
-    title = "SINGLE LINE DIAGRAM" + (" - %s" % project if project else "")
-    subtitle = "Generated %s" % datetime.date.today().isoformat()
-    drawing = layout_diagram(diagram, title, subtitle)
+    layout = layout_schematic(schematic, settings or LayoutSettings())
 
-    t = Transaction(doc, "Generate Single Line Diagram")
+    t = Transaction(doc, "Generate LV Schematic Diagram")
     t.Start()
     try:
-        view = render(doc, drawing)
+        view = render(doc, layout.drawing)
         t.Commit()
     except Exception:
         t.RollBack()
         raise
-    return view, diagram
+    return view, schematic

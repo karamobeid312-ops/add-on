@@ -1,94 +1,139 @@
-from sld.model import (BRANCH_CIRCUIT, EQUIPMENT, CircuitInfo, EquipmentInfo,
-                       build_diagram, natural_key)
+# -*- coding: utf-8 -*-
+from sld.model import (BOARD, DB_BOX, FEEDER, ISOLATOR, MAIN_BOARD, PFC,
+                       SPARE, TO_UPS, CircuitInfo, EquipmentInfo, build_schematic,
+                       natural_key, way_label)
 
 
-def eq(i):
-    return EquipmentInfo(i, i)
+def eq(name, **kw):
+    return EquipmentInfo(name, name, **kw)
 
 
-def names(nodes):
-    return [n.title for n in nodes]
+def ckt(src, slot, fed=(), poles="3", **kw):
+    return CircuitInfo("%s/%s" % (src, slot), src, str(slot), poles=poles,
+                       start_slot=slot, fed_equipment_ids=list(fed), **kw)
 
 
-def test_builds_hierarchy_from_feeders():
-    equipment = [eq("MSB"), eq("LP-1"), eq("LP-2"), eq("DP-1")]
-    circuits = [
-        CircuitInfo("c1", "MSB", "1,3,5", fed_equipment_ids=["DP-1"]),
-        CircuitInfo("c2", "DP-1", "2,4,6", fed_equipment_ids=["LP-2"]),
-        CircuitInfo("c3", "DP-1", "1,3,5", fed_equipment_ids=["LP-1"]),
-    ]
-    d = build_diagram(equipment, circuits)
-    assert names(d.roots) == ["MSB"]
-    dp = d.roots[0].children[0]
-    assert dp.title == "DP-1" and dp.feeder.id == "c1"
-    # children ordered by circuit number
-    assert names(dp.children) == ["LP-1", "LP-2"]
-    assert d.warnings == []
+def boards(s):
+    return dict((b.name, b) for b in s.boards())
 
 
-def test_unfed_equipment_become_separate_roots():
-    d = build_diagram([eq("B"), eq("A")], [])
-    assert names(d.roots) == ["A", "B"]
+def test_roles_main_board_db():
+    equipment = [eq("MDB-1"), eq("SMDB-1"), eq("LDB-1"), eq("PANEL-X")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"]), ckt("SMDB-1", 1, ["LDB-1"]),
+                ckt("SMDB-1", 4, ["PANEL-X"])]
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    assert [r.name for r in s.roots] == ["MDB-1"]
+    assert b["MDB-1"].role == MAIN_BOARD
+    assert b["SMDB-1"].role == BOARD
+    assert "LDB-1" not in b and "PANEL-X" not in b       # drawn as DB boxes
+    assert [w.kind for w in b["SMDB-1"].ways] == [DB_BOX, DB_BOX]
+    assert b["MDB-1"].ways[0].kind == FEEDER
+    assert b["SMDB-1"].parent is b["MDB-1"]
 
 
-def test_branch_circuits_only_when_requested():
-    equipment = [eq("LP-1")]
-    circuits = [
-        CircuitInfo("c1", "LP-1", "3", load_name="Lighting", rating="20 A", poles="1",
-                    branch_load_count=4),
-        CircuitInfo("c2", "LP-1", "1", load_name="Receptacles", branch_load_count=2),
-        CircuitInfo("c3", "LP-1", "5", load_name="Spare", branch_load_count=0),
-    ]
-    assert build_diagram(equipment, circuits).roots[0].children == []
+def test_board_name_pattern_makes_board_even_without_sub_panels():
+    equipment = [eq("MDB-1"), eq("SMDB-RF-02"), eq("USMDB-GF")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-RF-02"]), ckt("MDB-1", 4, ["USMDB-GF"]),
+                ckt("SMDB-RF-02", 1, load_name="VRF-07", branch_load_count=1)]
+    b = boards(build_schematic(equipment, circuits))
+    assert b["SMDB-RF-02"].role == BOARD and b["USMDB-GF"].role == BOARD
+    assert b["SMDB-RF-02"].ways[0].kind == ISOLATOR
+    assert b["SMDB-RF-02"].ways[0].name == "VRF-07"
 
-    kids = build_diagram(equipment, circuits, include_branch_circuits=True).roots[0].children
-    assert names(kids) == ["Receptacles", "Lighting"]
-    assert all(k.kind == BRANCH_CIRCUIT for k in kids)
-    assert kids[1].details[0] == "CKT 3, 20 A / 1P"
+
+def test_symbol_override():
+    equipment = [eq("MDB-1"), eq("DB-X", symbol="board")]
+    b = boards(build_schematic(equipment, [ckt("MDB-1", 1, ["DB-X"])]))
+    assert b["DB-X"].role == BOARD
+
+
+def test_transformer_goes_under_main_board():
+    equipment = [eq("TR-01", part_type="transformer", description=["1000KVA"]),
+                 eq("MDB-1")]
+    circuits = [ckt("TR-01", 1, ["MDB-1"], cable=u"7 SC 630mm² Cu/XLPE/AWA/PVC")]
+    s = build_schematic(equipment, circuits)
+    assert [r.name for r in s.roots] == ["MDB-1"]
+    assert s.roots[0].transformer.name == "TR-01"
+    assert s.roots[0].equipment.incoming_cable == u"7 SC 630mm² Cu/XLPE/AWA/PVC"
+
+
+def test_way_kinds_spare_pfc_isolator():
+    circuits = [ckt("MDB-1", 1, load_name="PFC", branch_load_count=1),
+                ckt("MDB-1", 4, load_name="EV-01", branch_load_count=1),
+                ckt("MDB-1", 7, is_spare=True),
+                ckt("MDB-1", 10, load_name="Pump", symbol="spare")]
+    ways = build_schematic([eq("MDB-1")], circuits).roots[0].ways
+    assert [w.kind for w in ways] == [PFC, ISOLATOR, SPARE, SPARE]
+    assert [w.label for w in ways] == ["1", "2", "3", "4"]
+    assert ways[2].name == "SPARE"
+
+
+def test_way_labels_single_phase_rows():
+    c = ckt("B", 25, poles="1")
+    assert way_label(c) == "R9"
+    assert way_label(ckt("B", 26, poles="1")) == "Y9"
+    assert way_label(ckt("B", 27, poles="1")) == "B9"
+    assert way_label(ckt("B", 28)) == "10"
+    assert way_label(ckt("B", 5, poles="1"), phases=1) == "5"
+    assert way_label(c, numbering="revit") == "25"
+
+
+def test_ups_between_boards_with_two_inputs():
+    equipment = [eq("MDB-1"), eq("SMDB-GF"), eq("UPS", family_name="UPS 60kVA"),
+                 eq("USMDB-GF"), eq("UDB-01")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-GF"]),
+                ckt("SMDB-GF", 1, ["UPS"]), ckt("SMDB-GF", 4, ["UPS"]),
+                ckt("UPS", 1, ["USMDB-GF"]), ckt("USMDB-GF", 1, ["UDB-01"])]
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    assert s.warnings == []
+    gf = b["SMDB-GF"]
+    assert [w.kind for w in gf.ways] == [TO_UPS, TO_UPS]
+    assert len(gf.pass_throughs) == 1 and len(gf.pass_throughs[0].input_ways) == 2
+    assert b["USMDB-GF"].feed_pass_through is gf.pass_throughs[0]
+    assert b["USMDB-GF"].parent is gf and b["USMDB-GF"] in gf.children
+
+
+def test_double_feed_warns():
+    equipment = [eq("MDB-1"), eq("MDB-2"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"]), ckt("MDB-2", 1, ["SMDB-1"])]
+    s = build_schematic(equipment, circuits)
+    assert any("more than one circuit" in w for w in s.warnings)
+    assert [b.name for b in s.boards()].count("SMDB-1") == 1
 
 
 def test_feed_loop_is_broken_with_warning():
-    circuits = [
-        CircuitInfo("c1", "A", "1", fed_equipment_ids=["B"]),
-        CircuitInfo("c2", "B", "1", fed_equipment_ids=["A"]),
-    ]
-    d = build_diagram([eq("A"), eq("B")], circuits)
-    all_ids = [n.id for n in d.iter_nodes()]
-    assert sorted(all_ids) == ["A", "B"]
-    assert len(d.warnings) == 1 and "loop" in d.warnings[0]
+    equipment = [eq("SMDB-A"), eq("SMDB-B")]
+    circuits = [ckt("SMDB-A", 1, ["SMDB-B"]), ckt("SMDB-B", 1, ["SMDB-A"])]
+    s = build_schematic(equipment, circuits)
+    assert sorted(b.name for b in s.boards()) == ["SMDB-A", "SMDB-B"]
+    assert any("loop" in w for w in s.warnings)
 
 
-def test_double_fed_equipment_warns_and_appears_once():
-    circuits = [
-        CircuitInfo("c1", "A", "1", fed_equipment_ids=["C"]),
-        CircuitInfo("c2", "B", "2", fed_equipment_ids=["C"]),
-    ]
-    d = build_diagram([eq("A"), eq("B"), eq("C")], circuits)
-    assert [n.id for n in d.iter_nodes()].count("C") == 1
-    assert any("more than one circuit" in w for w in d.warnings)
+def test_rating_lines():
+    c = CircuitInfo("c", "s", "1", rating="63 A", poles="3",
+                    cable=u"4Cx16mm² Cu/XLPE/PVC + 1Cx16mm² Cu/XLPE/PVC")
+    from sld.model import Way
+    assert Way(c, FEEDER, "1", "X").rating_lines() == [
+        "63A TP", u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
+    assert Way(c, SPARE, "1", "SPARE").rating_lines() == []
 
 
-def test_ignores_circuits_from_unknown_sources_and_self_feeds():
-    circuits = [
-        CircuitInfo("c1", "ghost", "1", fed_equipment_ids=["A"]),
-        CircuitInfo("c2", "A", "1", fed_equipment_ids=["A"]),
-    ]
-    d = build_diagram([eq("A")], circuits)
-    assert names(d.roots) == ["A"] and d.roots[0].children == []
-    assert d.roots[0].kind == EQUIPMENT
+def test_sample_drawing_structure():
+    import sample_al_yasat
+    s = build_schematic(*sample_al_yasat.build())
+    b = boards(s)
+    assert s.warnings == []
+    assert [r.name for r in s.roots] == ["MDB-1", "MDB-2"]
+    assert sorted(b) == sorted(["MDB-1", "MDB-2", "SMDB-GF-M1", "SMDB-GF-M2", "SMDB-BB-01",
+                                "USMDB-GF-M", "SMDB-1ST-01", "SMDB-2ND-01",
+                                "SMDB-RF-01", "SMDB-RF-02"])
+    rf = b["SMDB-RF-01"]
+    assert [w.label for w in rf.ways][7:12] == ["8", "R9", "Y9", "B9", "10"]
+    assert b["USMDB-GF-M"].parent.name == "SMDB-GF-M1"
+    assert b["MDB-1"].transformer.name == "TR-01"
 
 
 def test_natural_key():
     assert sorted(["10", "2", "1,3,5", "B", "a"], key=natural_key) == ["1,3,5", "2", "10", "a", "B"]
-
-
-def test_feeder_label():
-    c = CircuitInfo("c", "s", "1,3,5", rating="100 A", poles="3", wire_size="4#1, 1#6G")
-    assert c.feeder_label_lines() == ["CKT 1,3,5", "100 A / 3P", "4#1, 1#6G"]
-
-
-def test_feeder_label_splits_iec_cable_at_earth():
-    c = CircuitInfo("c", "s", "1", rating="32 A", poles="3", wire_size="raw",
-                    cable=u"4Cx4mm\u00b2 Cu/XLPE/PVC + 1Cx4mm\u00b2 Cu/XLPE/PVC")
-    assert c.feeder_label_lines() == [
-        "CKT 1", "32 A / 3P", u"4Cx4mm\u00b2 Cu/XLPE/PVC", u"+ 1Cx4mm\u00b2 Cu/XLPE/PVC"]
