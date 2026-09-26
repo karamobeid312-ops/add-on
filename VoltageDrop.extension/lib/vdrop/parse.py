@@ -111,6 +111,32 @@ def metric_size(wire_size_text):
     return int(size) if size == int(size) else size
 
 
+def power_factor(text):
+    """Power factor from '0.9', '0,9' or '90%' (or 90), or None."""
+    value = number(text)
+    if value is not None and 1 < value <= 100:
+        value /= 100.0
+    return value if value is not None and 0 < value <= 1 else None
+
+
+REVIT_UNIT_TO_VOLTS = 0.3048 ** 2   # Revit's internal unit of voltage, in V
+
+
+def volts(value):
+    """Voltage in V from a Revit value, which is in Revit's internal unit
+    (400 V = 4305.6) for circuits but already in volts for voltage types.
+    The one that gives a low voltage (100 to 1100 V) is taken; None if
+    neither does."""
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    for candidate in (value * REVIT_UNIT_TO_VOLTS, value):
+        if 100 <= candidate <= 1100:
+            return candidate
+    return None
+
+
 def format_number(value, decimals=2):
     """'175', '0.85', '2.5' - no trailing zeros."""
     if value is None:

@@ -127,6 +127,7 @@ class Sheet(object):
         self.landscape = True
         self.paper = 8            # A3
         self.print_rows = None    # (first, last) rows repeated on every page
+        self.footer = None        # e.g. '&LTitle&RPage &P of &N'
 
     def write(self, row, col, value=None, style=None):
         self.cells[(row, col)] = (value, style)
@@ -313,6 +314,8 @@ class Workbook(object):
                    u'header="0.3" footer="0.3"/>')
         out.append(u'<pageSetup paperSize="%d" orientation="%s" fitToWidth="1" fitToHeight="0"/>' % (
             sheet.paper, u"landscape" if sheet.landscape else u"portrait"))
+        if sheet.footer:
+            out.append(u"<headerFooter><oddFooter>%s</oddFooter></headerFooter>" % _esc(sheet.footer))
         out.append(u"</worksheet>")
         return u"".join(out)
 

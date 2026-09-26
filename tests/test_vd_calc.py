@@ -270,3 +270,23 @@ def test_cable_text():
     assert cable_text(1, 4, 16) == u"4Cx16mm²"
     assert cable_text(11, 1, 630) == u"11x(1Cx630mm²)"
     assert cable_text(1, 4, None) == ""
+
+
+def test_wrong_voltage_is_reported():
+    f = feeder(0, "MDB", "DB-1")
+    f.voltage = 37.2          # 400 V read in the wrong unit
+    row = next(calculate([f]).rows())
+    assert "voltage 37.2 V looks wrong" in row.problems
+    assert row.status() != "OK"
+    assert not next(calculate([feeder(0, "MDB", "DB-1")]).rows()).problems
+
+
+def test_power_factor_from_the_model_or_settings():
+    f = feeder(0, "MDB", "DB-1")          # PF 0.85 given
+    f.power_factor = 0.92
+    row = next(calculate([f]).rows())
+    assert row.power_factor == 0.92 and not row.pf_assumed
+    assert close(row.kva, 10 / 0.92)
+    f.power_factor = None                 # none in the model: VD Settings
+    row = next(calculate([f], Settings(power_factor=0.8)).rows())
+    assert row.power_factor == 0.8 and row.pf_assumed

@@ -203,6 +203,7 @@ def test_layout_matches_office_sheet():
     sheet = parts["xl/worksheets/sheet1.xml"].decode("utf-8")
     assert sheet.count("<conditionalFormatting") == 3
     assert 'state="frozen"' in sheet
+    assert "Page &amp;P of &amp;N" in sheet
     assert headline(result) in [v for _, v in cells.values()]
     workbook = parts["xl/workbook.xml"].decode("utf-8")
     assert "_xlnm.Print_Titles" in workbook and 'fullCalcOnLoad="1"' in workbook
@@ -242,12 +243,22 @@ def test_to_fix_names_the_missing_inputs():
     assert lines[1].startswith(u"2 cables have no cable size in mm² (Revit's wire size "
                                u"'3-#4/0, 1-#4/0' is not in mm²)")
     assert lines[2].startswith("1 cable has no load in the model")
-    assert lines[3] == ("2 breakers are below 1.1 x Ib (all are 20 A, Revit's default circuit "
+    assert lines[3] == ("2 cables have no power factor in the model, so PF 0.85 from VD "
+                        "Settings is used: type VD PF on the panel, or give the loads a power "
+                        "factor.")
+    assert lines[4] == ("2 breakers are below 1.1 x Ib (all are 20 A, Revit's default circuit "
                         "Rating: set the MCB Rating of the panel).")
-    assert len(lines) == 4
+    assert len(lines) == 5
     assert to_fix(calculate(feeders_ok())) == []
 
 
 def feeders_ok():
     return [Feeder(0, "MDB", "MDB", "DB-1", length=20, mdl_kw=10, breaker=40,
-                   cable=Cable(1, 4, 16))]
+                   power_factor=0.9, cable=Cable(1, 4, 16))]
+
+
+def test_report_shows_the_add_in_version():
+    from vdrop import VERSION
+    _, parts = _saved_report()
+    values = [v for _, v in _cells(parts["xl/worksheets/sheet1.xml"]).values()]
+    assert "Voltage Drop add-in" in values and VERSION in values

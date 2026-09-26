@@ -5,6 +5,7 @@ from __future__ import division
 
 import datetime
 
+from vdrop import VERSION
 from vdrop.parse import format_number
 from vdrop.xlsx import Formula, Style, Workbook, col_letter, ref
 
@@ -147,6 +148,12 @@ def to_fix(result, schedule="Voltage Drop Panels"):
     if n:
         lines.append("%s no load in the model, so no current: connect the loads, or type "
                      "the demand in VD Load kW." % _plural(n, "cable has", "cables have"))
+    assumed = [r for r in rows if r.pf_assumed and r.load_kw is not None]
+    if assumed:
+        lines.append("%s no power factor in the model, so PF %s from VD Settings is used: "
+                     "type VD PF on the panel, or give the loads a power factor." % (
+                         _plural(len(assumed), "cable has", "cables have"),
+                         format_number(assumed[0].power_factor)))
     small = [r for r in rows if r.breaker_ok is False]
     if small:
         text = "%s below 1.1 x Ib" % _plural(len(small), "breaker is", "breakers are")
@@ -240,13 +247,14 @@ def _title_block(sheet, info, settings):
         ("Frequency", 50, "Hz"),
         ("VOLTAGE/3PHASE", settings.voltage_3ph, "V"),
         ("VOLTAGE/1PHASE", settings.voltage_1ph, "V"),
-        ("Power factor (default)", settings.power_factor, ""),
+        ("Power factor", settings.power_factor, ""),
         ("Ambient air temp (cable tray)", settings.air_temperature, u"°C"),
         ("Ground temp (ground / ducts)", settings.ground_temperature, u"°C"),
         ("Laying depth", settings.depth or "-", "mm"),
         ("Soil thermal resistivity", settings.soil_resistivity or "-", "K.m/W"),
         ("Grouping factor Cg", settings.grouping, ""),
         ("Maximum operating temp of XLPE", 90, u"°C"),
+        ("Voltage Drop add-in", VERSION, ""),
     ]
     for i, (name, number, unit) in enumerate(params):
         r = 7 + i
@@ -360,4 +368,5 @@ def build(result, settings, info=None):
         first("total"), first("total"), first("limit")))
     sheet.freeze = (FIRST_ROW, COL["length"])
     sheet.print_rows = (GROUP_ROW, HEADER_ROW)
+    sheet.footer = u"&L&8%s %s&R&8Page &P of &N" % (TITLE, info.project or "")
     return book

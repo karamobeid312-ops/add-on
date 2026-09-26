@@ -28,6 +28,7 @@ from vdrop.parse import Cable, format_number
 
 SQRT3 = math.sqrt(3)
 EPS = 1e-9
+LOW_VOLTAGE = (100, 1100)   # V, a voltage outside it is reported
 
 # what feeds a cable
 BOARD = "board"
@@ -110,6 +111,7 @@ class Row(object):
                      "breaker_ok", "cable_ok", "vd_ok"):
             setattr(self, name, None)
         self.resets = False
+        self.pf_assumed = False   # PF from VD Settings, the model had none
 
     @property
     def single_core(self):
@@ -215,8 +217,11 @@ def calculate_row(row, settings):
     f = row.feeder
     row.phases = 1 if f.phases == 1 else 3
     row.voltage = f.voltage or (settings.voltage_1ph if row.phases == 1 else settings.voltage_3ph)
+    if not LOW_VOLTAGE[0] <= row.voltage <= LOW_VOLTAGE[1]:
+        row.problems.append("voltage %s V looks wrong" % format_number(row.voltage))
     pf = f.power_factor
-    row.power_factor = pf if pf is not None and 0 < pf <= 1 else settings.power_factor
+    row.pf_assumed = not (pf is not None and 0 < pf <= 1)
+    row.power_factor = settings.power_factor if row.pf_assumed else pf
     row.basis = MDL if f.mdl_kw is not None else TCL
     row.load_kw = f.mdl_kw if f.mdl_kw is not None else f.tcl_kw
     if row.load_kw is None:

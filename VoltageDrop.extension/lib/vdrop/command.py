@@ -5,7 +5,7 @@ import re
 
 from pyrevit import forms, revit, script
 
-from vdrop import calc, report, revit_vd, settings
+from vdrop import VERSION, calc, excel, report, revit_vd, settings
 from vdrop.parse import format_number
 
 TITLE = "Voltage Drop"
@@ -58,10 +58,27 @@ def _calculate(doc, values):
 
 # ---------------------------------------------------------------- calculate
 
+def _voltage_text():
+    values = settings.load()
+    if values["voltage_source"] == "model":
+        return "each panel's distribution system in Revit"
+    return "%s V three phase, %s V single phase (VD Settings)" % (
+        format_number(values["voltage_3ph"]), format_number(values["voltage_1ph"]))
+
+
+def _pf_text():
+    values = settings.load()
+    if values["pf_source"] == "model":
+        return "from the loads in Revit"
+    return "%s (VD Settings)" % format_number(values["power_factor"])
+
+
 def _show(result, model, written):
     output = script.get_output()
     output.set_title(TITLE)
     output.print_md("# Voltage drop")
+    output.print_md("*Voltage Drop add-in %s. Voltage: %s. Power factor: %s.*" % (
+        VERSION, _voltage_text(), _pf_text()))
     output.print_md(report.headline(result))
     notes = []
     if model.skipped:
@@ -153,8 +170,19 @@ def export_report():
         forms.alert("Could not save the report:\n%s\n\nIf it is open in Excel, close it "
                     "and try again." % error, title=TITLE)
         return
-    _open(path)
-    forms.alert(report.headline(result), expanded="Saved to %s" % path, title=TITLE)
+    pdf_path = os.path.splitext(path)[0] + ".pdf"
+    try:
+        excel.save_pdf(path, pdf_path)
+    except Exception as error:
+        _open(path)
+        forms.alert("%s\n\nThe Excel report is saved, but not the PDF: %s.\n\nIf the PDF "
+                    "is open in a viewer, close it and try again." % (
+                        report.headline(result), error),
+                    expanded="Excel: %s" % path, title=TITLE)
+        return
+    _open(pdf_path)
+    forms.alert(report.headline(result),
+                expanded="Excel: %s\nPDF: %s" % (path, pdf_path), title=TITLE)
 
 
 # ---------------------------------------------------------------- settings
@@ -163,7 +191,9 @@ def export_report():
 _SETTINGS = [
     ("voltage_3ph", "Three phase voltage", "V"),
     ("voltage_1ph", "Single phase voltage", "V"),
-    ("power_factor", "Power factor (when the circuit has none)", ""),
+    ("voltage_source", "Voltage used", ""),
+    ("power_factor", "Power factor", ""),
+    ("pf_source", "Power factor used", ""),
     ("load_basis", "Load for the current", ""),
     ("limit_transformer", "Max V.D transformer to main board", "%"),
     ("limit_total", "Max V.D to the final load", "%"),
@@ -183,9 +213,21 @@ _BASIS = {calc.MDL: "MDL - demand load of the fed board",
           calc.TCL: "TCL - connected load"}
 
 
+_VOLTAGE_SOURCE = {"settings": "the voltages above (as the office sheet)",
+                   "model": "each panel's distribution system in Revit"}
+
+
+_PF_SOURCE = {"settings": "the power factor above on every cable (as the office sheet)",
+              "model": "the loads in Revit (the one above when they have none)"}
+
+
 def _shown(key, value):
     if key == "load_basis":
         return _BASIS[value]
+    if key == "pf_source":
+        return _PF_SOURCE[value]
+    if key == "voltage_source":
+        return _VOLTAGE_SOURCE[value]
     if isinstance(value, float):
         return format_number(value, 3)
     return value
@@ -207,7 +249,8 @@ def edit_settings():
             shown = _shown(key, values[key])
             options.append(u"%s: %s%s" % (label, shown if shown != "" else "-",
                                           " " + unit if unit and shown != "" else ""))
-        choice = forms.CommandSwitchWindow.show(options, message="Click a setting to change it:")
+        choice = forms.CommandSwitchWindow.show(
+            options, message="Voltage Drop add-in %s. Click a setting to change it:" % VERSION)
         if not choice:
             return
         key, label, unit = _SETTINGS[options.index(choice)]
