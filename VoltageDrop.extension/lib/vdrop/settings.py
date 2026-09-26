@@ -9,7 +9,8 @@ DEFAULTS = {
     "voltage_3ph": 400.0,
     "voltage_1ph": 230.0,
     "voltage_source": "settings",  # 'settings' (as the office sheet) or 'model'
-    "power_factor": 0.85,          # when the circuit has none
+    "power_factor": 0.85,          # every cable, as the office sheet
+    "pf_source": "settings",       # 'settings' (the value above) or 'model'
     "load_basis": MDL,             # MDL: board's demand load, TCL: connected load
     "limit_transformer": 2.5,      # % transformer -> main board
     "limit_total": 4.0,            # % transformer -> final load
@@ -28,6 +29,7 @@ DEFAULTS = {
 # key -> allowed values (settings picked from a list)
 CHOICES = {
     "voltage_source": ("settings", "model"),
+    "pf_source": ("settings", "model"),
     "load_basis": (MDL, TCL),
     "insulation": tables.INSULATION_NAMES,
     "installation": tables.INSTALLATIONS,

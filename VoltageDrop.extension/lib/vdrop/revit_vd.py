@@ -7,7 +7,8 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 For each panel (board, DB, transformer, UPS) the row of its incoming cable
 comes from the panel: FROM = the board supplying it, breaker = MCB Rating
 (else Mains), loads = Total Estimated Demand / Total Connected, power factor
-= VD PF typed on it, else true / apparent load of its circuits, phases =
+= VD PF typed on it, else VD Settings (0.85; or, if VD Settings says so,
+true / apparent load of its circuits), phases =
 its distribution system (and its voltage, if VD Settings says to use the
 model's voltages), and what is typed on it. The circuit
 feeding it is only used for what the panel doesn't give (the wire size,
@@ -373,6 +374,12 @@ def _circuit_values(system):
             _positive(_circuit_number(system, "RBS_ELEC_CIRCUIT_RATING_PARAM", "Rating")))
 
 
+def _pf(values, model_pf):
+    """The VD Settings power factor (0.85, as the office sheet), or the
+    model's when VD Settings says so (None: the model has none)."""
+    return model_pf if values.get("pf_source") == "model" else values["power_factor"]
+
+
 def _model_voltage(values, voltage):
     """The model's voltage when VD Settings says so; None means the VD
     Settings voltage (400 V three phase, 230 V single phase)."""
@@ -409,8 +416,8 @@ def _panel_feeder(panel, system, source, values, model):
     length = _first(typed, _length, notes)
     circuit_pf, circuit_tcl, circuit_voltage, rating = (
         _circuit_values(system) if system is not None else (None, None, None, None))
-    # typed on the panel (or its circuit), else the panel's own loads
-    pf = _first(typed, _typed_pf, notes) or panel.load_pf or circuit_pf
+    # typed on the panel (or its circuit), else VD Settings (or the model)
+    pf = _first(typed, _typed_pf, notes) or _pf(values, panel.load_pf or circuit_pf)
     pf_used = pf or values["power_factor"]
     tcl = panel.connected_kva * pf_used if panel.connected_kva else circuit_tcl
     mdl = _first(typed, _typed_load, notes)
@@ -452,7 +459,7 @@ def _final_feeder(system, source, loads, values, model):
         model.skipped += 1
         return
     circuit_pf, tcl, voltage, rating = _circuit_values(system)
-    pf = _typed_pf(system, notes) or circuit_pf
+    pf = _typed_pf(system, notes) or _pf(values, circuit_pf)
     poles = _attr(system, "PolesNumber") or 3
     number = _attr(system, "CircuitNumber") or ""
     model.feeders.append(Feeder(

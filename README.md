@@ -159,7 +159,7 @@ too narrow for it, where they go on the centreline.
   (saved by Excel, A3 landscape, page numbers), and opens the PDF. The
   Excel cells hold formulas, so a length or load changed in Excel updates
   the voltage drop. The PDF needs Microsoft Excel on the computer.
-- **VD Settings** – voltages (400 / 230 V, or the model's), default power factor, demand (MDL) or
+- **VD Settings** – voltages (400 / 230 V, or the model's), power factor (0.85, or the model's), demand (MDL) or
   connected (TCL) load, limits, default cable and installation, derating
   values and the report title block (company, revision, issue).
 
@@ -204,7 +204,7 @@ For a panel's incoming cable:
 | VOLTAGE | 400 V three phase / 230 V single phase from VD Settings, as the office sheet; or, if VD Settings says so, the panel's distribution system |
 | TCL (kW) | Total Connected x PF |
 | MDL (kW) | `VD Load kW`, or Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
-| PF | `VD PF`, else the panel's own loads (true load / apparent load of its circuits), else the feeding circuit's, else VD Settings (reported in To fix) |
+| PF | 0.85 from VD Settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (VD Settings) the panel's own loads: true load / apparent load of its circuits |
 | Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
 | Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
 | Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |

@@ -66,11 +66,19 @@ def _voltage_text():
         format_number(values["voltage_3ph"]), format_number(values["voltage_1ph"]))
 
 
+def _pf_text():
+    values = settings.load()
+    if values["pf_source"] == "model":
+        return "from the loads in Revit"
+    return "%s (VD Settings)" % format_number(values["power_factor"])
+
+
 def _show(result, model, written):
     output = script.get_output()
     output.set_title(TITLE)
     output.print_md("# Voltage drop")
-    output.print_md("*Voltage Drop add-in %s. Voltage: %s.*" % (VERSION, _voltage_text()))
+    output.print_md("*Voltage Drop add-in %s. Voltage: %s. Power factor: %s.*" % (
+        VERSION, _voltage_text(), _pf_text()))
     output.print_md(report.headline(result))
     notes = []
     if model.skipped:
@@ -184,7 +192,8 @@ _SETTINGS = [
     ("voltage_3ph", "Three phase voltage", "V"),
     ("voltage_1ph", "Single phase voltage", "V"),
     ("voltage_source", "Voltage used", ""),
-    ("power_factor", "Power factor (when the model has none)", ""),
+    ("power_factor", "Power factor", ""),
+    ("pf_source", "Power factor used", ""),
     ("load_basis", "Load for the current", ""),
     ("limit_transformer", "Max V.D transformer to main board", "%"),
     ("limit_total", "Max V.D to the final load", "%"),
@@ -208,9 +217,15 @@ _VOLTAGE_SOURCE = {"settings": "the voltages above (as the office sheet)",
                    "model": "each panel's distribution system in Revit"}
 
 
+_PF_SOURCE = {"settings": "the power factor above on every cable (as the office sheet)",
+              "model": "the loads in Revit (the one above when they have none)"}
+
+
 def _shown(key, value):
     if key == "load_basis":
         return _BASIS[value]
+    if key == "pf_source":
+        return _PF_SOURCE[value]
     if key == "voltage_source":
         return _VOLTAGE_SOURCE[value]
     if isinstance(value, float):

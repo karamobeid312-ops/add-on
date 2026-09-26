@@ -247,7 +247,7 @@ def _title_block(sheet, info, settings):
         ("Frequency", 50, "Hz"),
         ("VOLTAGE/3PHASE", settings.voltage_3ph, "V"),
         ("VOLTAGE/1PHASE", settings.voltage_1ph, "V"),
-        ("Power factor (default)", settings.power_factor, ""),
+        ("Power factor", settings.power_factor, ""),
         ("Ambient air temp (cable tray)", settings.air_temperature, u"°C"),
         ("Ground temp (ground / ducts)", settings.ground_temperature, u"°C"),
         ("Laying depth", settings.depth or "-", "mm"),
