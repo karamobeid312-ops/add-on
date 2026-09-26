@@ -15,10 +15,19 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
-from sld.layout import CENTER, layout_diagram
+from sld.cables import (cable_from_revit_values, conductor_code, construction,
+                        insulation_code)
+from sld.layout import BOTTOM, CENTER, layout_diagram
 from sld.model import CircuitInfo, EquipmentInfo, build_diagram
 
 VIEW_NAME = "Single Line Diagram"
+
+# Optional text parameter on circuits. When filled in, its value is printed
+# as the cable description instead of the one generated from the circuit.
+CABLE_OVERRIDE_PARAM = "SLD Cable"
+
+# Outer sheath; Revit has no setting for it, so it is fixed here.
+CABLE_SHEATH = "PVC"
 INCHES_PER_FOOT = 12.0
 
 
@@ -39,6 +48,45 @@ def _param_text(element, bip):
 
 def _equipment_name(element):
     return _param_text(element, BuiltInParameter.RBS_ELEC_PANEL_NAME) or element.Name
+
+
+def _int_attr(obj, name, default=0):
+    try:
+        value = getattr(obj, name)
+        return int(value) if value is not None else default
+    except Exception:
+        return default
+
+
+def _cable_build(system):
+    """'Cu/XLPE/PVC' from the circuit's wire type (material/insulation)."""
+    material, insulation = "", ""
+    try:
+        wire_type = system.WireType
+        if wire_type is not None:
+            material = wire_type.WireMaterial.Name
+            insulation = wire_type.Insulation.Name
+    except Exception:
+        pass
+    return construction(conductor_code(material), insulation_code(insulation), CABLE_SHEATH)
+
+
+def _cable_text(system, wire_size):
+    """BS/IEC cable text, e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC."""
+    try:
+        override = system.LookupParameter(CABLE_OVERRIDE_PARAM)
+        if override is not None and override.HasValue and (override.AsString() or "").strip():
+            return override.AsString().strip()
+    except Exception:
+        pass
+    return cable_from_revit_values(
+        hots=_int_attr(system, "HotConductorsNumber"),
+        neutrals=_int_attr(system, "NeutralConductorsNumber"),
+        grounds=_int_attr(system, "GroundConductorsNumber"),
+        wire_size_text=wire_size,
+        build=_cable_build(system),
+        runs=_int_attr(system, "RunsNumber", 1),
+    )
 
 
 def extract(doc):
@@ -74,6 +122,7 @@ def extract(doc):
                 fed.append(el.UniqueId)
             else:
                 branch_count += 1
+        wire_size = _param_text(system, BuiltInParameter.RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM)
         circuits.append(CircuitInfo(
             id=system.UniqueId,
             source_id=source.UniqueId,
@@ -83,7 +132,8 @@ def extract(doc):
             poles=_param_text(system, BuiltInParameter.RBS_ELEC_NUMBER_OF_POLES),
             voltage=_param_text(system, BuiltInParameter.RBS_ELEC_VOLTAGE),
             load=_param_text(system, BuiltInParameter.RBS_ELEC_APPARENT_LOAD),
-            wire_size=_param_text(system, BuiltInParameter.RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM),
+            wire_size=wire_size,
+            cable=_cable_text(system, wire_size),
             fed_equipment_ids=fed,
             branch_load_count=branch_count,
         ))
@@ -136,7 +186,8 @@ def render(doc, drawing, view_name=VIEW_NAME):
         opts = TextNoteOptions(type_id)
         opts.HorizontalAlignment = (HorizontalTextAlignment.Center if t.align == CENTER
                                     else HorizontalTextAlignment.Left)
-        opts.VerticalAlignment = VerticalTextAlignment.Top
+        opts.VerticalAlignment = (VerticalTextAlignment.Bottom if t.valign == BOTTOM
+                                  else VerticalTextAlignment.Top)
         width = min(max(t.width / INCHES_PER_FOOT, min_w), max_w)
         TextNote.Create(doc, view.Id, _xyz(t.x, t.y), width, t.text, opts)
     return view

@@ -1,4 +1,4 @@
-from sld.layout import CENTER, LayoutOptions, layout_diagram
+from sld.layout import BOTTOM, CENTER, DOWN, UP, LayoutOptions, layout_diagram
 from sld.model import CircuitInfo, EquipmentInfo, build_diagram
 
 
@@ -21,45 +21,69 @@ def overlaps(a, b):
 
 
 def test_no_boxes_overlap_on_same_row():
-    for include in (False, True):
-        placements = list(layout_diagram(sample(include)).placements.values())
-        for i, a in enumerate(placements):
-            for b in placements[i + 1:]:
-                assert not overlaps(a, b), (a.node.title, b.node.title)
+    for direction in (UP, DOWN):
+        for include in (False, True):
+            opts = LayoutOptions(direction=direction)
+            placements = list(layout_diagram(sample(include), options=opts).placements.values())
+            for i, a in enumerate(placements):
+                for b in placements[i + 1:]:
+                    assert not overlaps(a, b), (a.node.title, b.node.title)
 
 
-def test_parent_centered_over_children_and_rows_descend():
+def test_default_grows_bottom_to_top():
     opts = LayoutOptions()
-    d = sample()
-    p = layout_diagram(d, options=opts).placements
+    assert opts.direction == UP
+    p = layout_diagram(sample(), options=opts).placements
     assert abs(p["MSB"].center_x - (p["DP-1"].center_x + p["DP-2"].center_x) / 2) < 1e-9
+    # source on the bottom row, each level one row higher
+    assert p["MSB"].bottom == 0
+    assert p["DP-1"].bottom == opts.row_pitch
+    assert p["LP-1"].bottom == 2 * opts.row_pitch
+    assert p["MSB"].top_y < p["DP-1"].bottom
+
+
+def test_down_direction_grows_top_to_bottom():
+    opts = LayoutOptions(direction=DOWN)
+    p = layout_diagram(sample(), options=opts).placements
     assert p["MSB"].top_y == 0
     assert p["DP-1"].top_y == -opts.row_pitch
     assert p["LP-1"].top_y == -2 * opts.row_pitch
 
 
-def test_every_child_has_a_drop_reaching_its_top():
-    d = sample(True)
-    drawing = layout_diagram(d)
-    for node in d.iter_nodes():
-        if node.feeder is None:
-            continue
-        k = drawing.placements[node.id]
-        assert any(abs(l.x1 - k.center_x) < 1e-9 and abs(l.x2 - k.center_x) < 1e-9
-                   and abs(l.y2 - k.top_y) < 1e-9 for l in drawing.lines), node.title
+def test_every_child_has_a_feeder_reaching_its_near_edge():
+    for direction in (UP, DOWN):
+        d = sample(True)
+        drawing = layout_diagram(d, options=LayoutOptions(direction=direction))
+        for node in d.iter_nodes():
+            if node.feeder is None:
+                continue
+            k = drawing.placements[node.id]
+            assert any(abs(l.x1 - k.center_x) < 1e-9 and abs(l.x2 - k.center_x) < 1e-9
+                       and abs(l.y2 - k.near_y) < 1e-9 for l in drawing.lines), node.title
+
+
+def test_up_feeders_leave_from_top_of_parent():
+    drawing = layout_diagram(sample())
+    msb = drawing.placements["MSB"]
+    assert any(abs(l.x1 - msb.center_x) < 1e-9 and abs(l.y1 - msb.top_y) < 1e-9
+               and l.y2 > l.y1 for l in drawing.lines)
+    # nothing is drawn below the source except the title
+    assert min(min(l.y1, l.y2) for l in drawing.lines) == msb.bottom
 
 
 def test_title_and_node_text():
     drawing = layout_diagram(sample(), title="SLD", subtitle="today")
-    texts = [t.text for t in drawing.texts]
-    assert "SLD\ntoday" in texts
-    assert any(t.startswith("MSB") and t_.align == CENTER for t, t_ in zip(texts, drawing.texts))
-    assert any(t.startswith("CKT 1") for t in texts)
+    titles = [t for t in drawing.texts if t.text == "SLD\ntoday"]
+    assert len(titles) == 1 and titles[0].y < 0  # under the sources
+    assert any(t.text.startswith("MSB") and t.align == CENTER for t in drawing.texts)
+    labels = [t for t in drawing.texts if t.text.startswith("CKT 1")]
+    assert labels and all(t.valign == BOTTOM for t in labels)
 
 
 def test_unknown_option_rejected():
-    try:
-        LayoutOptions(nope=1)
-    except TypeError:
-        return
-    assert False
+    for kwargs in ({"nope": 1}, {"direction": "sideways"}):
+        try:
+            LayoutOptions(**kwargs)
+        except (TypeError, ValueError):
+            continue
+        assert False, kwargs

@@ -30,7 +30,7 @@ class CircuitInfo(object):
 
     def __init__(self, id, source_id, circuit_number="", load_name="",
                  rating="", poles="", voltage="", load="", wire_size="",
-                 fed_equipment_ids=None, branch_load_count=0):
+                 fed_equipment_ids=None, branch_load_count=0, cable=""):
         self.id = id
         self.source_id = source_id
         self.circuit_number = circuit_number or ""
@@ -40,6 +40,7 @@ class CircuitInfo(object):
         self.voltage = voltage or ""
         self.load = load or ""
         self.wire_size = wire_size or ""
+        self.cable = cable or ""  # e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC
         self.fed_equipment_ids = list(fed_equipment_ids or [])
         self.branch_load_count = branch_load_count
 
@@ -59,9 +60,17 @@ class CircuitInfo(object):
             lines.append("CKT %s" % self.circuit_number)
         if self.breaker_text():
             lines.append(self.breaker_text())
-        if self.wire_size:
-            lines.append(self.wire_size)
+        lines.extend(self.cable_lines())
         return lines
+
+    def cable_lines(self):
+        """Cable text split so the earth core ('+ 1Cx...') gets its own line."""
+        parts = [p for p in self.cable_text().split(" + ") if p]
+        return parts[:1] + ["+ " + p for p in parts[1:]]
+
+    def cable_text(self):
+        """BS/IEC cable description, or Revit's raw wire size as fallback."""
+        return self.cable or self.wire_size
 
 
 class DiagramNode(object):
@@ -170,6 +179,7 @@ def _branch_node(circuit):
         details.append(", ".join(first))
     if circuit.load:
         details.append(circuit.load)
+    details.extend(circuit.cable_lines())
     return DiagramNode(BRANCH_CIRCUIT, circuit.id, title, details, circuit)
 
 

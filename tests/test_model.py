@@ -85,3 +85,10 @@ def test_natural_key():
 def test_feeder_label():
     c = CircuitInfo("c", "s", "1,3,5", rating="100 A", poles="3", wire_size="4#1, 1#6G")
     assert c.feeder_label_lines() == ["CKT 1,3,5", "100 A / 3P", "4#1, 1#6G"]
+
+
+def test_feeder_label_splits_iec_cable_at_earth():
+    c = CircuitInfo("c", "s", "1", rating="32 A", poles="3", wire_size="raw",
+                    cable=u"4Cx4mm\u00b2 Cu/XLPE/PVC + 1Cx4mm\u00b2 Cu/XLPE/PVC")
+    assert c.feeder_label_lines() == [
+        "CKT 1", "32 A / 3P", u"4Cx4mm\u00b2 Cu/XLPE/PVC", u"+ 1Cx4mm\u00b2 Cu/XLPE/PVC"]
