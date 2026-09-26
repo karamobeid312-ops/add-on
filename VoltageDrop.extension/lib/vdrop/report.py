@@ -7,49 +7,50 @@ import datetime
 
 from vdrop import VERSION
 from vdrop.parse import format_number
-from vdrop.xlsx import Formula, Style, Workbook, col_letter, ref
+from vdrop.xlsx import (Formula, Style, Workbook, col_letter, ref, text_points, wrap_lines,
+                        width_units)
 
 SHEET_NAME = "VOLTAGE DROP CALCULATION"
 TITLE = "VOLTAGE DROP CALCULATIONS"
 
 # Columns of the office sheet, plus REMARKS.
 COLUMNS = [
-    # (key, heading, width, number format)
-    ("sn", "S.N", 8, None),
-    ("from", "FROM", 14, None),
-    ("to", "TO", 16, None),
-    ("length", "DISTANCE(M)", 8, "General"),
-    ("phases", "PHASE", 6, "0"),
-    ("voltage", "VOLTAGE", 7, "0"),
-    ("tcl", "TCL(KW)", 8, "0.00"),
-    ("pf", "PF", 5, "0.00"),
-    ("mdl", "MDL(KW)", 8, "0.00"),
-    ("kva", "MDL (KVA)", 8, "0.00"),
-    ("current", "CURRENT(A)", 8, "0.0"),
-    ("breaker", "Breaker Rating(A)", 8, "0"),
-    ("breaker_check", "BREAKER PROTECTION ANALYSIS", 10, None),
-    ("installation", "CABLE LAYING LOCATION", 10, None),
-    ("runs", "NO.OF RUNS PER PHASE", 7, "0"),
-    ("cores", "NO.OF CORES", 6, "0"),
-    ("size", "CABLE CSA (mm2)", 7, "General"),
-    ("insulation", "INSULATION", 13, None),
-    ("rating", "Cable Ampacity per each run", 8, "0"),
-    ("total_rating", "Cable Total Ampacity", 8, "0"),
-    ("cable_check", "Cable Analysis", 8, None),
-    ("depth", "DEPTH (mm)", 7, "General"),
-    ("cb", "Cb\n(DEPTH DERATING FACTOR)", 8, "0.00"),
-    ("temperature", u"TEMPERATURE ( °C)", 8, "General"),
-    ("ca", "Ca\n(TEMPERATURE DERATING FACTOR)", 9, "0.00"),
-    ("resistivity", u"THERMAL RESISITIVITY\n( °C M/W )", 9, "General"),
-    ("cr", "Cr\n(SOIL THERMAL RESISTIVITY DERATING FACTOR)", 11, "0.00"),
-    ("cg", "Cg\n(GROUPING DERATING FACTOR)", 9, "0.00"),
-    ("capacity", "REQUIRED CURRENT CARRYING CAPACITY OF THE CABLE (A)", 11, "0.0"),
-    ("mv", "Mv/A/L", 8, "0.0000"),
-    ("vd", "V.D(V)", 7, "0.00"),
-    ("vd_percent", "V.D(%)", 7, "0.00"),
-    ("total", "CUMULATIVE V.D(%)", 9, "0.00"),
-    ("limit", "MAX V.D%", 6, "General"),
-    ("basis", "Calc. By\nTCL/MDL", 7, None),
+    # (key, heading, minimum width, number format); widths grow to fit
+    ("sn", "S.N", 6, None),
+    ("from", "FROM", 10, None),
+    ("to", "TO", 10, None),
+    ("length", "DISTANCE(M)", 4, "General"),
+    ("phases", "PHASE", 4, "0"),
+    ("voltage", "VOLTAGE", 4, "0"),
+    ("tcl", "TCL(KW)", 4, "0.00"),
+    ("pf", "PF", 4, "0.00"),
+    ("mdl", "MDL(KW)", 4, "0.00"),
+    ("kva", "MDL (KVA)", 4, "0.00"),
+    ("current", "CURRENT(A)", 4, "0.0"),
+    ("breaker", "Breaker Rating(A)", 4, "0"),
+    ("breaker_check", "BREAKER PROTECTION ANALYSIS", 4, None),
+    ("installation", "CABLE LAYING LOCATION", 4, None),
+    ("runs", "NO.OF RUNS PER PHASE", 4, "0"),
+    ("cores", "NO.OF CORES", 4, "0"),
+    ("size", "CABLE CSA (mm2)", 4, "General"),
+    ("insulation", "INSULATION", 4, None),
+    ("rating", "Cable Ampacity per each run", 4, "0"),
+    ("total_rating", "Cable Total Ampacity", 4, "0"),
+    ("cable_check", "Cable Analysis", 4, None),
+    ("depth", "DEPTH (mm)", 4, "General"),
+    ("cb", "Cb\n(DEPTH DERATING FACTOR)", 4, "0.00"),
+    ("temperature", u"TEMPERATURE ( °C)", 4, "General"),
+    ("ca", "Ca\n(TEMPERATURE DERATING FACTOR)", 4, "0.00"),
+    ("resistivity", u"THERMAL RESISITIVITY\n( °C W/M )", 4, "General"),
+    ("cr", "Cr\n(SOIL THERMAL RESISTIVITY DERATING FACTOR)", 4, "0.00"),
+    ("cg", "Cg\n(GROUPING DERATING FACTOR)", 4, "0.00"),
+    ("capacity", "REQUIRED CURRENT CARRYING CAPACITY OF THE CABLE (A)", 4, "0.0"),
+    ("mv", "Mv/A/L", 4, "0.0000"),
+    ("vd", "V.D(V)", 4, "0.00"),
+    ("vd_percent", "V.D(%)", 4, "0.00"),
+    ("total", "CUMULATIVE V.D(%)", 4, "0.00"),
+    ("limit", "MAX V.D%", 4, "General"),
+    ("basis", "Calc. By\nTCL/MDL", 4, None),
     ("remarks", "REMARKS", 40, None),
 ]
 COL = dict((key, i + 1) for i, (key, _, _, _) in enumerate(COLUMNS))
@@ -72,6 +73,13 @@ TITLE_FILL = "BDD7EE"
 _BASE = Style(size=9, halign="center")
 _TEXT = _BASE.copy(halign="left")
 _HEADER = _BASE.copy(bold=True, fill=HEADER_FILL, wrap=True)
+# Column headings read bottom to top, as in the office sheet, except the
+# wide text columns.
+HEADER_SIZE = 8
+HEADER_HEIGHT = 140.0          # pt
+_HORIZONTAL = ("sn", "from", "to", "remarks")
+_HEADING = _HEADER.copy(size=HEADER_SIZE)
+_HEADING_UP = _HEADING.copy(rotation=90)
 _PLAIN = Style(size=9, border=False, valign=None)
 
 
@@ -269,9 +277,42 @@ def _headers(sheet):
     for key in ("sn", "limit", "basis", "remarks"):
         sheet.write(GROUP_ROW, COL[key], None, _HEADER)
     for i, (key, heading, width, _) in enumerate(COLUMNS):
-        sheet.write(HEADER_ROW, i + 1, heading, _HEADER)
+        style = _HEADING if key in _HORIZONTAL else _HEADING_UP
+        sheet.write(HEADER_ROW, i + 1, heading, style)
         sheet.widths[i + 1] = width
-    sheet.heights[HEADER_ROW] = 78
+    sheet.heights[HEADER_ROW] = HEADER_HEIGHT
+
+
+def _shown(value, num_format):
+    """The text Excel shows for a cell value."""
+    if isinstance(value, Formula):
+        value = value.value
+    if value is None or value == "":
+        return ""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if num_format and num_format.startswith("0"):
+            decimals = len(num_format.split(".")[1]) if "." in num_format else 0
+            return ("%." + str(decimals) + "f") % value
+        return format_number(value, 4)
+    return u"%s" % value
+
+
+def _fit_columns(sheet, rows):
+    """Widen each column to its values and its heading, so no word breaks:
+    a rotated heading needs one line height per wrapped line."""
+    line = HEADER_SIZE * 1.25
+    for i, (key, heading, width, num_format) in enumerate(COLUMNS):
+        col = i + 1
+        if key == "remarks":
+            continue                 # fixed width, wrapped
+        if key in _HORIZONTAL:
+            need = max(width_units(text_points(w, HEADER_SIZE, True)) for w in heading.split())
+        else:
+            lines = wrap_lines(heading, HEADER_HEIGHT - 12, HEADER_SIZE, True)
+            need = width_units(len(lines) * line + 4)
+        for r in rows:
+            need = max(need, width_units(text_points(_shown(sheet.value(r, col), num_format))))
+        sheet.widths[col] = round(max(width, need + 1.2), 1)
 
 
 def _check(ok):
@@ -345,6 +386,7 @@ def build(result, settings, info=None):
     section_style = _TEXT.copy(bold=True, fill=SECTION_FILL)
 
     r = FIRST_ROW
+    data_rows = []
     for section in result.sections:
         sheet.merge(r, 1, r, LAST_COL, section.title, section_style)
         r += 1
@@ -353,8 +395,10 @@ def build(result, settings, info=None):
             placed[id(row)] = r
             parent_row = placed.get(id(row.parent)) if row.parent is not None else None
             _row(sheet, r, row, parent_row, styles)
+            data_rows.append(r)
             r += 1
     last = max(r - 1, FIRST_ROW)
+    _fit_columns(sheet, data_rows)
 
     r += 1
     sheet.merge(r, 1, r, COL["cable_check"], headline(result), _PLAIN.copy(bold=True))

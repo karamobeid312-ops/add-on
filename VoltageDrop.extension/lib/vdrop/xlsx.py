@@ -68,6 +68,57 @@ def excel_date(day):
     return (day - datetime.date(1899, 12, 30)).days
 
 
+# Arial (= Helvetica) character widths in 1/1000 em, for " " to "~".
+_REGULAR = (
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+    1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+    333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+    556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584)
+_BOLD = (
+    278, 333, 474, 556, 556, 889, 722, 238, 333, 333, 389, 584, 278, 333, 278, 278,
+    556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 333, 333, 584, 584, 584, 611,
+    975, 722, 722, 722, 722, 667, 611, 778, 722, 278, 556, 722, 611, 833, 722, 778,
+    667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 333, 278, 333, 584, 556,
+    333, 556, 611, 556, 611, 556, 333, 611, 611, 278, 278, 556, 278, 889, 611, 611,
+    611, 611, 389, 556, 333, 611, 556, 778, 556, 556, 500, 389, 280, 389, 584)
+_OTHER = {u"²": 333, u"°": 400, u"√": 549}
+
+
+def text_points(text, size=9, bold=False):
+    """Length of one line of text in points (Arial)."""
+    table = _BOLD if bold else _REGULAR
+    total = 0
+    for ch in u"%s" % text:
+        code = ord(ch)
+        total += table[code - 32] if 32 <= code < 127 else _OTHER.get(ch, 600)
+    return total * size / 1000.0
+
+
+def width_units(points):
+    """Excel column width (characters of the Arial 9 '0', 7 px at 96 dpi)
+    taken by `points` of text."""
+    return points / 0.75 / 7.0
+
+
+def wrap_lines(text, limit, size=9, bold=False):
+    """Lines of `text` wrapped at spaces to `limit` points, as Excel does
+    (explicit line breaks kept)."""
+    lines = []
+    for paragraph in (u"%s" % text).split("\n"):
+        line = ""
+        for word in paragraph.split():
+            candidate = (line + " " + word).strip()
+            if line and text_points(candidate, size, bold) > limit:
+                lines.append(line)
+                line = word
+            else:
+                line = candidate
+        lines.append(line)
+    return lines
+
+
 class Formula(object):
     """A formula (without '=') and the value it gives, shown until Excel
     recalculates."""
@@ -80,7 +131,7 @@ class Formula(object):
 class Style(object):
     def __init__(self, bold=False, italic=False, size=9, color=None, fill=None,
                  border=True, halign=None, valign="center", wrap=False,
-                 num_format=None):
+                 num_format=None, rotation=0):
         self.bold = bold
         self.italic = italic
         self.size = size
@@ -91,6 +142,7 @@ class Style(object):
         self.valign = valign
         self.wrap = wrap
         self.num_format = num_format
+        self.rotation = rotation    # 90: text reads bottom to top
 
     def copy(self, **changes):
         style = Style()
@@ -103,7 +155,7 @@ class Style(object):
 
     def _xf(self):
         return (self._font(), self.fill, self.border, self.halign, self.valign,
-                self.wrap, self.num_format)
+                self.wrap, self.num_format, self.rotation)
 
 
 class Highlight(object):
@@ -218,10 +270,11 @@ class Workbook(object):
         for s in styles:
             num_id = 164 + num_formats.index(s.num_format) if s.num_format else 0
             align = u""
-            if s.halign or s.valign or s.wrap:
-                align = u"<alignment%s%s%s/>" % (
+            if s.halign or s.valign or s.wrap or s.rotation:
+                align = u"<alignment%s%s%s%s/>" % (
                     u' horizontal="%s"' % s.halign if s.halign else u"",
                     u' vertical="%s"' % s.valign if s.valign else u"",
+                    u' textRotation="%d"' % s.rotation if s.rotation else u"",
                     u' wrapText="1"' if s.wrap else u"")
             out.append(u'<xf numFmtId="%d" fontId="%d" fillId="%d" borderId="%d" xfId="0"'
                        u'%s%s%s%s%s>%s</xf>' % (
