@@ -20,6 +20,7 @@ class Run(object):
         self.hidden = 0             # selected devices not shown in the view
         self.replaced = 0           # old dimensions deleted
         self.helpers = 0            # helper lines drawn through device centres
+        self.behind = 0             # strings along walls put behind their wall
         self.type_missing = ""      # dimension type of the settings that is not in this model
         self.dims_hidden = False    # the Dimensions category is hidden in the view
 
@@ -63,6 +64,12 @@ def summarize(run):
                      "wall on the other side, which may be the far one."
                      % (_count(run.other_skew, "string"),
                         "it goes" if run.other_skew == 1 else "they go"))
+    if run.behind == 1:
+        lines.append("1 string along a wall put behind the wall, where it would have crossed "
+                     "another string.")
+    elif run.behind:
+        lines.append("%d strings along walls put behind their wall, where they would have "
+                     "crossed other strings." % run.behind)
     if run.no_walls:
         lines.append("%s made without some of their walls: Revit did not take them (walls "
                      "in a linked model?)." % _count(run.no_walls, "string"))

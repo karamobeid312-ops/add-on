@@ -11,6 +11,8 @@ to an invisible detail line drawn in the view through the device's centre
 
 A device on a wall (face based on an upright face, or hosted by a wall) is
 dimensioned along its wall only, and its rays start 150 mm into the room.
+Where two of those strings would cross (at a corner), one goes behind its
+wall; the wall's thickness comes from the wall the device is on.
 
 Walls (and curtain panels and mullions) are found with rays shot from the
 devices along the strings: 150 mm below each device (under the ceiling
@@ -290,6 +292,23 @@ def _unit(x, y):
     return (x / length, y / length) if length > 1e-6 else None
 
 
+def _wall_width(instance):
+    """Thickness (ft) of the wall a device is on (hosted by it, or face
+    based on it, in this model or a link), or None."""
+    try:
+        host = instance.Host
+        if host is None:
+            return None
+        if id_int(host.Category.Id) == _WALL:
+            return host.Width
+        wall = host.GetLinkDocument().GetElement(instance.HostFace.LinkedElementId)
+        if id_int(wall.Category.Id) == _WALL:
+            return wall.Width
+    except Exception:
+        pass
+    return None
+
+
 def _facing(instance, transform):
     """(x, y) out of the wall into the room, for a device on a wall: face
     based on an upright face, or hosted by a wall. None otherwise."""
@@ -344,8 +363,10 @@ def read_devices(instances):
         if note:
             notes[(label, note)] = notes.get((label, note), 0) + 1
         if axes:
+            width = _wall_width(instance) if facing is not None else None
             devices.append(Device(instance.Id, point.X * M_PER_FOOT, point.Y * M_PER_FOOT, axes,
-                                  z=point.Z * M_PER_FOOT, label=label, facing=facing))
+                                  z=point.Z * M_PER_FOOT, label=label, facing=facing,
+                                  wall=width * M_PER_FOOT if width else None))
     return devices, notes
 
 
@@ -741,16 +762,18 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
         t.Commit()
 
         planned = plan(devices, WallFinder(doc, ray_view, level_z), every_row=every_row,
-                       walls=walls, right=(right.X, right.Y), up=(up.X, up.Y))
+                       walls=walls, right=(right.X, right.Y), up=(up.X, up.Y),
+                       offset=offset, extra=extra)
         run.alone = len(set(id(d) for d, _ in planned.alone))
         run.no_wall, run.skew = planned.no_wall, planned.skew
         run.other_no_wall, run.other_skew = planned.other_no_wall, planned.other_skew
+        run.behind = planned.behind
 
         t = Transaction(doc, "Dimension Devices")
         t.Start()
         helpers = _Helpers(doc, view, z)
         for chain in planned.chains:
-            (x0, y0), (x1, y1) = chain.line(offset, extra)
+            (x0, y0), (x1, y1) = chain.line()
             line = Line.CreateBound(XYZ(x0 / M_PER_FOOT, y0 / M_PER_FOOT, z),
                                     XYZ(x1 / M_PER_FOOT, y1 / M_PER_FOOT, z))
             dim, dropped, error = _make(doc, view, chain, line, dim_type, helpers)

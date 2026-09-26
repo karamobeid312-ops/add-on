@@ -78,3 +78,15 @@ def test_settings_values():
     assert settings.valid("dim_type", "Linear - 2.5mm Arial") == "Linear - 2.5mm Arial"
     assert settings.coerce("offset", "x") == settings.DEFAULTS["offset"]
     assert settings.coerce("ends", None) == "nearest"
+
+
+def test_strings_behind_their_wall():
+    run = Run("L1", 4)
+    run.made = [1, 2, 3]
+    run.behind = 2
+    _, details = summarize(run)
+    assert details == ("2 strings along walls put behind their wall, where they would have "
+                       "crossed other strings.")
+    run.behind = 1
+    assert summarize(run)[1] == ("1 string along a wall put behind the wall, where it would have "
+                                 "crossed another string.")
