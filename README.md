@@ -205,8 +205,9 @@ For a panel's incoming cable:
 | FROM / TO | Supply From (the board feeding it) / Panel Name |
 | PHASE | the panel's distribution system |
 | VOLTAGE | 400 V three phase / 230 V single phase from VD Settings, as the office sheet; or, if VD Settings says so, the panel's distribution system |
-| TCL (kW) | Total Connected x PF |
-| MDL (kW) | `VD Load kW`, or Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
+| TCL (kW) | Total Connected, as in the model (Revit's kVA x the power factor of the panel's own loads: loads entered in kW at PF 1 give the same number) |
+| MDL (kW) | `VD Load kW`, or Total Estimated Demand the same way (with MDL in VD Settings), else TCL |
+| MDL (kVA) | MDL (kW) / PF, with the PF below |
 | PF | 0.85 from VD Settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (VD Settings) the panel's own loads: true load / apparent load of its circuits |
 | Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
 | Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
