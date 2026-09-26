@@ -99,7 +99,8 @@ touch, send a screenshot.
 `FireAlarm.extension` adds a **Fire Alarm** tab with a **Detectors** panel:
 
 - **Smoke Detectors** / **Heat Detectors** – select the spaces (or click the
-  button and pick them), and a detector is placed on the ceiling so that
+  button and pick them, in this model or in a linked model, or take all
+  spaces on a level), and a detector is placed on the ceiling so that
   detectors are at most the spacing apart and at most half of it from the
   walls: **9 m / 4.5 m for smoke, 4.5 m / 2.25 m for heat**. Every point of
   the ceiling is then within 0.71 × spacing of a detector. The new
@@ -135,7 +136,8 @@ too narrow for it, where they go on the centreline.
 
 | Item | How |
 | --- | --- |
-| Spaces | MEP **Spaces** (or Rooms) in the model, pre-selected or picked. The outline is the space boundary at the wall finish face; shafts and columns cut out of it are kept clear. |
+| Spaces | MEP **Spaces** or **Rooms**, in this model or in **linked models**. Select them before clicking the button, or after clicking choose: *Pick spaces in this model*, *Pick spaces or rooms in a linked model*, or *All spaces or rooms on a level* (this model or one link, one or more levels). On Revit 2023+ spaces Tab-selected inside a link before clicking are used too. The outline is the boundary at the wall finish face; shafts and columns cut out of it are kept clear. |
+| Linked spaces | The outline is moved into this model with the link's position and rotation, and the detectors are placed in this model. To pick them, the link's Rooms / Spaces must be visible in the view (Visibility/Graphics → Revit Links → the link → Rooms or Spaces, *Interior* or *Reference*); *All spaces or rooms on a level* works whatever the view shows. Level-based families go on this model's level at or below the space's floor. |
 | Ceiling | A ray is shot straight up from each detector point and the detector goes on the **ceiling** under the slab above – in this model or in a linked model. Where there is no ceiling under the slab it goes on the slab (floor or roof), and the summary says so; floors lower than 1.5 m (stages, raised floors) are ignored. |
 | Detector family | Any family in the **Fire Alarm Devices** category. Face-based families go on the ceiling face (host or linked ceiling), ceiling-hosted families on the ceiling (only ceilings in this model can host), level-based families at ceiling height. The type is asked the first time and remembered; change it in FA Settings. |
 | Detectors already there | Detectors of the same type already in the selected spaces can be replaced or kept. |
@@ -185,7 +187,7 @@ FireAlarm.extension/
   Fire Alarm.tab/Detectors.panel/   Smoke Detectors, Heat Detectors, FA Settings
   lib/firealarm/
     layout.py      detector points in a space outline (no Revit)
-    revit_fa.py    spaces, ceilings found by ray, placing the family
+    revit_fa.py    spaces (here or in links), ceilings found by ray, placing
     report.py      summary shown after placing
     settings.py    per-user settings
     command.py     button entry points

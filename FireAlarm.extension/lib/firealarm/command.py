@@ -6,10 +6,54 @@ from System.Collections.Generic import List
 
 from firealarm import settings
 from firealarm.report import summarize
-from firealarm.revit_fa import (detector_types, pick_spaces, place_detectors,
-                                placement_kind, selected_spaces)
+from firealarm.revit_fa import (by_level, detector_types, linked_models,
+                                pick_linked_spaces, pick_spaces, place_detectors,
+                                placement_kind, selected_spaces, space_sources)
 
 TITLE = "Fire Alarm"
+
+PICK_HERE = "Pick spaces in this model"
+PICK_LINKED = "Pick spaces or rooms in a linked model"
+BY_LEVEL = "All spaces or rooms on a level"
+
+
+def _spaces_on_levels(doc):
+    sources = space_sources(doc)
+    if not sources:
+        forms.alert("There are no placed spaces or rooms in this model or its links.",
+                    title=TITLE)
+        return []
+    if len(sources) == 1:
+        refs = sources[0][1]
+    else:
+        chosen = forms.SelectFromList.show([label for label, _ in sources], title="Spaces from",
+                                           button_name="Next", multiselect=False)
+        if not chosen:
+            return []
+        refs = dict(sources)[chosen]
+    levels = by_level(refs)
+    chosen = forms.SelectFromList.show([label for label, _ in levels], title="Levels",
+                                       button_name="Place detectors", multiselect=True)
+    if not chosen:
+        return []
+    found = dict(levels)
+    return [ref for label in chosen for ref in found[label]]
+
+
+def _choose_spaces(doc, uidoc):
+    """Spaces selected before clicking, or picked / taken by level now."""
+    spaces = selected_spaces(uidoc)
+    if spaces:
+        return spaces
+    options = [PICK_HERE] + ([PICK_LINKED] if linked_models(doc) else []) + [BY_LEVEL]
+    choice = forms.CommandSwitchWindow.show(options, message="Which spaces get detectors?")
+    if choice == PICK_HERE:
+        return pick_spaces(uidoc)
+    if choice == PICK_LINKED:
+        return pick_linked_spaces(uidoc)
+    if choice == BY_LEVEL:
+        return _spaces_on_levels(doc)
+    return []
 
 
 def _detector_type(doc, kind, values, ask=False):
@@ -50,7 +94,7 @@ def run(kind):
         return
     values = settings.load()
 
-    spaces = selected_spaces(uidoc) or pick_spaces(uidoc)
+    spaces = _choose_spaces(doc, uidoc)
     if not spaces:
         return
     symbol = _detector_type(doc, kind, values)
