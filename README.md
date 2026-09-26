@@ -9,10 +9,13 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-The repository also holds a **Fire Alarm** extension that places smoke and
-heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors),
-and a **Voltage Drop** extension that calculates the voltage drop of every
-cable and saves the office voltage drop sheet, see [Voltage drop](#voltage-drop).
+Everything is on one **Electrical** ribbon tab, with three panels:
+
+| Panel | Buttons |
+| --- | --- |
+| **SLD** | Generate SLD, SLD Settings |
+| **Fire Alarm** | Smoke Detectors, Heat Detectors, FA Settings: places smoke and heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors) |
+| **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 
 ## What gets drawn
 
@@ -30,7 +33,7 @@ cable and saves the office voltage drop sheet, see [Voltage drop](#voltage-drop)
 | **Feeders between boards** | Risers straight up from the way, jogging around any board in the way and lining up under the fed board's incomer. |
 | **Ratings** (optional) | Breaker rating and BS/IEC cable along each way, e.g. `63A TP` / `4Cx16mm² Cu/XLPE/PVC` / `+ 1Cx16mm² Cu/XLPE/PVC`. |
 
-Buttons on the **SLD** tab → **Electrical** panel:
+Buttons on the **Electrical** tab → **SLD** panel:
 
 - **Generate SLD** – creates a new drafting view `LV Schematic Diagram`
   (`LV Schematic Diagram 2`, ... on later runs; earlier diagrams are never
@@ -90,7 +93,7 @@ wire sizes Revit's wire size text is shown unchanged.
 
 Every size, text height and fixed label (`MCCB`, `ACB`, `FORM 2b`, `BUSBAR
 MOUNTED FUSE @ 20A`, `R<1Ω`...) is in
-[`lib/sld/style.py`](SingleLineDiagram.extension/lib/sld/style.py), in
+[`lib/sld/style.py`](Electrical.extension/lib/sld/style.py), in
 millimetres on paper. Text notes use types named `SLD <size>mm Arial`, created
 automatically and reset to these settings (size, Arial, transparent) on every
 run. Text is laid out so it never needs wrapping; if you see text wrap or
@@ -98,7 +101,7 @@ touch, send a screenshot.
 
 ## Fire alarm detectors
 
-`FireAlarm.extension` adds a **Fire Alarm** tab with a **Detectors** panel:
+The **Fire Alarm** panel of the **Electrical** tab:
 
 - **Smoke Detectors** / **Heat Detectors** – select the spaces (or click the
   button and pick them), and a detector is placed on the ceiling so that
@@ -144,7 +147,7 @@ too narrow for it, where they go on the centreline.
 
 ## Voltage drop
 
-`VoltageDrop.extension` adds a **Voltage Drop** tab with a **Calculation** panel:
+The **Voltage Drop** panel of the **Electrical** tab:
 
 - **Calculate VD** – calculates the incoming cable of every panel, from the
   transformer down, and every final circuit with a length. Writes
@@ -233,7 +236,7 @@ limit       2.5 % transformer to main board, 4 % to the final load
 
 Ratings, mV/A/m and the derating factors Ca (temperature), Cb (depth) and
 Cr (soil thermal resistivity) are the office sheet's DUCAB XLPE tables, in
-[`lib/vdrop/tables.py`](VoltageDrop.extension/lib/vdrop/tables.py). Where
+[`lib/vdrop/tables.py`](Electrical.extension/lib/vdrop/tables.py). Where
 the tool differs from the sheet:
 
 - √3 instead of 1.73 (0.12 % lower).
@@ -252,9 +255,15 @@ the tool differs from the sheet:
 1. Install pyRevit.
 2. Download this repository and unzip it somewhere permanent.
 3. In Revit: **pyRevit tab → Settings → Custom Extension Directories → Add
-   folder**, pick the folder that *contains* `SingleLineDiagram.extension`,
-   `FireAlarm.extension` and `VoltageDrop.extension`, save and reload. The
-   tabs (SLD, Fire Alarm, Voltage Drop) appear.
+   folder**, pick the folder that *contains* `Electrical.extension`, save
+   and reload. The **Electrical** tab appears.
+
+Updating from a version with three tabs (SLD, Fire Alarm, Voltage Drop):
+delete the old `SingleLineDiagram.extension`, `FireAlarm.extension` and
+`VoltageDrop.extension` folders, then reload.
+
+Button icons are drawn by `tools/make_icons.py` (`icon.png`, and
+`icon.dark.png` for Revit's dark theme).
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
@@ -283,8 +292,11 @@ the rows of an office voltage drop sheet).
 ## Project layout
 
 ```
-SingleLineDiagram.extension/
-  SLD.tab/Electrical.panel/   Generate SLD, SLD Settings buttons
+Electrical.extension/
+  Electrical.tab/
+    SLD.panel/            Generate SLD, SLD Settings
+    Fire Alarm.panel/     Smoke Detectors, Heat Detectors, FA Settings
+    Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -295,16 +307,12 @@ SingleLineDiagram.extension/
     revit_sld.py   reads the Revit model, draws into a drafting view
     settings.py    per-user settings
     command.py     button entry points
-FireAlarm.extension/
-  Fire Alarm.tab/Detectors.panel/   Smoke Detectors, Heat Detectors, FA Settings
   lib/firealarm/
     layout.py      detector points in a space outline (no Revit)
     revit_fa.py    spaces, ceilings found by ray, placing the family
     report.py      summary shown after placing
     settings.py    per-user settings
     command.py     button entry points
-VoltageDrop.extension/
-  Voltage Drop.tab/Calculation.panel/   Calculate VD, VD Report, VD Settings
   lib/vdrop/
     calc.py        voltage drop, cable and breaker checks, suggestions (no Revit)
     tables.py      cable ratings, mV/A/m, derating factors of the office sheet
@@ -315,7 +323,7 @@ VoltageDrop.extension/
     revit_vd.py    panels and circuits to rows, results to parameters, setup
     settings.py    per-user settings
     command.py     button entry points
-tools/             sample models, SVG and report previews
+tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
 
