@@ -270,7 +270,7 @@ The **Dimensions** panel of the **Electrical** tab:
   dimension. The new dimensions are selected when done, one undo removes
   them all, and a summary lists what could not be dimensioned.
 - **Dim Settings** – dimension type (the model's default until you pick
-  one), distance from the devices to the dimension line (5 mm on the
+  one), distance from the devices to the dimension line (8 mm on the
   printed sheet), every row and column or only what is needed, and the
   walls: the nearest one only, both (wall to wall), or none (between
   devices only).
@@ -304,10 +304,10 @@ left of vertical ones), so the text stays clear of the devices.
 
 | Item | How |
 | --- | --- |
-| View | The active floor plan or ceiling plan. The dimension line is 5 mm on the printed sheet from the devices (0.5 m at 1:100). |
+| View | The active floor plan or ceiling plan. The dimension line is 8 mm on the printed sheet from the devices (0.8 m at 1:100), so its witness lines run clear of the device symbols and show which device each one is for. |
 | Devices | Family instances in this model. *All devices in this view* and spaces take fire alarm devices, lighting fixtures and devices, electrical fixtures, communication, data, security, nurse call and telephone devices, and generic models; selected or picked devices can be of any category. Devices in linked models are not dimensioned. |
 | Dimensioned to | The centre reference planes of the family, *Center (Left/Right)* and *Center (Front/Back)*, which Autodesk's family templates have. A centre plane set as a Strong or Weak reference is found by its name, or else by its position (the reference plane through the insertion point). A family with none (centre planes set to *Not a Reference*) is dimensioned to invisible detail lines drawn in the view through each device's centre, and the summary says so. Those dimensions do not move with the devices: run the tool again after moving them, it replaces the old dimensions and lines. For dimensions that move with the devices, set *Is Reference* of the family's centre planes to *Center (Left/Right)* / *Center (Front/Back)*. |
-| Devices on walls | Face-based families on a wall, and wall-hosted families. They are dimensioned along their wall only (never across the room), from the nearest corner. Their rays start 150 mm into the room, and the dimension line goes into the room: 5 mm from the wall, or 4 mm more when the text would face the wall, so it clears the symbols. Where two strings would cross or run over each other's text (two walls dimensioned from the same corner), one of them goes behind its wall instead, clear of the wall's thickness; the summary says how many. |
+| Devices on walls | Face-based families on a wall, and wall-hosted families. They are dimensioned along their wall only (never across the room), from the nearest corner. Their rays start 150 mm into the room, and the dimension line goes into the room: 8 mm from the wall, and at least 9 mm when the text would face the wall, so it clears the symbols. Where two strings would cross or run over each other's text (two walls dimensioned from the same corner), one of them goes behind its wall instead, clear of the wall's thickness; the summary says how many. |
 | Walls | Walls, curtain panels and mullions, in this model or in linked models, found by rays shot from the devices along the string: one 150 mm below each device (for ceiling devices: under the ceiling and above the doors), one 0.5 m above the level (under the windows, and for walls that stop below the ceiling). A door or window a ray meets stands for the wall it is in, so a string never goes through a doorway or a window. The nearer wall wins; the lower ray passes walls under 2 m high. A wall in a link is dimensioned through the link; when Revit does not take it, the string is made without that wall and the summary says so. When no wall is found on one side, or it is not square to the devices, the string goes to the wall on the other side, and the summary says so. |
 | Existing dimensions | Dimensions in the view that already go to the devices (or to their helper lines) can be replaced or kept. |
 

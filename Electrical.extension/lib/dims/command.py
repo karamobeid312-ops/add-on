@@ -118,7 +118,8 @@ def run():
     if values["dim_type"]:
         dim_type = revit_dims.dimension_types(doc).get(values["dim_type"])
     result = revit_dims.dimension(
-        doc, view, devices, dim_type, values["offset"], every_row=values["strings"] == "every",
+        doc, view, devices, dim_type, values["line_offset"],
+        every_row=values["strings"] == "every",
         walls=values["ends"], old=old if replace else (),
         old_helpers=old_helpers if replace else ())
     result.notes, result.hidden = notes, hidden
@@ -136,7 +137,7 @@ def run():
 
 _SETTINGS = [
     ("dim_type", "Dimension type"),
-    ("offset", "Dimension line from the devices"),
+    ("line_offset", "Dimension line from the devices"),
     ("strings", "Strings"),
     ("ends", "Walls"),
 ]
@@ -159,7 +160,7 @@ def _shown(doc, key, value):
             return value
         default = revit_dims.default_type_name(doc) if doc is not None else ""
         return "the model's default" + (u" (%s)" % default if default else "")
-    if key == "offset":
+    if key == "line_offset":
         return "%s mm on the printed sheet" % _number(value)
     return _SHOWN[key][value]
 
@@ -205,7 +206,7 @@ def edit_settings():
             text = forms.ask_for_string(
                 default=_number(values[key]),
                 prompt="Distance from the devices to the dimension line, in mm on the printed "
-                       "sheet (0 = through the devices):",
+                       "sheet. More gives longer witness lines (0 = through the devices):",
                 title="%s Settings" % TITLE)
             if text is None:
                 continue

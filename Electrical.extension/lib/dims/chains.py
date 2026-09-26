@@ -338,15 +338,15 @@ def _pick(k, candidates, tol, every_row):
 
 
 def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up=(0.0, 1.0),
-         tol=ALIGN_TOL, offset=0.0, extra=0.0):
+         tol=ALIGN_TOL, offset=0.0, clear=0.0, band=0.0):
     """Dimension strings for `devices` ([Device]).
 
     find_wall(device, (dx, dy)) -> Hit or None. every_row False: only the
     strings needed to fix every position. walls: NEAREST, BOTH or NONE
     (walls still cut the rows). right / up: the view's directions, to know
     which side of a string has the text. offset: the dimension line from
-    the devices; extra: more when the text would face the devices, and the
-    room taken by the text (see _lay())."""
+    the devices; clear: at least this far when its text would be between
+    them; band: the room taken by the text (see _lay())."""
     result = Plan()
     for angle, members in _groups(devices):
         cache, rays, sides, pieces = {}, {}, {}, []
@@ -381,7 +381,7 @@ def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up
             chosen.extend((k, chain) for chain in picked)
             result.alone.extend((i.device, angle + k * QUARTER) for i in alone)
         chosen.sort(key=lambda kc: (kc[0], kc[1].across, kc[1].stops[0].at))
-        result.behind += _lay([chain for _, chain in chosen], angle, offset, extra)
+        result.behind += _lay([chain for _, chain in chosen], angle, offset, clear, band)
         for _, chain in chosen:
             result.chains.append(chain)
             result.no_wall += chain.ends.count(NO_WALL)
@@ -391,13 +391,13 @@ def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up
     return result
 
 
-def _shift(chain, offset, extra, behind=False):
+def _shift(chain, offset, clear, behind=False):
     """Across offset of the dimension line from the devices: `offset` on
     the chain's side (for a string along a wall behind it, past the wall),
-    and `extra` more when the text faces the devices."""
+    and at least `clear` when the text is between the line and the devices."""
     side = -chain.side if behind else chain.side
     past = chain.wall if behind else 0.0
-    return side * (past + offset + (0.0 if side == chain.text else extra))
+    return side * (past + (offset if side == chain.text else max(offset, clear)))
 
 
 def _box(chain, band, c, s):
@@ -416,20 +416,20 @@ def _overlap(a, b):
     return a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]
 
 
-def _lay(chains, angle, offset, extra):
+def _lay(chains, angle, offset, clear, band):
     """Place the dimension lines of one group of strings; returns how many
     strings along walls went behind their wall.
 
     A string's line goes on the side of its text, and a string along a
     wall into the room. Then, a few passes: a string along a wall whose
-    line and text (a band `extra` wide) run into another string's is moved
+    line and text (`band` wide) run into another string's is moved
     to the other side of its wall when that runs into fewer; the shortest
     strings move first."""
     c, s = math.cos(angle), math.sin(angle)
     for chain in chains:
-        chain.shift, chain.behind = _shift(chain, offset, extra), False
+        chain.shift, chain.behind = _shift(chain, offset, clear), False
     walls = sorted([ch for ch in chains if ch.wall is not None], key=lambda ch: ch.length)
-    boxes = dict((id(ch), _box(ch, extra, c, s)) for ch in chains)
+    boxes = dict((id(ch), _box(ch, band, c, s)) for ch in chains)
 
     def hits(chain, box):
         return sum(1 for other in chains
@@ -441,14 +441,14 @@ def _lay(chains, angle, offset, extra):
             now = hits(chain, boxes[id(chain)])
             if not now:
                 continue
-            chain.shift = _shift(chain, offset, extra, behind=not chain.behind)
-            flipped = _box(chain, extra, c, s)
+            chain.shift = _shift(chain, offset, clear, behind=not chain.behind)
+            flipped = _box(chain, band, c, s)
             if hits(chain, flipped) < now:
                 chain.behind = not chain.behind
                 boxes[id(chain)] = flipped
                 changed = True
             else:
-                chain.shift = _shift(chain, offset, extra, behind=chain.behind)
+                chain.shift = _shift(chain, offset, clear, behind=chain.behind)
         if not changed:
             break
     return sum(1 for ch in walls if ch.behind)
