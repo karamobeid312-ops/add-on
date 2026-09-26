@@ -62,13 +62,13 @@ def test_only_what_is_needed_fixes_a_grid_with_one_row_and_one_column():
 
 
 def test_dimension_lines_sit_on_the_text_side():
-    result = run(OFFICE, segments([rect(0, 0, 20, 12)]), walls=BOTH)
+    result = run(OFFICE, segments([rect(0, 0, 20, 12)]), walls=BOTH, offset=0.5, extra=0.4)
     for chain in horizontal(result):
-        (x0, y0), (x1, y1) = chain.line(0.5)
+        (x0, y0), (x1, y1) = chain.line()
         assert y0 == pytest.approx(chain.members[0].y + 0.5)    # above the row
         assert (x0, x1) == (pytest.approx(0.0), pytest.approx(20.0))
     for chain in vertical(result):
-        (x0, y0), (x1, y1) = chain.line(0.5)
+        (x0, y0), (x1, y1) = chain.line()
         assert x0 == pytest.approx(chain.members[0].x - 0.5)    # left of the column
         assert (y0, y1) == (pytest.approx(0.0), pytest.approx(12.0))
 
@@ -335,15 +335,16 @@ def test_sockets_are_dimensioned_along_their_wall_from_the_nearest_corner():
 
 
 def test_dimension_lines_of_sockets_are_in_the_room():
-    result = plan(SOCKETS, segment_walls(SOCKET_ROOM))
-    lines = dict((c.members[0].key, c.line(0.5, 0.4)) for c in result.chains)
+    result = plan(SOCKETS, segment_walls(SOCKET_ROOM), offset=0.5, extra=0.4)
+    lines = dict((c.members[0].key, c.line()) for c in result.chains)
     assert lines[0][0][1] == pytest.approx(0.5)             # bottom: text faces the room
     assert lines[2][0][1] == pytest.approx(4.0 - 0.9)       # top: text would face the wall
     assert lines[3][0][0] == pytest.approx(0.9)             # left: vertical text on the wall side
     assert lines[4][0][0] == pytest.approx(6.0 - 0.5)       # right
     for chain in result.chains:
-        (x0, y0), (x1, y1) = chain.line(0.5, 0.4)
+        (x0, y0), (x1, y1) = chain.line()
         assert 0 < x0 < 6 or 0 < y0 < 4
+    assert result.behind == 0                   # no two strings meet at a corner
 
 
 def test_only_what_is_needed_keeps_every_wall():
@@ -357,3 +358,54 @@ def test_sockets_on_one_wall_line_in_two_rooms():
     devices = [socket(0, 2.0, 0.0, (0, 1)), socket(1, 11.0, 0.0, (0, 1))]
     result = plan(devices, segment_walls(walls))
     assert sorted(along(c) for c in result.chains) == [[0.0, 2.0], [11.0, 12.2]]
+
+
+def boxes_overlap(result, band=0.4):
+    """Whether the line and text band of any two strings overlap."""
+    from dims.chains import _box, _overlap
+    boxes = [_box(c, band, 1.0, 0.0) for c in result.chains]
+    return any(_overlap(a, b) for i, a in enumerate(boxes) for b in boxes[i + 1:])
+
+
+def test_strings_meeting_at_a_corner_do_not_cross():
+    # as the drawing: sockets on the top wall and one on the left wall, all
+    # dimensioned from the top-left corner: their strings would cross
+    devices = [socket(0, 1.2, 4.0, (0, -1)), socket(1, 3.0, 4.0, (0, -1)),   # top wall
+               socket(2, 0.0, 2.8, (1, 0))]                                  # left wall
+    result = plan(devices, segment_walls(SOCKET_ROOM), offset=0.5, extra=0.4)
+    top = [c for c in result.chains if c.members[0].key == 0][0]
+    left = [c for c in result.chains if c.members[0].key == 2][0]
+    assert along(top)[0] == 0.0 and along(left)[-1] == 4.0      # both from the corner
+    assert result.behind == 1 and left.behind and not top.behind  # the shorter one moves
+    assert top.line()[0][1] == pytest.approx(3.1)                # top stays in the room
+    assert left.line()[0][0] == pytest.approx(-0.7)              # left: behind its 200 mm wall
+    assert not boxes_overlap(result)
+
+
+def test_strings_meeting_at_a_corner_in_the_room_do_not_cross():
+    # bottom wall and right wall, both from the bottom-right corner
+    devices = [socket(0, 4.8, 0.0, (0, 1)), socket(1, 3.0, 0.0, (0, 1)),     # bottom wall
+               socket(2, 6.0, 1.4, (-1, 0))]                                 # right wall
+    result = plan(devices, segment_walls(SOCKET_ROOM), offset=0.5, extra=0.4)
+    assert result.behind == 1 and not boxes_overlap(result)
+
+
+def test_back_to_back_sockets_stay_in_their_rooms():
+    walls = segments([rect(0, 0, 6, 4), rect(0, 4.2, 6, 8.2)])
+    devices = [socket(0, 1.5, 4.0, (0, -1)), socket(1, 1.5, 4.2, (0, 1))]    # both faces
+    result = plan(devices, segment_walls(walls), offset=0.5, extra=0.4)
+    assert result.behind == 0
+    ys = sorted(c.line()[0][1] for c in result.chains)
+    assert ys[0] < 4.0 and ys[1] > 4.2                          # each in its own room
+
+
+def test_a_string_with_no_room_behind_its_wall_stays():
+    # the left wall string cannot go behind: the room there has a string along
+    # the same wall, and in the room it meets the top wall string
+    walls = segments([rect(0, 0, 6, 4), rect(-6.2, 0, -0.2, 4)])
+    devices = [socket(0, 1.2, 4.0, (0, -1)), socket(1, 3.0, 4.0, (0, -1)),   # top wall
+               socket(2, 0.0, 2.8, (1, 0)),                                  # left wall
+               socket(3, -0.2, 3.1, (-1, 0))]                                # its other face
+    result = plan(devices, segment_walls(walls), offset=0.5, extra=0.4)
+    left = [c for c in result.chains if c.members[0].key == 2][0]
+    assert not left.behind and left.line()[0][0] > 0

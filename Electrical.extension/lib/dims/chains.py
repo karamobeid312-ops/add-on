@@ -23,7 +23,9 @@ and columns with no wall between them are one room.
 A device on a wall (facing set: the way out of the wall into the room)
 has one axis, along its wall, so its string runs along the wall from the
 nearest corner. The dimension line of such a string goes into the room,
-with more space when its text would face the wall.
+with more space when its text would face the wall; when its line and text
+would run into another string's (two walls meeting at a corner), it goes
+behind its wall instead.
 
 Walls come from find_wall(device, (dx, dy)): the first wall face from
 the device in that direction, as a Hit, or None.
@@ -38,6 +40,7 @@ import math
 ALIGN_TOL = 0.02        # m: devices this close across a string are one row
 ANGLE_TOL = 1e-4        # rad: axes and walls this close are parallel
 WALL_GAP = 0.01         # m: a wall face closer than this to the device is not dimensioned
+WALL = 0.2              # m: thickness of a wall, when not known
 QUARTER = math.pi / 2
 EPS = 1e-9
 
@@ -56,12 +59,13 @@ class Device(object):
     the plan: the direction of the plane's normal (radians) and the
     caller's reference to the plane."""
 
-    def __init__(self, key, x, y, axes, z=0.0, label="", facing=None):
+    def __init__(self, key, x, y, axes, z=0.0, label="", facing=None, wall=None):
         self.key = key
         self.x, self.y, self.z = x, y, z
         self.axes = list(axes)
         self.label = label
         self.facing = facing        # (x, y) out of its wall into the room, for a device on a wall
+        self.wall = wall            # m: thickness of that wall, when known
 
 
 class Hit(object):
@@ -89,16 +93,25 @@ class Stop(object):
 class Chain(object):
     """One dimension string."""
 
-    def __init__(self, angle, across, stops, side, members, ends, other=None, text_away=True):
+    def __init__(self, angle, across, stops, side, members, ends, other=None, text=None,
+                 wall=None):
         self.angle = angle          # direction of the string (radians)
         self.across = across        # position across the string (m, string frame)
         self.stops = stops          # [Stop] in order along the string
-        self.side = side            # +1 / -1: side across the string that has the text
+        self.side = side            # +1 / -1: side across the string for the dimension line:
+                                    # that of the text, or for a string along a wall the room
+        self.text = side if text is None else text      # +1 / -1: side of the text
         self.members = members      # [Device] in the string (repeats share a stop)
         self.ends = ends            # [start, end]: None, NO_WALL or SKEW
         self.other = other          # NEAREST: why the wall on the other side was not
                                     # taken instead (NO_WALL, SKEW), None: it was farther
-        self.text_away = text_away  # the text is on the far side of the line from the devices
+        self.wall = wall            # m: thickness of the wall, for a string along a wall
+        self.shift = 0.0            # m: the dimension line, across from the devices (plan())
+        self.behind = False         # a string along a wall moved behind it (plan())
+
+    @property
+    def length(self):
+        return self.stops[-1].at - self.stops[0].at
 
     @property
     def walls(self):
@@ -109,11 +122,9 @@ class Chain(object):
         c, s = math.cos(self.angle), math.sin(self.angle)
         return (along * c - across * s, along * s + across * c)
 
-    def line(self, offset=0.0, extra=0.0):
-        """End points of the dimension line, `offset` from the devices on
-        the side of the text (on a wall: into the room), and `extra` more
-        when the text would face the devices."""
-        across = self.across + self.side * (offset + (0.0 if self.text_away else extra))
+    def line(self):
+        """End points of the dimension line (see plan() for where it goes)."""
+        across = self.across + self.shift
         return self.point(self.stops[0].at, across), self.point(self.stops[-1].at, across)
 
 
@@ -127,6 +138,7 @@ class Plan(object):
         self.skew = 0               # string ends at a wall not square to the string
         self.other_no_wall = 0      # NEAREST: strings with no wall found on the other side
         self.other_skew = 0         # NEAREST: strings with a skew wall on the other side
+        self.behind = 0             # strings along walls moved behind their wall
 
 
 def text_side(dx, dy, right=(1.0, 0.0), up=(0.0, 1.0)):
@@ -271,7 +283,8 @@ def _chain(piece, alpha, ray, walls, tol, side):
     room = _room_side(members, alpha)
     if room is None:
         return Chain(alpha, across, stops, side, members, ends, other)
-    return Chain(alpha, across, stops, room, members, ends, other, text_away=room == side)
+    wall = max(m.wall if m.wall is not None else WALL for m in members)
+    return Chain(alpha, across, stops, room, members, ends, other, text=side, wall=wall)
 
 
 def _room_side(devices, alpha):
@@ -325,13 +338,15 @@ def _pick(k, candidates, tol, every_row):
 
 
 def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up=(0.0, 1.0),
-         tol=ALIGN_TOL):
+         tol=ALIGN_TOL, offset=0.0, extra=0.0):
     """Dimension strings for `devices` ([Device]).
 
     find_wall(device, (dx, dy)) -> Hit or None. every_row False: only the
     strings needed to fix every position. walls: NEAREST, BOTH or NONE
     (walls still cut the rows). right / up: the view's directions, to know
-    which side of a string has the text."""
+    which side of a string has the text. offset: the dimension line from
+    the devices; extra: more when the text would face the devices, and the
+    room taken by the text (see _lay())."""
     result = Plan()
     for angle, members in _groups(devices):
         cache, rays, sides, pieces = {}, {}, {}, []
@@ -366,6 +381,7 @@ def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up
             chosen.extend((k, chain) for chain in picked)
             result.alone.extend((i.device, angle + k * QUARTER) for i in alone)
         chosen.sort(key=lambda kc: (kc[0], kc[1].across, kc[1].stops[0].at))
+        result.behind += _lay([chain for _, chain in chosen], angle, offset, extra)
         for _, chain in chosen:
             result.chains.append(chain)
             result.no_wall += chain.ends.count(NO_WALL)
@@ -373,6 +389,69 @@ def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up
             result.other_no_wall += chain.other == NO_WALL
             result.other_skew += chain.other == SKEW
     return result
+
+
+def _shift(chain, offset, extra, behind=False):
+    """Across offset of the dimension line from the devices: `offset` on
+    the chain's side (for a string along a wall behind it, past the wall),
+    and `extra` more when the text faces the devices."""
+    side = -chain.side if behind else chain.side
+    past = chain.wall if behind else 0.0
+    return side * (past + offset + (0.0 if side == chain.text else extra))
+
+
+def _box(chain, band, c, s):
+    """(u0, u1, v0, v1): the dimension line and the band of its text, in
+    the frame of the group (angle with cos c, sin s)."""
+    line = chain.across + chain.shift
+    lo, hi = sorted((line, line + chain.text * band))
+    corners = [chain.point(a, b) for a in (chain.stops[0].at, chain.stops[-1].at)
+               for b in (lo, hi)]
+    us = [x * c + y * s for x, y in corners]
+    vs = [-x * s + y * c for x, y in corners]
+    return min(us), max(us), min(vs), max(vs)
+
+
+def _overlap(a, b):
+    return a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]
+
+
+def _lay(chains, angle, offset, extra):
+    """Place the dimension lines of one group of strings; returns how many
+    strings along walls went behind their wall.
+
+    A string's line goes on the side of its text, and a string along a
+    wall into the room. Then, a few passes: a string along a wall whose
+    line and text (a band `extra` wide) run into another string's is moved
+    to the other side of its wall when that runs into fewer; the shortest
+    strings move first."""
+    c, s = math.cos(angle), math.sin(angle)
+    for chain in chains:
+        chain.shift, chain.behind = _shift(chain, offset, extra), False
+    walls = sorted([ch for ch in chains if ch.wall is not None], key=lambda ch: ch.length)
+    boxes = dict((id(ch), _box(ch, extra, c, s)) for ch in chains)
+
+    def hits(chain, box):
+        return sum(1 for other in chains
+                   if other is not chain and _overlap(box, boxes[id(other)]))
+
+    for _ in range(4):
+        changed = False
+        for chain in walls:
+            now = hits(chain, boxes[id(chain)])
+            if not now:
+                continue
+            chain.shift = _shift(chain, offset, extra, behind=not chain.behind)
+            flipped = _box(chain, extra, c, s)
+            if hits(chain, flipped) < now:
+                chain.behind = not chain.behind
+                boxes[id(chain)] = flipped
+                changed = True
+            else:
+                chain.shift = _shift(chain, offset, extra, behind=chain.behind)
+        if not changed:
+            break
+    return sum(1 for ch in walls if ch.behind)
 
 
 def _rays(find_wall, cache, k, c, s):

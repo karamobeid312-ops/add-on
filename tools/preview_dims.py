@@ -79,7 +79,8 @@ def _panel(name, rooms, spacing, every_row, sockets=None, zoom=1.0):
                 (PANEL / 2 + 2) * PX - (p[1] - cy) * PX * zoom)
 
     devices = _devices(rooms, spacing) if sockets is None else _sockets(sockets)
-    result = plan(devices, segment_walls(segments(loops)), every_row=every_row)
+    result = plan(devices, segment_walls(segments(loops)), every_row=every_row,
+                  offset=OFFSET, extra=EXTRA)
     out = []
     d = " ".join("M " + " L ".join("%.1f %.1f" % pt(p) for p in loop) + " Z" for loop in loops)
     out.append('<path d="%s" class="room"/>' % d)
@@ -105,8 +106,8 @@ def _chain(chain, pt):
     out = []
     c, s = math.cos(chain.angle), math.sin(chain.angle)
     nx, ny = text_side(c, s)
-    across = chain.across + chain.side * (OFFSET + (0.0 if chain.text_away else EXTRA))
-    (x0, y0), (x1, y1) = chain.line(OFFSET, EXTRA)
+    across = chain.across + chain.shift
+    (x0, y0), (x1, y1) = chain.line()
     out.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" class="dim"/>' % (pt((x0, y0)) + pt((x1, y1))))
     # reading direction of the text, and its angle on screen
     rx, ry = (c, s) if (c > 1e-9 or (abs(c) <= 1e-9 and s > 0)) else (-c, -s)
