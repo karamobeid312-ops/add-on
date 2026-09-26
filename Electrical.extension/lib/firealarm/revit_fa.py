@@ -2,6 +2,10 @@
 """Revit side: selected spaces -> detector points -> detectors on the
 ceiling above each point.
 
+Spaces (MEP spaces or rooms) can be in this model or in linked models; a
+linked space's outline is moved into this model with the link's transform
+and the detectors are always placed in this model.
+
 The ceiling is found with a ray shot straight up from each point, through
 this model and linked models. The detector family can be
   face-based       placed on the ceiling face (ceiling here or in a link)
@@ -20,9 +24,9 @@ from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, ElementCategoryFilter, ElementId,
     ElementMulticategoryFilter, ElementTransformUtils, FamilyInstance,
     FamilyPlacementType, FamilySymbol, FilteredElementCollector,
-    FindReferenceTarget, Line, ReferenceIntersector,
+    FindReferenceTarget, Level, Line, ReferenceIntersector, RevitLinkInstance,
     SpatialElementBoundaryLocation, SpatialElementBoundaryOptions,
-    StorageType, Transaction, TransactionGroup, View3D, ViewFamily,
+    StorageType, Transaction, TransactionGroup, Transform, View3D, ViewFamily,
     ViewFamilyType, XYZ,
 )
 from Autodesk.Revit.DB.Structure import StructuralType
@@ -87,6 +91,65 @@ def space_label(space):
     return " ".join(p for p in (number, name) if p) or "Space id %s" % _id_int(space.Id)
 
 
+# ---------------------------------------------------------------- spaces
+
+def link_name(link):
+    """'ARCH.rvt' from the link instance name 'ARCH.rvt : 1 : location ...'."""
+    try:
+        return link.Name.split(" : ")[0]
+    except Exception:
+        return "link"
+
+
+class SpaceRef(object):
+    """A space or room in this model or in a linked model. What is read
+    from it is turned into this model's coordinates."""
+
+    def __init__(self, space, link=None):
+        self.space = space
+        self.link = link                    # RevitLinkInstance, or None
+        self.transform = link.GetTotalTransform() if link is not None else Transform.Identity
+        self.label = space_label(space)
+        if link is not None:
+            self.label += u" [%s]" % link_name(link)
+        self.key = (_id_int(link.Id) if link is not None else 0, _id_int(space.Id))
+
+    def point(self, p):
+        return self.transform.OfPoint(p)
+
+
+def _unique(refs):
+    seen, out = set(), []
+    for ref in refs:
+        if ref.key not in seen:
+            seen.add(ref.key)
+            out.append(ref)
+    return out
+
+
+def linked_models(doc):
+    """[(RevitLinkInstance, its Document)] for the loaded links."""
+    found = []
+    for link in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
+        link_doc = link.GetLinkDocument()
+        if link_doc is not None:
+            found.append((link, link_doc))
+    return found
+
+
+def _linked_space(doc, reference):
+    """SpaceRef for a reference to a space or room inside a link, or None."""
+    if _id_int(reference.LinkedElementId) == _id_int(ElementId.InvalidElementId):
+        return None
+    link = doc.GetElement(reference.ElementId)
+    try:
+        link_doc = link.GetLinkDocument()
+    except Exception:
+        return None
+    space = link_doc.GetElement(reference.LinkedElementId) if link_doc is not None else None
+    return SpaceRef(space, link) if space is not None and is_space(space) else None
+
+
 # ---------------------------------------------------------------- selection
 
 class _SpaceFilter(ISelectionFilter):
@@ -99,20 +162,92 @@ class _SpaceFilter(ISelectionFilter):
         return False
 
 
+class _LinkedSpaceFilter(ISelectionFilter):
+    __namespace__ = "FireAlarmDetectors"
+    doc = None                              # the host model, set before picking
+
+    def AllowElement(self, element):
+        try:
+            return _id_int(element.Category.Id) == int(BuiltInCategory.OST_RvtLinks)
+        except Exception:
+            return False
+
+    def AllowReference(self, reference, position):
+        return _linked_space(_LinkedSpaceFilter.doc, reference) is not None
+
+
 def selected_spaces(uidoc):
+    """Spaces selected before clicking the button: in this model, and on
+    Revit 2023+ also spaces Tab-selected inside links."""
     doc = uidoc.Document
     elements = [doc.GetElement(i) for i in uidoc.Selection.GetElementIds()]
-    return [e for e in elements if e is not None and is_space(e)]
+    found = [SpaceRef(e) for e in elements if e is not None and is_space(e)]
+    try:
+        references = list(uidoc.Selection.GetReferences())
+    except Exception:                       # before Revit 2023
+        references = []
+    for reference in references:
+        linked = _linked_space(doc, reference)
+        if linked is not None:
+            found.append(linked)
+    return _unique(found)
 
 
 def pick_spaces(uidoc):
+    """Pick spaces or rooms in this model."""
     try:
         refs = uidoc.Selection.PickObjects(
             ObjectType.Element, _SpaceFilter(), "Select the spaces, then click Finish")
     except OperationCanceledException:
         return []
     doc = uidoc.Document
-    return [doc.GetElement(r.ElementId) for r in refs]
+    return _unique([SpaceRef(doc.GetElement(r.ElementId)) for r in refs])
+
+
+def pick_linked_spaces(uidoc):
+    """Pick spaces or rooms inside linked models."""
+    doc = uidoc.Document
+    _LinkedSpaceFilter.doc = doc
+    try:
+        refs = uidoc.Selection.PickObjects(
+            ObjectType.LinkedElement, _LinkedSpaceFilter(),
+            "Select the spaces or rooms in the linked model, then click Finish")
+    except OperationCanceledException:
+        return []
+    return _unique([s for s in (_linked_space(doc, r) for r in refs) if s is not None])
+
+
+def space_sources(doc):
+    """[(label, [SpaceRef])]: the placed spaces, and the placed rooms, of
+    this model and of each loaded link."""
+    sources = []
+    for link, source_doc in [(None, doc)] + linked_models(doc):
+        where = "This model" if link is None else link.Name
+        for bic, what in ((BuiltInCategory.OST_MEPSpaces, "spaces"),
+                          (BuiltInCategory.OST_Rooms, "rooms")):
+            refs = []
+            for element in FilteredElementCollector(source_doc).OfCategory(bic) \
+                    .WhereElementIsNotElementType():
+                try:
+                    if element.Area > 0:
+                        refs.append(SpaceRef(element, link))
+                except Exception:
+                    pass
+            if refs:
+                sources.append((u"%s - %d %s" % (where, len(refs), what), refs))
+    return sources
+
+
+def by_level(refs):
+    """[(label, [SpaceRef])] per level of the spaces, lowest first."""
+    levels = {}
+    for ref in refs:
+        level = ref.space.Document.GetElement(ref.space.LevelId)
+        name = level.Name if level is not None else "(no level)"
+        elevation = level.ProjectElevation if level is not None else 0.0
+        levels.setdefault((elevation, name), []).append(ref)
+    return [(u"%s (%d)" % (name, len(found)), found)
+            for (_, name), found in sorted(levels.items(), key=lambda item: item[0])]
 
 
 # ---------------------------------------------------------------- detector types
@@ -151,31 +286,45 @@ def placement_kind(symbol):
     return None
 
 
-# ---------------------------------------------------------------- spaces
+# ---------------------------------------------------------------- outlines
 
-def boundary_loops(space):
-    """Outline and holes of the space (finish faces) in metres."""
+def boundary_loops(ref):
+    """Outline and holes of the space (finish faces), in metres in this
+    model's coordinates."""
     options = SpatialElementBoundaryOptions()
     options.SpatialElementBoundaryLocation = SpatialElementBoundaryLocation.Finish
     loops = []
-    for boundary in space.GetBoundarySegments(options) or []:
+    for boundary in ref.space.GetBoundarySegments(options) or []:
         points = []
         for segment in boundary:
             for p in list(segment.GetCurve().Tessellate())[:-1]:
+                p = ref.point(p)
                 points.append((p.X * M_PER_FOOT, p.Y * M_PER_FOOT))
         if len(points) >= 3:
             loops.append(points)
     return loops
 
 
-def _heights(doc, space):
-    """Floor and top of the space (ft, model coordinates)."""
-    box = space.get_BoundingBox(None)
+def _heights(ref):
+    """Floor and top of the space (ft, this model's coordinates)."""
+    box = ref.space.get_BoundingBox(None)
     if box is not None:
-        return box.Min.Z, box.Max.Z
-    level = doc.GetElement(space.LevelId)
-    z = level.ProjectElevation if level is not None else 0.0
+        return ref.point(box.Min).Z, ref.point(box.Max).Z
+    level = ref.space.Document.GetElement(ref.space.LevelId)
+    z = ref.point(XYZ(0, 0, level.ProjectElevation if level is not None else 0.0)).Z
     return z, z + 10.0
+
+
+def _level(doc, ref, floor_z):
+    """Level in this model for the space's detectors: its own level, or for
+    a linked space the highest level of this model at or below its floor."""
+    if ref.link is None:
+        level = doc.GetElement(ref.space.LevelId)
+        if level is not None:
+            return level
+    levels = sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.ProjectElevation)
+    below = [l for l in levels if l.ProjectElevation <= floor_z + 0.01]
+    return below[-1] if below else (levels[0] if levels else None)
 
 
 # ---------------------------------------------------------------- ceilings
@@ -263,9 +412,9 @@ class CeilingFinder(object):
 class SpacePlan(object):
     """What happens in one space."""
 
-    def __init__(self, space):
-        self.space = space
-        self.label = space_label(space)
+    def __init__(self, ref):
+        self.space = ref                # SpaceRef
+        self.label = ref.label
         self.problem = ""           # why nothing is placed
         self.layout = None
         self.spots = []             # [(x, y, Hit or None)] ft
@@ -294,17 +443,17 @@ def _existing(doc, symbol):
     return found
 
 
-def _plan(doc, space, spacing, clearance, finder, existing):
-    plan = SpacePlan(space)
-    if space.Area <= 0:
+def _plan(doc, ref, spacing, clearance, finder, existing):
+    plan = SpacePlan(ref)
+    if ref.space.Area <= 0:
         plan.problem = "not placed or not enclosed"
         return plan
-    loops = boundary_loops(space)
+    loops = boundary_loops(ref)
     if not loops:
         plan.problem = "no boundary"
         return plan
-    plan.floor_z, top_z = _heights(doc, space)
-    plan.level = doc.GetElement(space.LevelId)
+    plan.floor_z, top_z = _heights(ref)
+    plan.level = _level(doc, ref, plan.floor_z)
     plan.layout = layout_detectors(loops, spacing, clearance)
     for x, y in plan.layout.points:
         xf, yf = x / M_PER_FOOT, y / M_PER_FOOT
@@ -337,6 +486,8 @@ def _place(doc, symbol, kind, hit, direction, level, angle):
                              "needs the ceiling in this model (use a face-based family)")
         return doc.Create.NewFamilyInstance(hit.point, symbol, direction, hit.element,
                                             StructuralType.NonStructural)
+    if level is None:
+        raise ValueError("no level in this model to place it on")
     instance = doc.Create.NewFamilyInstance(hit.point, symbol, level, StructuralType.NonStructural)
     _set_offset(instance, hit.point.Z - level.ProjectElevation)
     if abs(angle) > 1e-9:
@@ -346,7 +497,8 @@ def _place(doc, symbol, kind, hit, direction, level, angle):
 
 
 def place_detectors(doc, spaces, symbol, spacing, clearance, title, ask_replace):
-    """Lay out and place detectors of `symbol` in `spaces` (one undo).
+    """Lay out and place detectors of `symbol` in `spaces` ([SpaceRef],
+    one undo).
 
     ask_replace(count, space_count) is called when detectors of this type
     are already in some of the spaces: True replaces them, False keeps
