@@ -53,8 +53,9 @@ RAY_LOW = 1.6           # ft (0.5 m): and again this far above the view's level
 RAY_GAP = 1.0           # ft: when that is at least this far below the first ray
 WALL_TALL = 6.5         # ft (2 m): a wall only the lower ray meets counts from this tall
 WALL_OFF = 0.5          # ft (150 mm): rays of a device on a wall start this far into the room
-TEXT_ROOM = 4.0         # mm on paper: more space when the text of a string along a wall
-                        # would face the wall, so it clears the device symbols
+TEXT_CLEAR = 9.0        # mm on paper: a dimension line with its text between it and the
+                        # devices (strings along walls) is at least this far, clear of the symbols
+TEXT_BAND = 4.0         # mm on paper: room taken by the text beside its dimension line
 PLANE_TOL = 0.01        # ft (3 mm): a reference plane this near the insertion point is a centre
 HELPER_HALF = 0.164     # ft (50 mm): half the length of a helper line through a device centre
 UPRIGHT = 1e-3          # a centre plane whose normal rises more than this is flat in the plan
@@ -739,7 +740,7 @@ def _make(doc, view, chain, line, dim_type, helpers):
     return None, 0, error or "Revit did not take the references"
 
 
-def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
+def dimension(doc, view, devices, dim_type=None, offset_mm=8.0, every_row=True,
               walls=NEAREST, old=(), old_helpers=()):
     """Plan the strings of `devices` ([Device]) and make them in `view`,
     one undo. walls: chains.NEAREST, BOTH or NONE. `old`: dimensions, and
@@ -750,7 +751,8 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
     level_z = level.ProjectElevation if level is not None else None
     z = level_z if level_z is not None else 0.0
     offset = offset_mm / 1000.0 * view.Scale            # m in the model
-    extra = TEXT_ROOM / 1000.0 * view.Scale
+    clear = TEXT_CLEAR / 1000.0 * view.Scale
+    band = TEXT_BAND / 1000.0 * view.Scale
     right, up = view.RightDirection, view.UpDirection
     group = TransactionGroup(doc, "Dimension Devices")
     group.Start()
@@ -763,7 +765,7 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
 
         planned = plan(devices, WallFinder(doc, ray_view, level_z), every_row=every_row,
                        walls=walls, right=(right.X, right.Y), up=(up.X, up.Y),
-                       offset=offset, extra=extra)
+                       offset=offset, clear=clear, band=band)
         run.alone = len(set(id(d) for d, _ in planned.alone))
         run.no_wall, run.skew = planned.no_wall, planned.skew
         run.other_no_wall, run.other_skew = planned.other_no_wall, planned.other_skew

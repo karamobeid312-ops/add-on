@@ -5,7 +5,7 @@ SECTION = "ElectricalDimensions"
 
 DEFAULTS = {
     "dim_type": "",             # linear dimension type name, "" = the model's default
-    "offset": 5.0,              # mm on the printed sheet, devices to the dimension line
+    "line_offset": 8.0,         # mm on the printed sheet, devices to the dimension line
     "strings": "every",         # 'every' row and column, or only what is 'needed'
     "ends": "nearest",          # 'nearest' wall, 'both' walls, or 'none': devices only
 }

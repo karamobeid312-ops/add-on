@@ -27,8 +27,9 @@ from sample_rooms import ROOMS, rect  # noqa: E402
 PX = 9.0            # pixels per metre
 PANEL = 44.0        # panel size (m)
 COLUMNS = 4
-OFFSET = 0.5        # m, dimension line from the devices (5 mm on paper at 1:100)
-EXTRA = 0.4         # m, more when the text would face the devices (4 mm at 1:100)
+OFFSET = 0.8        # m, dimension line from the devices (8 mm on paper at 1:100)
+CLEAR = 0.9         # m, at least, when its text would be between them (9 mm at 1:100)
+BAND = 0.4          # m, room taken by the text (4 mm at 1:100)
 TICK = 0.3          # m, tick mark length
 
 # name -> rooms, each room its loops (outline first, then holes)
@@ -80,7 +81,7 @@ def _panel(name, rooms, spacing, every_row, sockets=None, zoom=1.0):
 
     devices = _devices(rooms, spacing) if sockets is None else _sockets(sockets)
     result = plan(devices, segment_walls(segments(loops)), every_row=every_row,
-                  offset=OFFSET, extra=EXTRA)
+                  offset=OFFSET, clear=CLEAR, band=BAND)
     out = []
     d = " ".join("M " + " L ".join("%.1f %.1f" % pt(p) for p in loop) + " Z" for loop in loops)
     out.append('<path d="%s" class="room"/>' % d)

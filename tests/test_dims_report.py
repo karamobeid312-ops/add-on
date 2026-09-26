@@ -65,18 +65,19 @@ def test_nothing_made():
 
 
 def test_settings_values():
-    assert settings.valid("offset", "7.5") == 7.5
-    assert settings.valid("offset", "0") == 0.0
-    assert settings.valid("offset", "-1") is None
-    assert settings.valid("offset", "51") is None
-    assert settings.valid("offset", "abc") is None
+    assert settings.valid("line_offset", "7.5") == 7.5
+    assert settings.valid("line_offset", "0") == 0.0
+    assert settings.valid("line_offset", "-1") is None
+    assert settings.valid("line_offset", "51") is None
+    assert settings.valid("line_offset", "abc") is None
     assert settings.valid("strings", "needed") == "needed"
     assert settings.valid("strings", "some") is None
     assert settings.valid("ends", "none") == "none"
     assert settings.valid("ends", "walls") is None
     assert settings.DEFAULTS["ends"] == "nearest"
+    assert settings.DEFAULTS["line_offset"] == 8.0
     assert settings.valid("dim_type", "Linear - 2.5mm Arial") == "Linear - 2.5mm Arial"
-    assert settings.coerce("offset", "x") == settings.DEFAULTS["offset"]
+    assert settings.coerce("line_offset", "x") == settings.DEFAULTS["line_offset"]
     assert settings.coerce("ends", None) == "nearest"
 
 
