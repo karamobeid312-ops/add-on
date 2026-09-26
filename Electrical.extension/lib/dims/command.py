@@ -106,7 +106,8 @@ def run():
                                        for (label, note), count in sorted(notes.items())))
         return
 
-    old = revit_dims.dimensions_to(doc, view, [d.key for d in devices])
+    old_helpers = revit_dims.helper_lines(doc, view, devices)
+    old = revit_dims.dimensions_to(doc, view, [d.key for d in devices] + old_helpers)
     replace = False
     if old:
         replace = _ask_replace(len(old))
@@ -118,7 +119,8 @@ def run():
         dim_type = revit_dims.dimension_types(doc).get(values["dim_type"])
     result = revit_dims.dimension(
         doc, view, devices, dim_type, values["offset"], every_row=values["strings"] == "every",
-        walls=values["ends"], old=old if replace else ())
+        walls=values["ends"], old=old if replace else (),
+        old_helpers=old_helpers if replace else ())
     result.notes, result.hidden = notes, hidden
     if values["dim_type"] and dim_type is None:
         result.type_missing = values["dim_type"]

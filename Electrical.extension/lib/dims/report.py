@@ -19,6 +19,7 @@ class Run(object):
         self.notes = {}             # {(family : type, note): count}: families missing centre planes
         self.hidden = 0             # selected devices not shown in the view
         self.replaced = 0           # old dimensions deleted
+        self.helpers = 0            # helper lines drawn through device centres
         self.type_missing = ""      # dimension type of the settings that is not in this model
         self.dims_hidden = False    # the Dimensions category is hidden in the view
 
