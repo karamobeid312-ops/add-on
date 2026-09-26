@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from sld.model import (BOARD, DB_BOX, FEEDER, ISOLATOR, MAIN_BOARD, PFC,
                        SPARE, TO_UPS, CircuitInfo, EquipmentInfo, build_schematic,
-                       natural_key, way_label)
+                       natural_key, way_labels)
 
 
 def eq(name, **kw):
@@ -69,14 +69,35 @@ def test_way_kinds_spare_pfc_isolator():
     assert ways[2].name == "SPARE"
 
 
-def test_way_labels_single_phase_rows():
-    c = ckt("B", 25, poles="1")
-    assert way_label(c) == "R9"
-    assert way_label(ckt("B", 26, poles="1")) == "Y9"
-    assert way_label(ckt("B", 27, poles="1")) == "B9"
-    assert way_label(ckt("B", 28)) == "10"
-    assert way_label(ckt("B", 5, poles="1"), phases=1) == "5"
-    assert way_label(c, numbering="revit") == "25"
+def test_way_labels_are_sequential_whatever_the_slot_numbering():
+    # two-column panel: 3-pole breakers start at slots 1, 2, 7, 8
+    circuits = [ckt("B", 1), ckt("B", 2), ckt("B", 7), ckt("B", 8)]
+    assert way_labels(circuits) == ["1", "2", "3", "4"]
+
+
+def test_way_labels_single_phase_share_a_way():
+    circuits = [ckt("B", 1), ckt("B", 4, poles="1"), ckt("B", 5, poles="1"),
+                ckt("B", 6, poles="1"), ckt("B", 7, poles="1"), ckt("B", 10)]
+    assert way_labels(circuits) == ["1", "R2", "Y2", "B2", "R3", "4"]
+    assert way_labels(circuits, phases=1) == ["1", "2", "3", "4", "5", "6"]
+    assert way_labels(circuits, numbering="revit") == ["1", "4", "5", "6", "7", "10"]
+
+
+def test_transformer_fed_from_board_sits_between_boards():
+    # US style: SWB (fed by utility transformer) -> T-2A -> panel PP-2A
+    equipment = [eq("T-SVC", part_type="transformer"), eq("SWB"),
+                 eq("T-2A", part_type="transformer"), eq("PP-2A"), eq("LP-1")]
+    circuits = [ckt("T-SVC", 1, ["SWB"]), ckt("SWB", 1, ["T-2A"]),
+                ckt("T-2A", 1, ["PP-2A"]), ckt("PP-2A", 1, ["LP-1"])]
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    assert [r.name for r in s.roots] == ["SWB"]
+    assert s.roots[0].transformer.name == "T-SVC"
+    assert b["PP-2A"].role == BOARD
+    assert b["PP-2A"].parent is b["SWB"]
+    pt = b["SWB"].pass_throughs[0]
+    assert pt.kind == "transformer" and pt.outputs == [b["PP-2A"]]
+    assert b["SWB"].ways[0].kind == TO_UPS
 
 
 def test_ups_between_boards_with_two_inputs():
@@ -131,6 +152,7 @@ def test_sample_drawing_structure():
                                 "SMDB-RF-01", "SMDB-RF-02"])
     rf = b["SMDB-RF-01"]
     assert [w.label for w in rf.ways][7:12] == ["8", "R9", "Y9", "B9", "10"]
+    assert [w.label for w in rf.ways][-1] == "18"
     assert b["USMDB-GF-M"].parent.name == "SMDB-GF-M1"
     assert b["MDB-1"].transformer.name == "TR-01"
 

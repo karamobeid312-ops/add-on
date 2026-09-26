@@ -14,13 +14,14 @@ every outgoing way, UPS, main boards with transformer and supply.
 | Item | How |
 | --- | --- |
 | **Floors** | One band per Revit level, dashed floor line and label (`ROOF FLOOR`, `GROUND FLOOR`...). Main boards go in the `SUBSTATION` band at the bottom. The diagram reads bottom to top. |
-| **Boards** (MDB, SMDB, USMDB...) | Box with busbar, every outgoing way numbered (1, 2..., R9/Y9/B9 for single-phase) with an `MCCB` breaker, incomer MCCB under the busbar, and `FORM 2b, 18 WAYS` / `LOCATION: ...` / `@ FLOOR` / board name. |
-| **Main boards** | `FORM4-TYPE6`, `LOCATION:LV ROOM`, CT with 3 ammeters, indicator lamps, withdrawable ACB, busbar mounted fuse, SPD to earth `R<1Ω`, incoming cable, transformer, `MV CABLE FROM TAQA`, `FROM TAQA`. |
+| **Boards** (MDB, SMDB, USMDB...) | Box with busbar, every outgoing way numbered 1, 2, 3... in slot order (on three-phase boards consecutive single-pole circuits share a way: R9, Y9, B9) with an `MCCB` breaker, incomer MCCB under the busbar, and `FORM 2b, 18 WAYS` / `LOCATION: ...` / `@ FLOOR` / board name. |
+| **Main boards** | `FORM4-TYPE6`, `LOCATION: LV ROOM`, CT with 3 ammeters, indicator lamps, withdrawable ACB, busbar mounted fuse, SPD to earth `R<1Ω`, incoming cable, transformer, `MV CABLE FROM TAQA`, `FROM TAQA`. |
 | **Final DBs** (LDB, PDB, DB-...) | Tall box with the name, at the end of the way. A DB on a higher floor than its board is drawn on its own floor, fed by a riser (like UDB-FF-01 from USMDB-GF-M). |
 | **Equipment** (AHU, VRF, pumps, EV...) | Local isolator with the load name. |
 | **Spare ways** | `SPARE`. |
 | **PFC** | Capacitor bank symbol, `POWER FACTOR CORRECTION`. |
 | **UPS** | Box across the ways that feed it; its output rises to the UPS board. |
+| **Transformer fed from a board** | Transformer symbol on the way, its output rises to the panel it feeds (e.g. SWB → T-2A → PP-2A). |
 | **Feeders between boards** | Risers straight up from the way, jogging around any board in the way and lining up under the fed board's incomer. |
 | **Ratings** (optional) | Breaker rating and BS/IEC cable along each way, e.g. `63A TP` / `4Cx16mm² Cu/XLPE/PVC` / `+ 1Cx16mm² Cu/XLPE/PVC`. |
 
@@ -31,14 +32,14 @@ Buttons on the **SLD** tab → **Electrical** panel:
   overwritten). The view is 1:1, so sizes match the printed sheet; place it
   on your A1 title block sheet.
 - **SLD Settings** – utility name (`TAQA`), bottom band label (`SUBSTATION`),
-  ratings on/off, and way numbering (ways from slots, or Revit circuit numbers).
+  ratings on/off, and way numbering (ways in order, or Revit circuit numbers).
 
 ## How the model is read
 
 | Drawing | Revit |
 | --- | --- |
 | Board / DB / main board | **Electrical Equipment**. Equipment that feeds other equipment, or whose name looks like a board (`MDB`, `SMDB`, `USMDB`, `MSB`...), is a board. Equipment with no supply is a main board. Everything else is a final DB. |
-| Transformer | Electrical equipment whose family part type is *Transformer* (or family name contains `TRANSFORMER`) feeding a main board. |
+| Transformer | Electrical equipment whose family part type is *Transformer* (or family name contains `TRANSFORMER`). With no supply of its own it is drawn under the main board it feeds; fed from a board it is drawn on that board's way. |
 | UPS | Electrical equipment whose family name contains `UPS`. |
 | Floor | The equipment's **level**. |
 | Location | The **room** the equipment is in (name + number). |
@@ -86,7 +87,9 @@ Every size, text height and fixed label (`MCCB`, `ACB`, `FORM 2b`, `BUSBAR
 MOUNTED FUSE @ 20A`, `R<1Ω`...) is in
 [`lib/sld/style.py`](SingleLineDiagram.extension/lib/sld/style.py), in
 millimetres on paper. Text notes use types named `SLD <size>mm Arial`, created
-automatically.
+automatically and reset to these settings (size, Arial, transparent) on every
+run. Text is laid out so it never needs wrapping; if you see text wrap or
+touch, send a screenshot.
 
 ## Install
 

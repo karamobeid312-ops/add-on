@@ -31,7 +31,7 @@ from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 from sld import style
 from sld.cables import (cable_from_revit_values, conductor_code, construction,
                         insulation_code)
-from sld.geometry import CENTER, MIDDLE, RIGHT, TOP
+from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, line_length
 from sld.layout import LayoutSettings, layout_schematic
 from sld.model import CircuitInfo, EquipmentInfo, build_schematic
 
@@ -172,10 +172,14 @@ def _description(element, part_type):
     if text:
         return [l.strip() for l in text.replace("\r", "").split("\n") if l.strip()]
     if part_type == "transformer":
+        lines = []
         try:
-            return [element.Name, "TRANSFORMER"]
+            type_name = element.Name
+            if type_name and type_name != _equipment_name(element):
+                lines.append(type_name)
         except Exception:
-            return ["TRANSFORMER"]
+            pass
+        return lines + ["TRANSFORMER"]
     return []
 
 
@@ -322,14 +326,31 @@ def _xyz(x_mm, y_mm):
     return XYZ(x_mm / MM_PER_FOOT, y_mm / MM_PER_FOOT, 0.0)
 
 
+def _set(element, bip_name, value):
+    """Set a built-in parameter by name, ignoring ones this Revit lacks."""
+    try:
+        p = element.get_Parameter(getattr(BuiltInParameter, bip_name))
+        if p is not None and not p.IsReadOnly:
+            p.Set(value)
+    except Exception:
+        pass
+
+
 class _TextTypes(object):
-    """Finds or creates one 'SLD <size>mm Arial' text type per text size."""
+    """One 'SLD <size>mm Arial' text type per text size.
+
+    Created on first use and brought back in line with style.py on every
+    run: size, font, transparent background, small border offset.
+    """
 
     def __init__(self, doc):
         self.doc = doc
         self.cache = {}
-        self.existing = dict((t.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString(), t)
-                             for t in FilteredElementCollector(doc).OfClass(TextNoteType))
+        self.existing = {}
+        for t in FilteredElementCollector(doc).OfClass(TextNoteType):
+            name_param = t.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)
+            if name_param is not None:
+                self.existing[name_param.AsString()] = t
         self.default = doc.GetElement(doc.GetDefaultElementTypeId(ElementTypeGroup.TextNoteType))
 
     def get(self, size_mm):
@@ -340,14 +361,21 @@ class _TextTypes(object):
         text_type = self.existing.get(name)
         if text_type is None:
             text_type = self.default.Duplicate(name)
-            text_type.get_Parameter(BuiltInParameter.TEXT_SIZE).Set(size_mm / MM_PER_FOOT)
-            text_type.get_Parameter(BuiltInParameter.TEXT_FONT).Set(style.TEXT_FONT)
-            try:
-                text_type.get_Parameter(BuiltInParameter.TEXT_BACKGROUND).Set(1)  # transparent
-            except Exception:
-                pass
+        _set(text_type, "TEXT_SIZE", size_mm / MM_PER_FOOT)
+        _set(text_type, "TEXT_FONT", style.TEXT_FONT)
+        _set(text_type, "TEXT_WIDTH_SCALE", 1.0)
+        _set(text_type, "TEXT_BACKGROUND", 1)   # transparent
+        _set(text_type, "TEXT_BOX_VISIBILITY", 0)
+        _set(text_type, "LEADER_OFFSET_SHEET", style.TEXT_BORDER_OFFSET / MM_PER_FOOT)
         self.cache[key] = text_type.Id
         return text_type.Id
+
+
+def _note_width(t):
+    """Text note width (mm) wide enough that Revit never wraps the text:
+    lines are already broken by the layout."""
+    longest = max(line_length(line, t.size) for line in t.text.split("\n"))
+    return longest * 1.2 + 2 * style.TEXT_BORDER_OFFSET + 2.0
 
 
 _H_ALIGN = {CENTER: HorizontalTextAlignment.Center, RIGHT: HorizontalTextAlignment.Right}
@@ -386,7 +414,7 @@ def render(doc, drawing, view_name=VIEW_NAME):
             opts.Rotation = t.rotation
         min_w = TextNote.GetMinimumAllowedWidth(doc, type_id)
         max_w = TextNote.GetMaximumAllowedWidth(doc, type_id)
-        width = min(max(t.width / MM_PER_FOOT, min_w), max_w)
+        width = min(max(_note_width(t) / MM_PER_FOOT, min_w), max_w)
         TextNote.Create(doc, view.Id, _xyz(t.x, t.y), width, t.text, opts)
     return view
 

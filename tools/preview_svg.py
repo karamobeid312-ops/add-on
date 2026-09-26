@@ -45,12 +45,14 @@ def to_svg(drawing, margin=20.0, px_per_mm=4.0):
         lines = t.lines
         lh = t.size * 1.6
         anchor = {CENTER: "middle", RIGHT: "end"}.get(t.align, "start")
-        block = lh * len(lines)
         # y of the first baseline in the text's own frame (y down)
-        first = {TOP: t.size, MIDDLE: -block / 2 + t.size, BOTTOM: -block + t.size}[t.valign]
+        # (text size = capital height, as in Revit)
+        cap = t.size
+        span = cap + lh * (len(lines) - 1)
+        first = {TOP: cap, MIDDLE: -span / 2 + cap, BOTTOM: -span + cap}[t.valign]
         rot = -math.degrees(t.rotation)
         out.append('<text transform="translate(%.3f %.3f) rotate(%.2f)" font-size="%.2f" text-anchor="%s">'
-                   % (t.x, -t.y, rot, t.size * 1.0, anchor))
+                   % (t.x, -t.y, rot, t.size / 0.716, anchor))
         for i, line in enumerate(lines):
             out.append('<tspan x="0" y="%.3f">%s</tspan>' % (first + i * lh, _esc(line)))
         out.append('</text>')

@@ -140,8 +140,9 @@ class Way(object):
 class PassThrough(object):
     """A UPS (or transformer fed from a board) drawn above its input ways."""
 
-    def __init__(self, equipment, board, input_ways):
+    def __init__(self, equipment, board, input_ways, kind=UPS):
         self.equipment = equipment
+        self.kind = kind                # UPS or TRANSFORMER
         self.board = board              # Board whose ways feed it
         self.input_ways = input_ways
         self.outputs = []               # Boards it feeds
@@ -200,29 +201,34 @@ def _circuit_sort_key(c):
     return (slot, natural_key(c.circuit_number), (c.load_name or "").lower())
 
 
-def way_label(circuit, phases=3, numbering="slots"):
-    """Way number as printed on the board.
+def way_labels(circuits, phases=3, numbering="slots"):
+    """Way numbers as printed on the board, for circuits in slot order.
 
-    With numbering='slots' and a 3-phase board, slots 1-3 are way 1,
-    4-6 way 2...; a single-pole circuit also gets its phase: R9, Y9, B9.
-    With numbering='revit' Revit's circuit number is printed unchanged.
+    Ways are numbered 1, 2, 3... in order, whatever the panel's slot
+    numbering. On a three-phase board consecutive single-pole circuits share
+    a way, one per phase: R9, Y9, B9. With numbering='revit' Revit's circuit
+    numbers are printed unchanged.
     """
-    if numbering == "slots" and circuit.start_slot and phases == 3:
-        slot = int(circuit.start_slot)
-        way = (slot - 1) // 3 + 1
+    if numbering == "revit":
+        return [c.circuit_number for c in circuits]
+    labels, way, phase = [], 0, 3
+    for c in circuits:
         try:
-            poles = int(circuit.poles)
+            poles = int(c.poles)
         except (TypeError, ValueError):
             poles = 3
-        if poles == 1:
-            return "RYB"[(slot - 1) % 3] + str(way)
-        return str(way)
-    if numbering == "slots" and circuit.start_slot:
-        return str(circuit.start_slot)
-    return circuit.circuit_number
+        if phases == 3 and poles == 1:
+            if phase >= 3:
+                way, phase = way + 1, 0
+            labels.append("RYB"[phase] + str(way))
+            phase += 1
+        else:
+            way, phase = way + 1, 3
+            labels.append(str(way))
+    return labels
 
 
-def _role(eq, fed_by_role, feeds_equipment, has_feeder):
+def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transformer):
     if eq.symbol in _SYMBOL_ROLES:
         return _SYMBOL_ROLES[eq.symbol]
     family = eq.family_name.upper()
@@ -230,9 +236,9 @@ def _role(eq, fed_by_role, feeds_equipment, has_feeder):
         return TRANSFORMER
     if "UPS" in family:
         return UPS
-    if not has_feeder or fed_by_role == TRANSFORMER:
+    if not has_feeder or fed_from_root_transformer:
         return MAIN_BOARD
-    if (feeds_equipment or fed_by_role == UPS or eq.part_type == "switchboard"
+    if (feeds_equipment or fed_by_role in (UPS, TRANSFORMER) or eq.part_type == "switchboard"
             or re.search(style.BOARD_NAME_PATTERN, eq.name or "", re.IGNORECASE)):
         return BOARD
     return DB
@@ -272,11 +278,15 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
         if eq_id in roles:
             return roles[eq_id]
         feeder = primary_feeder(eq_id)
-        up_role = None
+        up_role, from_root_tr = None, False
         if feeder is not None and feeder.source_id not in stack:
             up_role = role_of(feeder.source_id, stack + (eq_id,))
+            # Only a transformer with no supply of its own (the utility
+            # transformer) makes a main board; one fed from a board is drawn
+            # between that board and the panel it feeds.
+            from_root_tr = up_role == TRANSFORMER and primary_feeder(feeder.source_id) is None
         roles[eq_id] = _role(eq_by_id[eq_id], up_role, eq_id in feeds_equipment,
-                             feeder is not None)
+                             feeder is not None, from_root_tr)
         return roles[eq_id]
 
     for e in equipment:
@@ -305,13 +315,14 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
 
     for board in boards.values():
         phases = phases_of.get(board.id, 3)
-        for c in by_source.get(board.id, []):
+        board_circuits = by_source.get(board.id, [])
+        labels = way_labels(board_circuits, phases, numbering)
+        for c, label in zip(board_circuits, labels):
             target = None
             for fed in c.fed_equipment_ids:
                 if fed in eq_by_id and fed != board.id and is_primary(c, fed):
                     target = fed
                     break
-            label = way_label(c, phases, numbering)
             if c.symbol in _SYMBOL_WAYS:
                 kind = _SYMBOL_WAYS[c.symbol]
             elif c.is_spare:
@@ -339,7 +350,7 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
             if w.kind == TO_UPS:
                 groups.setdefault(w.target_id, []).append(w)
         for target_id, ways in groups.items():
-            pt = PassThrough(eq_by_id[target_id], board, ways)
+            pt = PassThrough(eq_by_id[target_id], board, ways, roles[target_id])
             board.pass_throughs.append(pt)
             pass_throughs[target_id] = pt
 
@@ -373,6 +384,9 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
 
     roots = sorted([b for b in boards.values() if b.parent is None],
                    key=lambda b: natural_key(b.name))
+    for b in boards.values():
+        if b.parent is not None and b.role == MAIN_BOARD:
+            b.role = BOARD
     for b in roots:
         b.role = MAIN_BOARD
     # Feed loops: boards never reached from a root.

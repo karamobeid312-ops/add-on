@@ -73,14 +73,50 @@ class Text(object):
         return "Text(%r @ %.2f, %.2f)" % (self.text, self.x, self.y)
 
 
+# Arial advance widths in em. Text size is the capital height (0.716 em).
+_ARIAL = {}
+for _chars, _w in (("ABEKPSVXY&", 0.667), ("CDHNRUw", 0.722), ("GOQ", 0.778),
+                   ("FTZ", 0.611), ("I", 0.278), ("J", 0.5), ("L", 0.556),
+                   ("Mm", 0.833), ("W", 0.944), ("0123456789#_abdeghnopqu", 0.556),
+                   (" .,:;/!|fijlt\u00a0", 0.278), ("-()r\u00b2", 0.333),
+                   ("+<=>~", 0.584), ("@", 1.015), ("%", 0.889),
+                   ("ckvxyzs\"*", 0.5), ("\u03a9", 0.768)):
+    for _c in _chars:
+        _ARIAL[_c] = _w
+_CAP_HEIGHT = 0.716
+
+
+def line_length(line, size):
+    """Estimated printed length of one line of text (Arial)."""
+    em = sum(_ARIAL.get(c, 0.6) for c in line)
+    return em / _CAP_HEIGHT * size * style.CHAR_WIDTH
+
+
 def text_width(text, size):
     """Width needed so no line of `text` wraps."""
-    longest = max(len(line) for line in text.split("\n")) if text else 1
-    return longest * size * style.CHAR_WIDTH + size
+    longest = max(line_length(line, size) for line in text.split("\n")) if text else size
+    return longest + size
 
 
 def text_height(text, size):
-    return len(text.split("\n")) * size * 1.6
+    """From the top of the first line's capitals to the last baseline."""
+    return size * (1.25 + style.LINE_SPACING * (len(text.split("\n")) - 1))
+
+
+def wrap(text, size, max_length):
+    """Break lines at spaces so each fits in max_length (if possible)."""
+    out = []
+    for line in text.split("\n"):
+        words = line.split(" ")
+        current = words[0]
+        for word in words[1:]:
+            if line_length(current + " " + word, size) <= max_length:
+                current += " " + word
+            else:
+                out.append(current)
+                current = word
+        out.append(current)
+    return "\n".join(out)
 
 
 class Drawing(object):

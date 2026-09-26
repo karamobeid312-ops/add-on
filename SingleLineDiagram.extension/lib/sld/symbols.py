@@ -9,7 +9,7 @@ import math
 
 from sld import style
 from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, VERTICAL,
-                          text_width)
+                          line_length, text_width)
 
 HALF_PI = math.pi / 2
 
@@ -72,9 +72,12 @@ def pfc(d, x, y0):
     d.line(x - gap, top - 0.8, x - gap, top + 0.8)
     d.line(x + gap, top - 0.8, x + gap, top + 0.8)
     # Label reads upward above the symbol, like the load names.
-    label = style.PFC_LABEL.replace("\n", " ")
-    vertical_text(d, x, top + 1.5, label, style.TEXT_LOAD, center=True)
-    return top + 1.5 + vertical_length(label, style.TEXT_LOAD)
+    vertical_text(d, x, top + 1.5, pfc_label(), style.TEXT_LOAD, center=True)
+    return top + 1.5 + vertical_length(pfc_label(), style.TEXT_LOAD)
+
+
+def pfc_label():
+    return style.PFC_LABEL.replace("\n", " ")
 
 
 def ups_box(d, left, right, y0, name):
@@ -84,20 +87,22 @@ def ups_box(d, left, right, y0, name):
     return y0 + h
 
 
-def cable_mark(d, x, y, label=None, side_length=25.0):
-    """Cable oval on a vertical line, with its description on a leader."""
+def cable_mark(d, x, y, label=None):
+    """Cable oval on a vertical line, with its description on a leader to
+    the left: first line above the leader, the rest below it."""
     r, half = 0.6, 0.9
     d.arc(x - half, y, r, HALF_PI, 3 * HALF_PI)
     d.arc(x + half, y, r, -HALF_PI, HALF_PI)
     d.line(x - half, y + r, x + half, y + r)
     d.line(x - half, y - r, x + half, y - r)
     if label:
-        x0 = x - half - r - side_length
-        d.line(x0, y, x - half - r, y)
         lines = label.split("\n")
-        d.text(x0, y + 0.4, lines[0], style.TEXT_CABLE, align=LEFT, valign=BOTTOM)
+        end = x - half - r - 0.5
+        length = max(line_length(l, style.TEXT_CABLE) for l in lines)
+        d.line(end - length - 1.0, y, x - half - r, y)
+        d.text(end, y + 0.5, lines[0], style.TEXT_CABLE, align=RIGHT, valign=BOTTOM)
         if len(lines) > 1:
-            d.text(x0, y - 0.4, "\n".join(lines[1:]), style.TEXT_CABLE, align=LEFT, valign=TOP)
+            d.text(end, y - 0.5, "\n".join(lines[1:]), style.TEXT_CABLE, align=RIGHT, valign=TOP)
 
 
 def earth(d, x, y_top):
@@ -127,6 +132,20 @@ def transformer(d, x, y_top, name, description):
         d.text(text_x, y_top - style.TEXT_TRANSFORMER_NAME * 1.7, "\n".join(description),
                style.TEXT_TRANSFORMER_INFO, align=RIGHT, valign=TOP)
     return c2 - r
+
+
+def small_transformer(d, x, y0, name):
+    """Transformer fed from a board way, drawn on the way (name reads up on
+    its right). y0 is the bottom; returns the top y."""
+    r = style.PT_TRANSFORMER_RADIUS
+    c1 = y0 + r
+    c2 = c1 + 1.4 * r
+    d.circle(x, c1, r)
+    d.circle(x, c2, r)
+    size = style.TEXT_LOAD
+    d.text(x + r + 0.8 + size * 1.25, y0, name, size, align=LEFT, valign=BOTTOM,
+           rotation=VERTICAL)
+    return c2 + r
 
 
 def lamp(d, x, y, r=0.8):
@@ -161,19 +180,20 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
     """Main board incomer between busbar and box bottom: CT and ammeters,
     indicator lamps, withdrawable ACB, busbar fuse, SPD and earth."""
     device = device or style.MAIN_INCOMER_DEVICE
+    small = style.TEXT_SMALL
     # CT with three ammeters
     y_ct = bus_y - 3.2
     xs = [xi + 7.0, xi + 11.5, xi + 16.0]
     d.line(xi, bus_y, xi, y_ct + 0.6)
     cable_mark(d, xi, y_ct)
-    d.text(xi + 1.8, y_ct - 0.5, style.MAIN_CT_LABEL, style.TEXT_SMALL, align=LEFT, valign=TOP)
+    d.text(xi - 2.0, y_ct, style.MAIN_CT_LABEL, small, align=RIGHT, valign=MIDDLE)
     prev = xi + 1.5
     for mx in xs:
         d.line(prev, y_ct, mx - 1.1, y_ct)
         meter(d, mx, y_ct)
         prev = mx + 1.1
     # indicator lamps across the incomer
-    y_lamp = bus_y - 6.0
+    y_lamp = bus_y - 6.2
     d.line(xi, y_ct - 0.6, xi, y_lamp)
     dot(d, xi, y_lamp)
     prev = xi + 0.3
@@ -185,40 +205,44 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
     y_upper = bus_y - 8.5
     d.line(xi, y_lamp, xi, y_upper)
     chevrons(d, xi, y_upper, up=True)
-    arc_c = bus_y - 12.0
-    d.arc(xi, arc_c, 1.0, HALF_PI, 3 * HALF_PI)
+    d.arc(xi, bus_y - 12.0, 1.0, HALF_PI, 3 * HALF_PI)
     y_lower = bus_y - 15.8
     chevrons(d, xi, y_lower, up=False)
-    d.text(xi + 2.5, y_lower, device, style.TEXT_SMALL, align=LEFT, valign=MIDDLE)
+    d.text(xi + 2.5, y_lower + 0.4, device, small, align=LEFT, valign=MIDDLE)
     # busbar mounted fuse feeding the indicator lamps
     y_fuse = bus_y - 21.0
     d.line(xi, y_lower, xi, y_fuse + 1.1)
     d.rect(xi - 1.1, y_fuse - 1.1, xi + 1.1, y_fuse + 1.1)
     dot(d, xi, y_fuse)
     d.line(xi + 1.1, y_fuse, xi + 6.0, y_fuse)
-    d.text(xi + 6.5, y_fuse, style.MAIN_BUSBAR_FUSE, style.TEXT_SMALL, align=LEFT, valign=MIDDLE)
-    d.line(xi - 1.1, y_fuse, xi - 4.5, y_fuse)
-    fuse(d, xi - 7.5, xi - 4.5, y_fuse)
-    d.text(xi - 6.0, y_fuse - 0.9, style.MAIN_LAMP_FUSE, style.TEXT_SMALL, align=CENTER, valign=TOP)
-    lx = [xi - 17.0, xi - 14.0, xi - 11.0]
-    d.line(lx[-1] + 0.6, y_fuse, xi - 7.5, y_fuse)
+    d.text(xi + 6.5, y_fuse, style.MAIN_BUSBAR_FUSE, small, align=LEFT, valign=MIDDLE)
+    fuse_l, fuse_r = xi - 13.0, xi - 10.0
+    d.line(xi - 1.1, y_fuse, fuse_r, y_fuse)
+    fuse(d, fuse_l, fuse_r, y_fuse)
+    d.text((fuse_l + fuse_r) / 2, y_fuse - 1.0, style.MAIN_LAMP_FUSE, small,
+           align=CENTER, valign=TOP)
+    lx = [xi - 24.0, xi - 21.0, xi - 18.0]
+    d.line(lx[-1] + 0.6, y_fuse, fuse_l, y_fuse)
     for i, (x, tag) in enumerate(zip(lx, "BYR")):
         lamp(d, x, y_fuse, r=0.6)
         if i:
             d.line(lx[i - 1] + 0.6, y_fuse, x - 0.6, y_fuse)
-        d.text(x, y_fuse - 0.9, tag, style.TEXT_SMALL, align=CENTER, valign=TOP)
-    d.text(lx[0] - 0.6, y_fuse + 1.2, style.MAIN_LAMPS_LABEL, style.TEXT_SMALL,
-           align=LEFT, valign=BOTTOM)
+        d.text(x, y_fuse - 1.0, tag, small, align=CENTER, valign=TOP)
+    d.text(lx[0] - 0.6, y_fuse + 1.4, style.MAIN_LAMPS_LABEL, small, align=LEFT, valign=BOTTOM)
     # SPD to earth
-    y_spd = bus_y - 26.0
+    y_spd = bus_y - 26.5
     d.line(xi, y_fuse - 1.1, xi, bottom)
     dot(d, xi, y_spd)
     d.line(xi, y_spd, xi + 6.0, y_spd)
     d.rect(xi + 6.0, y_spd - 1.5, xi + 14.0, y_spd + 1.5)
-    d.text(xi + 10.0, y_spd, style.MAIN_SPD_LABEL, style.TEXT_SMALL, align=CENTER, valign=MIDDLE)
-    ex = max(xi + 22.0, right - 25.0)
+    d.text(xi + 10.0, y_spd, style.MAIN_SPD_LABEL, small, align=CENTER, valign=MIDDLE)
+    ex = max(xi + 26.0, right - 12.0)
     d.line(xi + 14.0, y_spd, ex, y_spd)
     d.line(ex, y_spd, ex, bottom - 2.0)
     dot(d, ex, bottom - 2.0)
     earth(d, ex, bottom - 2.0)
-    d.text(ex - 3.0, bottom - 2.0, style.MAIN_EARTH_LABEL, style.TEXT_CABLE, align=RIGHT, valign=MIDDLE)
+    d.text(ex - 2.5, bottom - 2.5, style.MAIN_EARTH_LABEL, style.TEXT_CABLE, align=RIGHT, valign=MIDDLE)
+
+
+# The lamp group of the main incomer starts this far left of the incomer.
+MAIN_LAMPS_LEFT = 24.6

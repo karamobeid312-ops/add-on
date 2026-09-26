@@ -88,7 +88,7 @@ def test_main_board_details_present():
     lay = sample_layout()
     texts = [t.text for t in lay.drawing.texts]
     for expected in ("MDB-1", "ACB", "SPD", "3NO", u"R<1Ω", "TR-01", "FROM TAQA",
-                     "MV CABLE FROM TAQA", "FORM4-TYPE6\nLOCATION:LV ROOM",
+                     "MV CABLE FROM TAQA", "FORM4-TYPE6\nLOCATION: LV ROOM",
                      u"(7 SC 630mm²", "POWER FACTOR CORRECTION"):
         assert expected in texts, expected
     assert "FORM 2b, 18 WAYS\nLOCATION: ELEC. ROOM GF-48\n@ GROUND FLOOR" in texts
@@ -124,3 +124,84 @@ def test_circles_are_split_in_two_arcs():
     d = Drawing()
     d.circle(0, 0, 1)
     assert len(d.arcs) == 2 and abs(d.arcs[1].a1 - 2 * math.pi) < 1e-9
+
+
+# ---------------------------------------------------------------- overlaps
+
+def _shrink(box, tol):
+    return (box[0] + tol, box[1] + tol, box[2] - tol, box[3] - tol)
+
+
+def _boxes_overlap(a, b):
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+
+def _segment_hits_box(x1, y1, x2, y2, box):
+    """Liang-Barsky clip of a segment against an axis-aligned box."""
+    bx0, by0, bx1, by1 = box
+    dx, dy = x2 - x1, y2 - y1
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, x1 - bx0), (dx, bx1 - x1), (-dy, y1 - by0), (dy, by1 - y1)):
+        if abs(p) < 1e-12:
+            if q < 0:
+                return False
+        else:
+            r = q / p
+            if p < 0:
+                t0 = max(t0, r)
+            else:
+                t1 = min(t1, r)
+            if t0 > t1:
+                return False
+    return True
+
+
+def _arc_points(a, n=24):
+    return [a.point(a.a0 + (a.a1 - a.a0) * i / n) for i in range(n + 1)]
+
+
+def overlaps(drawing, tol=0.15):
+    boxes = [(t, _shrink(text_box(t), tol)) for t in drawing.texts]
+    problems = []
+    for i, (t1, b1) in enumerate(boxes):
+        for t2, b2 in boxes[i + 1:]:
+            if _boxes_overlap(b1, b2):
+                problems.append(("text/text", t1.text, t2.text))
+        for l in drawing.lines:
+            if _segment_hits_box(l.x1, l.y1, l.x2, l.y2, b1):
+                problems.append(("text/line", t1.text, l))
+        for a in drawing.arcs:
+            if any(b1[0] < x < b1[2] and b1[1] < y < b1[3] for x, y in _arc_points(a)):
+                problems.append(("text/arc", t1.text, a))
+    return problems
+
+
+def test_no_overlaps_in_sample():
+    for kw in ({}, {"show_ratings": False}):
+        problems = overlaps(sample_layout(**kw).drawing)
+        assert not problems, problems[:15]
+
+
+def test_no_overlaps_with_transformer_between_boards():
+    from sld.model import CircuitInfo, EquipmentInfo
+    equipment = [EquipmentInfo("T-SVC", "T-SVC", part_type="transformer",
+                               description=["T-SVC", "TRANSFORMER"]),
+                 EquipmentInfo("SWB", "SWB", "Level 1", 0.0, location="ELECTRICAL 101"),
+                 EquipmentInfo("T-2A", "T-2A", "Level 1", 0.0, part_type="transformer"),
+                 EquipmentInfo("PP-2A", "PP-2A", "Level 2", 4.0, location="ELEC 201"),
+                 EquipmentInfo("LP-2A", "LP-2A", "Level 2", 4.0)]
+    circuits = [CircuitInfo("c0", "T-SVC", "1", fed_equipment_ids=["SWB"], wire_size="3-#8, 1-#8, 1-#8"),
+                CircuitInfo("c1", "SWB", "1,3,5", rating="20 A", poles="3", start_slot=1,
+                            wire_size="3-#12, 1-#12, 1-#12", fed_equipment_ids=["T-2A"]),
+                CircuitInfo("c2", "SWB", "2,4,6", rating="20 A", poles="3", start_slot=2,
+                            wire_size="3-#12, 1-#12, 1-#12", load_name="RTU-1", branch_load_count=1),
+                CircuitInfo("c3", "T-2A", "1", fed_equipment_ids=["PP-2A"]),
+                CircuitInfo("c4", "PP-2A", "1,3,5", rating="60 A", poles="3", start_slot=1,
+                            fed_equipment_ids=["LP-2A"])]
+    lay = layout_schematic(build_schematic(equipment, circuits))
+    assert not overlaps(lay.drawing), overlaps(lay.drawing)[:15]
+    g = dict((x.name, x) for x in lay.geoms.values())
+    assert g["PP-2A"].bottom > g["SWB"].top      # above SWB, not beside it
+    for f in lay.feeds:
+        for (x1, y1), (x2, y2) in zip(f.points, f.points[1:]):
+            assert y2 >= y1 - 1e-6                # nothing runs downward

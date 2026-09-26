@@ -39,7 +39,7 @@ def edit_settings():
     ratings = forms.alert("Print breaker rating and cable along each way?",
                           yes=True, no=True, title="SLD Settings")
     numbering = forms.CommandSwitchWindow.show(
-        ["Ways from slots (1, 2, R9, Y9, B9)", "Revit circuit numbers"],
+        ["Ways numbered in order (1, 2, R9, Y9, B9)", "Revit circuit numbers"],
         message="Way numbering:")
     if numbering is None:
         return

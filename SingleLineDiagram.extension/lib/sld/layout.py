@@ -15,8 +15,10 @@ Everything is paper millimetres, +Y up, drawn 1:1.
 from __future__ import division
 
 from sld import style, symbols
-from sld.geometry import BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing
-from sld.model import DB_BOX, ISOLATOR, PFC, SPARE, TO_UPS
+from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing,
+                          text_width, wrap)
+from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS,
+                       TRANSFORMER)
 
 SUBSTATION_BAND = -1
 
@@ -34,20 +36,30 @@ class BoardGeom(object):
     def __init__(self, board):
         self.board = board
         n = len(board.ways)
+        self.name_text, self.info_text = _board_labels(board)
         if board.is_main:
             first = style.BOARD_MARGIN + 10.0
             self.height = style.MAIN_HEIGHT
             self.bus_below_top = style.MAIN_BUS_BELOW_TOP
             span = first + max(n - 1, 0) * style.WAY_PITCH + style.BOARD_MARGIN
-            self.width = max(style.MAIN_MIN_WIDTH, span, style.MAIN_INCOMER_FROM_LEFT + 45.0)
-            self.incomer_offset = style.MAIN_INCOMER_FROM_LEFT
+            self.info_text = wrap(self.info_text, style.TEXT_MAIN_INFO, 60.0)
+            # Incomer (and its lamp group) to the right of the name/info block.
+            block = max(text_width(self.name_text, style.TEXT_MAIN_NAME),
+                        text_width(self.info_text, style.TEXT_MAIN_INFO)) + 2.0
+            self.incomer_offset = max(style.MAIN_INCOMER_FROM_LEFT,
+                                      block + symbols.MAIN_LAMPS_LEFT + 3.0)
+            self.width = max(style.MAIN_MIN_WIDTH, span, self.incomer_offset + 45.0)
         else:
             first = style.BOARD_MARGIN
             self.height = style.BOARD_HEIGHT
             self.bus_below_top = style.BUS_BELOW_TOP
             span = first + max(n - 1, 0) * style.WAY_PITCH + style.BOARD_MARGIN
-            self.width = max(style.BOARD_MIN_WIDTH, span)
-            self.incomer_offset = min(max(self.width / 2, 35.0), self.width - 5.0)
+            self.info_text = wrap(self.info_text, style.TEXT_BOARD_INFO, 50.0)
+            # Incomer to the right of the name/info block in the corner.
+            block = max(text_width(self.name_text, style.TEXT_BOARD_NAME),
+                        text_width(self.info_text, style.TEXT_BOARD_INFO)) + 1.5
+            self.incomer_offset = max(span / 2, block + 2.0)
+            self.width = max(style.BOARD_MIN_WIDTH, span, self.incomer_offset + 12.0)
         self.way_offsets = [first + i * style.WAY_PITCH for i in range(n)]
         self.left = 0.0
         self.bottom = 0.0
@@ -90,14 +102,37 @@ class BoardGeom(object):
     def way_x(self, way):
         return self.left + self.way_offsets[self.board.ways.index(way)]
 
+    # -- UPS / transformer drawn above the ways that feed it
+    def pt_inputs(self, pt):
+        return [self.way_x(w) for w in pt.input_ways]
+
     def ups_span(self, pt):
-        xs = [self.way_x(w) for w in pt.input_ways]
+        xs = self.pt_inputs(pt)
         return min(xs) - style.UPS_MARGIN, max(xs) + style.UPS_MARGIN
 
+    def pt_center(self, pt):
+        xs = self.pt_inputs(pt)
+        return (min(xs) + max(xs)) / 2
+
+    def pt_bottom(self, pt):
+        return self.top + style.UPS_ABOVE_BOARD
+
+    def pt_body_top(self, pt):
+        if pt.kind == TRANSFORMER:
+            return self.pt_bottom(pt) + 3.4 * style.PT_TRANSFORMER_RADIUS
+        return self.pt_bottom(pt) + style.UPS_HEIGHT
+
+    def pt_output_y(self, pt):
+        if pt.kind == TRANSFORMER and len(pt.outputs) > 1:
+            return self.pt_body_top(pt) + 1.5
+        return self.pt_body_top(pt)
+
     def ups_output_x(self, pt, board):
-        left, right = self.ups_span(pt)
         n = len(pt.outputs)
         i = pt.outputs.index(board)
+        if pt.kind == TRANSFORMER:
+            return self.pt_center(pt) + (i - (n - 1) / 2) * 3.0
+        left, right = self.ups_span(pt)
         return left + (right - left) * (i + 1) / (n + 1)
 
     def content_height(self):
@@ -113,10 +148,12 @@ class BoardGeom(object):
             elif w.kind == SPARE:
                 h = max(h, style.SPARE_HEIGHT + 0.8 + symbols.vertical_length("SPARE", style.TEXT_LOAD))
             elif w.kind == TO_UPS:
-                h = max(h, style.UPS_ABOVE_BOARD + style.UPS_HEIGHT + 4.0)
+                h = max(h, style.UPS_ABOVE_BOARD + style.UPS_HEIGHT + 4.0,
+                        style.UPS_ABOVE_BOARD + 3.4 * style.PT_TRANSFORMER_RADIUS + 4.0,
+                        style.UPS_ABOVE_BOARD + 1.0 + symbols.vertical_length(w.name, style.TEXT_LOAD))
             elif w.kind == PFC:
                 h = max(h, style.PFC_ABOVE_BOARD + style.PFC_SIZE + 2.0 +
-                        symbols.vertical_length(style.PFC_LABEL, style.TEXT_LOAD))
+                        symbols.vertical_length(symbols.pfc_label(), style.TEXT_LOAD))
         return h
 
 
@@ -186,7 +223,7 @@ class Feed(object):
     def source_y(self):
         if self.way is not None:
             return self.source.top
-        return self.source.top + style.UPS_ABOVE_BOARD + style.UPS_HEIGHT
+        return self.source.pt_output_y(self.pass_through)
 
 
 class Layout(object):
@@ -396,6 +433,22 @@ def _place_y(geoms, rows, jog_counts):
 
 # ---------------------------------------------------------------- drawing
 
+def _board_labels(board):
+    """(name, info block) printed in the board's bottom-left corner."""
+    e = board.equipment
+    if board.is_main:
+        info = [e.form or style.DEFAULT_MAIN_FORM]
+        if e.location:
+            info.append("LOCATION: %s" % e.location)
+    else:
+        info = ["%s, %s WAYS" % (e.form or style.DEFAULT_FORM, e.ways or len(board.ways))]
+        if e.location:
+            info.append("LOCATION: %s" % e.location)
+        if e.level_name:
+            info.append("@ %s" % e.level_name.upper())
+    return board.name, "\n".join(info)
+
+
 def _draw_board(d, g, settings):
     b = g.board
     d.rect(g.left, g.bottom, g.right, g.top)
@@ -409,39 +462,57 @@ def _draw_board(d, g, settings):
         d.line(x, g.bus_y, x, y_arc)
         top_arc = symbols.breaker(d, x, y_arc)
         d.line(x, top_arc, x, g.top)
-        d.text(x - 0.5, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
-        d.text(x + 0.7, g.bus_y + 0.4, style.WAY_DEVICE, style.TEXT_WAY, align=LEFT, valign=BOTTOM)
+        d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
+        d.text(x + 0.5, g.bus_y + 0.4, style.WAY_DEVICE, style.TEXT_WAY, align=LEFT, valign=BOTTOM)
         _draw_way_end(d, g, w, x, settings)
 
     for pt in b.pass_throughs:
-        left, right = g.ups_span(pt)
-        symbols.ups_box(d, left, right, g.top + style.UPS_ABOVE_BOARD, pt.equipment.name)
+        _draw_pass_through(d, g, pt)
 
-    e = b.equipment
     if b.is_main:
         symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right)
-        info = [e.form or style.DEFAULT_MAIN_FORM,
-                "LOCATION:%s" % e.location if e.location else ""]
-        d.text(g.left + 2.0, g.bottom + 2.0, b.name, style.TEXT_MAIN_NAME, align=LEFT, valign=BOTTOM)
-        d.text(g.left + 2.0, g.bottom + 2.0 + style.TEXT_MAIN_NAME * 1.6,
-               "\n".join(l for l in info if l), style.TEXT_MAIN_INFO, align=LEFT, valign=BOTTOM)
+        d.text(g.left + 2.0, g.bottom + 2.0, g.name_text, style.TEXT_MAIN_NAME,
+               align=LEFT, valign=BOTTOM)
+        d.text(g.left + 2.0, g.bottom + 2.0 + style.TEXT_MAIN_NAME * style.LINE_SPACING,
+               g.info_text, style.TEXT_MAIN_INFO, align=LEFT, valign=BOTTOM)
     else:
         xi = g.incomer_x
         y_arc = g.bus_y - style.INCOMER_BREAKER_BELOW_BUS
         d.line(xi, g.bus_y, xi, y_arc + 2 * style.BREAKER_RADIUS)
         symbols.breaker(d, xi, y_arc)
         d.line(xi, y_arc, xi, g.bottom)
-        d.text(xi + 2.0, y_arc, style.WAY_DEVICE, style.TEXT_WAY, align=LEFT, valign=MIDDLE)
-        form = e.form or style.DEFAULT_FORM
-        ways = e.ways if e.ways else len(b.ways)
-        info = ["%s, %s WAYS" % (form, ways)]
-        if e.location:
-            info.append("LOCATION: %s" % e.location)
-        if e.level_name:
-            info.append("@ %s" % e.level_name.upper())
-        d.text(g.left + 1.0, g.bottom + 1.0, b.name, style.TEXT_BOARD_NAME, align=LEFT, valign=BOTTOM)
-        d.text(g.left + 1.5, g.bottom + 1.0 + style.TEXT_BOARD_NAME * 1.6, "\n".join(info),
-               style.TEXT_BOARD_INFO, align=LEFT, valign=BOTTOM)
+        d.text(xi + 2.0, y_arc + style.BREAKER_RADIUS, style.WAY_DEVICE, style.TEXT_WAY,
+               align=LEFT, valign=MIDDLE)
+        d.text(g.left + 1.0, g.bottom + 1.0, g.name_text, style.TEXT_BOARD_NAME,
+               align=LEFT, valign=BOTTOM)
+        d.text(g.left + 1.5, g.bottom + 1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING,
+               g.info_text, style.TEXT_BOARD_INFO, align=LEFT, valign=BOTTOM)
+
+
+def _draw_pass_through(d, g, pt):
+    y0 = g.pt_bottom(pt)
+    if pt.kind != TRANSFORMER:
+        left, right = g.ups_span(pt)
+        symbols.ups_box(d, left, right, y0, pt.equipment.name)
+        return
+    xs = g.pt_inputs(pt)
+    cx = g.pt_center(pt)
+    if len(xs) > 1:
+        d.line(min(xs), y0 - 1.5, max(xs), y0 - 1.5)
+        d.line(cx, y0 - 1.5, cx, y0)
+    top = symbols.small_transformer(d, cx, y0, pt.equipment.name)
+    if len(pt.outputs) > 1:
+        outs = [g.ups_output_x(pt, b) for b in pt.outputs]
+        d.line(cx, top, cx, top + 1.5)
+        d.line(min(outs), top + 1.5, max(outs), top + 1.5)
+
+
+# Room for the rating text above the box top, per way ending.
+_RATING_ROOM = {
+    DB_BOX: style.TERMINAL_BASE, ISOLATOR: style.TERMINAL_BASE,
+    FEEDER: style.TERMINAL_BASE, TO_UPS: style.UPS_ABOVE_BOARD,
+    PFC: style.PFC_ABOVE_BOARD,
+}
 
 
 def _draw_way_end(d, g, w, x, settings):
@@ -462,7 +533,9 @@ def _draw_way_end(d, g, w, x, settings):
         d.line(x, t, x, y0)
         symbols.pfc(d, x, y0)
     elif w.kind == TO_UPS:
-        d.line(x, t, x, t + style.UPS_ABOVE_BOARD)
+        pt = next(p for p in g.board.pass_throughs if w in p.input_ways)
+        joined = pt.kind == TRANSFORMER and len(pt.input_ways) > 1
+        d.line(x, t, x, g.pt_bottom(pt) - (1.5 if joined else 0.0))
     # FEEDER: the riser is drawn by _draw_feed.
 
     if settings.show_ratings:
@@ -470,7 +543,9 @@ def _draw_way_end(d, g, w, x, settings):
         if w.kind == PFC:
             lines = lines[:1]
         if lines:
-            d.text(x - 0.4, t + style.RATING_START, "\n".join(lines), style.TEXT_RATING,
+            room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
+            text = wrap("\n".join(lines), style.TEXT_RATING, room)
+            d.text(x - 0.4, t + style.RATING_START, text, style.TEXT_RATING,
                    align=LEFT, valign=BOTTOM, rotation=symbols.VERTICAL)
 
 
