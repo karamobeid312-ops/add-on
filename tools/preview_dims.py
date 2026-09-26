@@ -5,8 +5,9 @@
 
 Each room gets smoke detectors as the Smoke Detectors button lays them
 out (9 m spacing), and is drawn twice: a string along every row and
-column, and only the strings needed to fix every detector. Lengths are
-in millimetres, as on the drawings.
+column, and only the strings needed to fix every detector. The last
+rooms have sockets on their walls instead. Lengths are in millimetres, as
+on the drawings.
 """
 from __future__ import division, print_function
 
@@ -27,11 +28,22 @@ PX = 9.0            # pixels per metre
 PANEL = 44.0        # panel size (m)
 COLUMNS = 4
 OFFSET = 0.5        # m, dimension line from the devices (5 mm on paper at 1:100)
+EXTRA = 0.4         # m, more when the text would face the devices (4 mm at 1:100)
 TICK = 0.3          # m, tick mark length
 
 # name -> rooms, each room its loops (outline first, then holes)
 SAMPLES = [(name, [loops]) for name, loops in ROOMS] + [
     ("Two offices, 200 mm wall", [[rect(0, 0, 12, 9)], [rect(12.2, 0, 24.2, 9)]]),
+]
+
+# name -> rooms, sockets on their walls: (x, y, facing into the room)
+WALL_SAMPLES = [
+    ("Bedroom, sockets on the walls", [[rect(0, 0, 4.5, 4.0)]],
+     [(0.6, 0.0, (0, 1)), (3.9, 0.0, (0, 1)), (2.25, 4.0, (0, -1)), (0.0, 2.8, (1, 0)),
+      (4.5, 1.2, (-1, 0))]),
+    ("Two offices, sockets on one wall line", [[rect(0, 0, 5, 4)], [rect(5.2, 0, 10.2, 4)]],
+     [(1.2, 0.0, (0, 1)), (3.6, 0.0, (0, 1)), (6.4, 0.0, (0, 1)), (9.0, 0.0, (0, 1)),
+      (2.5, 4.0, (0, -1)), (7.7, 4.0, (0, -1))]),
 ]
 
 
@@ -50,17 +62,23 @@ def _devices(rooms, spacing):
     return found
 
 
-def _panel(name, rooms, spacing, every_row):
+def _sockets(points):
+    """Devices on walls: one centre plane, along the wall."""
+    return [Device(n, x, y, [(math.atan2(f[0], -f[1]), (n, 0))], facing=f)
+            for n, (x, y, f) in enumerate(points)]
+
+
+def _panel(name, rooms, spacing, every_row, sockets=None, zoom=1.0):
     loops = [loop for room in rooms for loop in room]
     xs = [p[0] for loop in loops for p in loop]
     ys = [p[1] for loop in loops for p in loop]
     cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
-    off = (PANEL / 2 - cx, PANEL / 2 - 2 - cy)
 
     def pt(p):
-        return (p[0] + off[0]) * PX, (PANEL - (p[1] + off[1])) * PX
+        return (PANEL / 2 * PX + (p[0] - cx) * PX * zoom,
+                (PANEL / 2 + 2) * PX - (p[1] - cy) * PX * zoom)
 
-    devices = _devices(rooms, spacing)
+    devices = _devices(rooms, spacing) if sockets is None else _sockets(sockets)
     result = plan(devices, segment_walls(segments(loops)), every_row=every_row)
     out = []
     d = " ".join("M " + " L ".join("%.1f %.1f" % pt(p) for p in loop) + " Z" for loop in loops)
@@ -77,8 +95,8 @@ def _panel(name, rooms, spacing, every_row):
     if result.skew:
         notes.append("%d ends at walls not square" % result.skew)
     out.append('<text x="8" y="16" class="t">%s</text>' % _esc(name))
-    out.append('<text x="8" y="32" class="s">%s: %d strings, %d detectors%s</text>'
-               % (mode, len(result.chains), len(devices),
+    out.append('<text x="8" y="32" class="s">%s: %d strings, %d %s%s</text>'
+               % (mode, len(result.chains), len(devices), "sockets" if sockets else "detectors",
                   (", " + ", ".join(notes)) if notes else ""))
     return out
 
@@ -87,8 +105,8 @@ def _chain(chain, pt):
     out = []
     c, s = math.cos(chain.angle), math.sin(chain.angle)
     nx, ny = text_side(c, s)
-    across = chain.across + chain.side * OFFSET
-    (x0, y0), (x1, y1) = chain.line(OFFSET)
+    across = chain.across + chain.side * (OFFSET + (0.0 if chain.text_away else EXTRA))
+    (x0, y0), (x1, y1) = chain.line(OFFSET, EXTRA)
     out.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" class="dim"/>' % (pt((x0, y0)) + pt((x1, y1))))
     # reading direction of the text, and its angle on screen
     rx, ry = (c, s) if (c > 1e-9 or (abs(c) <= 1e-9 and s > 0)) else (-c, -s)
@@ -117,6 +135,8 @@ def to_svg(spacing=9.0):
     for name, rooms in SAMPLES:
         for every_row in (True, False):
             panels.append(_panel(name, rooms, spacing, every_row))
+    for name, rooms, sockets in WALL_SAMPLES:
+        panels.append(_panel(name, rooms, spacing, True, sockets, zoom=3.0))
     size = PANEL * PX
     rows = int(math.ceil(len(panels) / COLUMNS))
     out = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" style="background:#fff">'

@@ -261,7 +261,9 @@ The **Dimensions** panel of the **Electrical** tab:
 - **Dimension Devices** – dimensions the devices of a floor plan or
   ceiling plan (smoke and heat detectors, lights...) with a string along
   each row and each column of devices: from the nearest wall, device to
-  device. Select the devices first, or the spaces or rooms they are in,
+  device. Devices on walls (sockets, switches, data outlets...) get a
+  string along their wall, from the nearest corner. Select the devices
+  first, or the spaces or rooms they are in,
   or after clicking take *All devices in this view*, *Pick devices*, or the
   devices in spaces or rooms you pick (in this model or in a linked model).
   When the devices are of more than one category you tick the ones to
@@ -304,13 +306,13 @@ left of vertical ones), so the text stays clear of the devices.
 | --- | --- |
 | View | The active floor plan or ceiling plan. The dimension line is 5 mm on the printed sheet from the devices (0.5 m at 1:100). |
 | Devices | Family instances in this model. *All devices in this view* and spaces take fire alarm devices, lighting fixtures and devices, electrical fixtures, communication, data, security, nurse call and telephone devices, and generic models; selected or picked devices can be of any category. Devices in linked models are not dimensioned. |
-| Dimensioned to | The centre reference planes of the family, *Center (Left/Right)* and *Center (Front/Back)*, which Autodesk's family templates have. A centre plane set as a Strong or Weak reference is found by its name. Families without them are listed in the summary: open the family, select the centre reference plane and set *Is Reference* to *Center (Left/Right)* or *Center (Front/Back)*. |
+| Dimensioned to | The centre reference planes of the family, *Center (Left/Right)* and *Center (Front/Back)*, which Autodesk's family templates have. A centre plane set as a Strong or Weak reference is found by its name, or else by its position (the reference plane through the insertion point). Families without them are listed in the summary with the references they do have: open the family, select the centre reference plane and set *Is Reference* to *Center (Left/Right)* or *Center (Front/Back)*. |
+| Devices on walls | Face-based families on a wall, and wall-hosted families. They are dimensioned along their wall only (never across the room), from the nearest corner. Their rays start 150 mm into the room, and the dimension line goes into the room: 5 mm from the wall, or 4 mm more when the text would face the wall, so it clears the symbols. |
 | Walls | Walls, curtain panels and mullions, in this model or in linked models, found by rays shot from the devices along the string: one 150 mm below each device (for ceiling devices: under the ceiling and above the doors), one 0.5 m above the level (under the windows, and for walls that stop below the ceiling). A door or window a ray meets stands for the wall it is in, so a string never goes through a doorway or a window. The nearer wall wins; the lower ray passes walls under 2 m high. A wall in a link is dimensioned through the link; when Revit does not take it, the string is made without that wall and the summary says so. When no wall is found on one side, or it is not square to the devices, the string goes to the wall on the other side, and the summary says so. |
 | Existing dimensions | Dimensions in the view that already go to the devices can be replaced or kept. |
 
-Made for devices on ceilings and floors: detectors, lights, floor boxes.
-Sockets and switches on walls need strings along each wall from the
-corner, which this does not do yet.
+Mounting heights of devices on walls are not dimensioned (they are for
+elevations or tags).
 
 ## Install
 

@@ -3,8 +3,12 @@
 
 Devices are family instances in this model. Each is dimensioned to the
 centre reference planes of its family, Center (Left/Right) and Center
-(Front/Back), those that stand upright in the plan. A family whose centre
-plane is set as a Strong or Weak reference is found by the plane's name.
+(Front/Back), those that stand upright in the plan. A centre plane set as
+a Strong or Weak reference is found by its name, or else by its position:
+the plane through the insertion point.
+
+A device on a wall (face based on an upright face, or hosted by a wall) is
+dimensioned along its wall only, and its rays start 150 mm into the room.
 
 Walls (and curtain panels and mullions) are found with rays shot from the
 devices along the strings: 150 mm below each device (under the ceiling
@@ -25,8 +29,9 @@ from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, Dimension, DimensionStyleType, DimensionType,
     ElementId, ElementMulticategoryFilter, ElementTypeGroup, FamilyInstance,
     FamilyInstanceReferenceType, FilteredElementCollector, FindReferenceTarget,
-    HostObjectUtils, Line, ReferenceArray, ReferenceIntersector, ShellLayerType, Transaction,
-    TransactionGroup, TransactionStatus, View3D, ViewFamily, ViewFamilyType, ViewPlan, XYZ,
+    HostObjectUtils, Line, ReferenceArray, ReferenceIntersector, ShellLayerType, SketchPlane,
+    Transaction, TransactionGroup, TransactionStatus, View3D, ViewFamily, ViewFamilyType, ViewPlan,
+    XYZ,
 )
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
@@ -43,6 +48,10 @@ RAY_MIN = 1.0           # ft: and at least this far above the view's level
 RAY_LOW = 1.6           # ft (0.5 m): and again this far above the view's level
 RAY_GAP = 1.0           # ft: when that is at least this far below the first ray
 WALL_TALL = 6.5         # ft (2 m): a wall only the lower ray meets counts from this tall
+WALL_OFF = 0.5          # ft (150 mm): rays of a device on a wall start this far into the room
+TEXT_ROOM = 4.0         # mm on paper: more space when the text of a string along a wall
+                        # would face the wall, so it clears the device symbols
+PLANE_TOL = 0.01        # ft (3 mm): a reference plane this near the insertion point is a centre
 UPRIGHT = 1e-3          # a centre plane whose normal rises more than this is flat in the plan
 SPACE_HEIGHT = 15.0     # ft: devices this high above a space's floor are in it (rooms
                         # are often modelled lower than the ceiling)
@@ -194,38 +203,147 @@ def in_spaces(instances, spaces):
     return found
 
 
-def _centre(instance, ref_type, name):
-    """Reference to a centre plane of the instance's family, or None."""
+_STRONG_WEAK = (FamilyInstanceReferenceType.StrongReference,
+                FamilyInstanceReferenceType.WeakReference)
+
+
+class _CentreFinder(object):
+    """Centre planes of families that do not mark them as Center (Left/
+    Right) or Center (Front/Back): the Strong or Weak reference plane square
+    to the axis through the insertion point. Found once per family type, by
+    making a sketch plane on each reference (rolled back)."""
+
+    def __init__(self, doc):
+        self.doc = doc
+        self.found = {}             # (type id, basis) -> (reference type, index, name) or None
+
+    def centre(self, instance, basis):
+        try:
+            key = (id_int(instance.GetTypeId()), basis)
+        except Exception:
+            return None
+        if key not in self.found:
+            self.found[key] = self._probe(instance, basis)
+        if self.found[key] is None:
+            return None
+        ref_type, index, name = self.found[key]
+        try:
+            refs = list(instance.GetReferences(ref_type))
+            if index < len(refs) and (instance.GetReferenceName(refs[index]) or "") == name:
+                return refs[index]
+            for ref in refs:                # listed in another order: by its name
+                if name and instance.GetReferenceName(ref) == name:
+                    return ref
+        except Exception:
+            pass
+        return None
+
+    def _probe(self, instance, basis):
+        transform = instance.GetTransform()
+        axis, origin = getattr(transform, basis), transform.Origin
+        t = Transaction(self.doc, "Find centre planes")
+        try:
+            t.Start()
+            for ref_type in _STRONG_WEAK:
+                for index, ref in enumerate(instance.GetReferences(ref_type)):
+                    try:
+                        plane = SketchPlane.Create(self.doc, ref).GetPlane()
+                    except Exception:
+                        continue
+                    normal = plane.Normal
+                    if abs(normal.DotProduct(axis)) >= math.cos(ANGLE_TOL) and \
+                            abs(plane.Origin.Subtract(origin).DotProduct(normal)) <= PLANE_TOL:
+                        return ref_type, index, instance.GetReferenceName(ref) or ""
+        except Exception:
+            pass
+        finally:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+        return None
+
+
+def _centre(instance, ref_type, name, basis, finder=None):
+    """Reference to a centre plane of the instance's family, or None: the
+    plane set as `ref_type`, a Strong or Weak one named `name`, or one found
+    by its position."""
     try:
         refs = list(instance.GetReferences(ref_type))
     except Exception:
         refs = []
     if refs:
         return refs[0]
-    for other in (FamilyInstanceReferenceType.StrongReference,
-                  FamilyInstanceReferenceType.WeakReference):
+    for other in _STRONG_WEAK:
         try:
             for ref in instance.GetReferences(other):
                 if instance.GetReferenceName(ref) == name:
                     return ref
         except Exception:
             pass
-    return None
+    return finder.centre(instance, basis) if finder is not None else None
+
+
+_KINDS = ("Left", "CenterLeftRight", "Right", "Front", "CenterFrontBack", "Back", "Bottom",
+          "CenterElevation", "Top", "StrongReference", "WeakReference")
+
+
+def _reference_names(instance):
+    """Names of the references the instance's family has (for the summary)."""
+    names = []
+    for kind in _KINDS:
+        try:
+            for ref in instance.GetReferences(getattr(FamilyInstanceReferenceType, kind)):
+                name = instance.GetReferenceName(ref) or kind
+                if name not in names:
+                    names.append(name)
+        except Exception:
+            pass
+    return names
+
+
+def _unit(x, y):
+    length = math.hypot(x, y)
+    return (x / length, y / length) if length > 1e-6 else None
+
+
+def _facing(instance, transform):
+    """(x, y) out of the wall into the room, for a device on a wall: face
+    based on an upright face, or hosted by a wall. None otherwise."""
+    z = transform.BasisZ
+    if abs(z.Z) <= UPRIGHT:
+        return _unit(z.X, z.Y)              # face based: its Z is the face's normal
+    try:
+        host = instance.Host
+        if host is None or id_int(host.Category.Id) != _WALL:
+            return None
+        point = _point(instance)
+        on = host.Location.Curve.Project(point).XYZPoint
+        found = _unit(point.X - on.X, point.Y - on.Y)
+        if found is None:
+            facing = instance.FacingOrientation
+            found = _unit(facing.X, facing.Y)
+        return found
+    except Exception:
+        return None
 
 
 def read_devices(instances):
     """([Device], {(family : type, note): count}) of the family instances.
     Devices without a centre plane upright in the plan are left out."""
     devices, notes = [], {}
+    doc = getattr(instances[0], "Document", None) if instances else None
+    finder = _CentreFinder(doc) if doc is not None else None
     for instance in instances:
         point = _point(instance)
         transform = instance.GetTransform()
+        facing = _facing(instance, transform)
         axes, missing = [], []
         for ref_type, basis, name in CENTRES:
             axis = getattr(transform, basis)
             if abs(axis.Z) > UPRIGHT:
                 continue                    # the plane lies flat in the plan
-            ref = _centre(instance, ref_type, name)
+            if facing is not None and abs(axis.X * facing[0] + axis.Y * facing[1]) > UPRIGHT:
+                continue                    # across its wall: a device on a wall goes along it
+            ref = _centre(instance, ref_type, name, basis, finder)
             if ref is None:
                 missing.append(name)
             else:
@@ -233,15 +351,17 @@ def read_devices(instances):
         label = type_label(instance.Symbol)
         note = None
         if missing:
-            note = "no %s reference plane in the family, %s" % (
-                " or ".join(missing), "dimensioned one way only" if axes else "not dimensioned")
+            names = _reference_names(instance)
+            note = "no %s reference plane in the family, %s (%s)" % (
+                " or ".join(missing), "dimensioned one way only" if axes else "not dimensioned",
+                "its references: " + ", ".join(names) if names else "it has no references")
         elif not axes:
             note = "tilted, not square to the plan: not dimensioned"
         if note:
             notes[(label, note)] = notes.get((label, note), 0) + 1
         if axes:
             devices.append(Device(instance.Id, point.X * M_PER_FOOT, point.Y * M_PER_FOOT, axes,
-                                  z=point.Z * M_PER_FOOT, label=label))
+                                  z=point.Z * M_PER_FOOT, label=label, facing=facing))
     return devices, notes
 
 
@@ -391,6 +511,8 @@ class WallFinder(object):
 
     def __call__(self, device, direction):
         x, y = device.x / M_PER_FOOT, device.y / M_PER_FOOT
+        if device.facing is not None:       # on a wall: from off the wall, in the room
+            x, y = x + device.facing[0] * WALL_OFF, y + device.facing[1] * WALL_OFF
         ray = XYZ(direction[0], direction[1], 0)
         high = device.z / M_PER_FOOT - RAY_DROP
         if self.level_z is not None:
@@ -515,6 +637,7 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
     level_z = level.ProjectElevation if level is not None else None
     z = level_z if level_z is not None else 0.0
     offset = offset_mm / 1000.0 * view.Scale            # m in the model
+    extra = TEXT_ROOM / 1000.0 * view.Scale
     right, up = view.RightDirection, view.UpDirection
     group = TransactionGroup(doc, "Dimension Devices")
     group.Start()
@@ -534,7 +657,7 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
         t = Transaction(doc, "Dimension Devices")
         t.Start()
         for chain in planned.chains:
-            (x0, y0), (x1, y1) = chain.line(offset)
+            (x0, y0), (x1, y1) = chain.line(offset, extra)
             line = Line.CreateBound(XYZ(x0 / M_PER_FOOT, y0 / M_PER_FOOT, z),
                                     XYZ(x1 / M_PER_FOOT, y1 / M_PER_FOOT, z))
             dim, dropped, error = _make(doc, view, chain, line, dim_type)
