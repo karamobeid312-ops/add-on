@@ -10,7 +10,9 @@ every outgoing way, UPS, main boards with transformer and supply.
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
 The repository also holds a **Fire Alarm** extension that places smoke and
-heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors).
+heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors),
+and a **Voltage Drop** extension that calculates the voltage drop of every
+cable and saves the office voltage drop sheet, see [Voltage drop](#voltage-drop).
 
 ## What gets drawn
 
@@ -140,14 +142,99 @@ too narrow for it, where they go on the centreline.
 | Detector family | Any family in the **Fire Alarm Devices** category. Face-based families go on the ceiling face (host or linked ceiling), ceiling-hosted families on the ceiling (only ceilings in this model can host), level-based families at ceiling height. The type is asked the first time and remembered; change it in FA Settings. |
 | Detectors already there | Detectors of the same type already in the selected spaces can be replaced or kept. |
 
+## Voltage drop
+
+`VoltageDrop.extension` adds a **Voltage Drop** tab with a **Calculation** panel:
+
+- **Calculate VD** – calculates every cable from the transformer to the
+  final loads with the lengths you typed, writes `VD Percent` and
+  `VD Total Percent` on each circuit and lists the results in the output
+  window, with what fails and the breaker or cable that would pass
+  (e.g. `V.D 5.52% > 4%; use 4Cx25mm²`). Click a circuit id to select it.
+- **VD Report** – saves the calculation as an Excel file in the office
+  voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
+  MAX V.D %) with a REMARKS column, and opens it. The cells hold formulas,
+  so a length or load changed in Excel updates the voltage drop.
+- **VD Settings** – voltages, default power factor, demand (MDL) or
+  connected (TCL) load, limits, default cable and installation, derating
+  values and the report title block (company, revision, issue).
+
+The SLD is not changed.
+
+### Typing the lengths
+
+The first time you click **Calculate VD** it offers to add these instance
+parameters to Electrical Circuits and Electrical Equipment, and a
+**Voltage Drop Circuits** schedule (panel, circuit, load name, rating, wire
+size and the VD parameters) where you type every length in one place:
+
+| Parameter | Type | What you type |
+| --- | --- | --- |
+| `VD Length` | Text | cable length in metres: `175`, `175 m` (also `mm`, `ft`) |
+| `VD Installation` | Text | `Cable Tray`, `Duct Bank` or `Ground`; empty = VD Settings |
+| `VD Cable` | Text | only when Revit's wire size is not the cable: `4Cx16`, `4x4Cx300`, `11x1Cx630 XLPE/SWA/PVC` |
+| `VD Load kW` | Text | only to override the load: the maximum demand in kW |
+| `VD Percent` | Number | result: voltage drop of the cable (%) |
+| `VD Total Percent` | Number | result: cumulative voltage drop (%) |
+
+Feeders to boards are always calculated (a missing length is reported);
+final circuits only when they have a `VD Length`.
+
+The cable from the transformer to a main board: if the transformer is in
+the model and circuited to the board, that circuit is used. Otherwise type
+`VD Length` (and `VD Cable`, e.g. `11x1Cx630`) on the main board itself.
+
+### What is read from Revit
+
+| Sheet column | Revit |
+| --- | --- |
+| FROM / TO | the circuit's panel / the board it feeds, or the load name |
+| PHASE, VOLTAGE | circuit poles (3 = three phase) and voltage |
+| TCL (kW) | circuit true load |
+| MDL (kW) | `VD Load kW`, or the fed board's Total Estimated Demand x PF (with MDL in VD Settings), else TCL |
+| PF | circuit power factor (default in VD Settings) |
+| Breaker rating | circuit rating (main board incomer: the board's Mains) |
+| Runs, cores, CSA | `VD Cable`, else `SLD Cable`, else number of runs, hot + neutral conductors and Revit's metric wire size |
+| Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
+
+### How it is calculated
+
+As the office sheet:
+
+```
+I (A)       = MDL kVA x 1000 / (√3 x 400 V)          single phase: / 230 V
+breaker     In >= 1.1 x I
+cable       Iz = rating x runs x Cb x Ca x Cr x Cg >= In
+V.D (V)     = mV/A/m / runs x L (m) x I (A) / 1000
+V.D (%)     = V.D / V x 100
+cumulative  = V.D (%) + cumulative V.D (%) of the cable feeding the FROM board
+limit       2.5 % transformer to main board, 4 % to the final load
+```
+
+Ratings, mV/A/m and the derating factors Ca (temperature), Cb (depth) and
+Cr (soil thermal resistivity) are the office sheet's DUCAB XLPE tables, in
+[`lib/vdrop/tables.py`](VoltageDrop.extension/lib/vdrop/tables.py). Where
+the tool differs from the sheet:
+
+- √3 instead of 1.73 (0.12 % lower).
+- Single phase cables use 230 V and 2/√3 x the three phase mV/A/m (the
+  sheet has no single phase rows).
+- The cumulative total starts again after a transformer or a UPS.
+- Cr uses the size bands of the table headings (multicore up to 16 / 150
+  mm², single core up to 150 / 300 mm²); the sheet's formula uses 16 / 240
+  for both. Same result with resistivity 0, as in the sheet.
+- Cb and Cr are picked by single core / multicore, the sheet picks them by
+  the number of phases.
+- Only XLPE cables: the sheet's `ref_PVC` tab is a copy of the XLPE data.
+
 ## Install
 
 1. Install pyRevit.
 2. Download this repository and unzip it somewhere permanent.
 3. In Revit: **pyRevit tab → Settings → Custom Extension Directories → Add
-   folder**, pick the folder that *contains* `SingleLineDiagram.extension`
-   and `FireAlarm.extension`, save and reload. Both tabs (SLD, Fire Alarm)
-   appear.
+   folder**, pick the folder that *contains* `SingleLineDiagram.extension`,
+   `FireAlarm.extension` and `VoltageDrop.extension`, save and reload. The
+   tabs (SLD, Fire Alarm, Voltage Drop) appear.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
@@ -165,6 +252,13 @@ python tools/preview_detectors.py detectors.svg [smoke spacing] [heat spacing]
 ```
 
 draws the detector layout of the sample rooms (`tools/sample_rooms.py`).
+
+```
+python tools/preview_vd_report.py report.xlsx
+```
+
+saves the voltage drop report of the sample cables (`tools/sample_vd.py`,
+the rows of an office voltage drop sheet).
 
 ## Project layout
 
@@ -189,7 +283,18 @@ FireAlarm.extension/
     report.py      summary shown after placing
     settings.py    per-user settings
     command.py     button entry points
-tools/             sample models and SVG previews
+VoltageDrop.extension/
+  Voltage Drop.tab/Calculation.panel/   Calculate VD, VD Report, VD Settings
+  lib/vdrop/
+    calc.py        voltage drop, cable and breaker checks, suggestions (no Revit)
+    tables.py      cable ratings, mV/A/m, derating factors of the office sheet
+    parse.py       reading the typed lengths, cables, installations
+    report.py      the report in the office sheet layout, results summary
+    xlsx.py        small .xlsx writer (standard library only)
+    revit_vd.py    circuits to rows, results to parameters, parameters + schedule
+    settings.py    per-user settings
+    command.py     button entry points
+tools/             sample models, SVG and report previews
 tests/             pytest tests (no Revit needed)
 ```
 
@@ -200,5 +305,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld` and `lib/firealarm` compatible with Python 2.7 (no
+Keep code in `lib/sld`, `lib/firealarm` and `lib/vdrop` compatible with Python 2.7 (no
 f-strings, no type hints) so it runs in pyRevit's IronPython engine.

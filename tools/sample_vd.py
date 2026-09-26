@@ -1,0 +1,122 @@
+# -*- coding: utf-8 -*-
+"""Sample for the voltage drop calculation: the cables of an office
+voltage drop sheet, as they would be read from a Revit model.
+
+Each row: FROM, TO, length (m), phases, TCL (kW), PF, MDL (kW), breaker (A),
+voltage (V), installation, runs per phase, cores, size (mm²), cable.
+FROM 'TR' is the transformer. A TO that also appears as a FROM is a board.
+"""
+from vdrop.calc import BOARD, TRANSFORMER, Feeder
+from vdrop.parse import Cable
+
+ROWS = [
+    ('TR', 'LVP-05', 15, 3, 1912.74, 0.85, 1530.192, 2500, 400, 'Duct Bank', 11, 1, 630, 'XLPE/SWA/PVC'),
+    ('LVP-05', 'ESMDB-WH', 175, 3, 311.7, 0.85, 285.12, 630, 400, 'Ground', 4, 4, 300, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'ESMDB-1F', 55, 3, 21.4, 0.85, 16.1, 63, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'ESMDB-2F', 50, 3, 21.4, 0.85, 16.12, 63, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'ESMDB-3F', 55, 3, 21.3, 0.85, 16.18, 63, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'ESMDB-4F', 60, 3, 21.4, 0.85, 16.12, 63, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'ESMDB-EQ-1', 60, 3, 56, 0.85, 50.33, 125, 400, 'Cable Tray', 1, 4, 70, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'ESMDB-EQ-2', 60, 3, 50.7, 0.85, 45.5, 100, 400, 'Cable Tray', 1, 4, 70, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'EDB-Z1-GF', 130, 3, 7.3, 0.85, 5.5, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'EDB-Z2-GF', 85, 3, 6.9, 0.85, 5.2, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'EDB-Z3-GF', 45, 3, 8.3, 0.85, 6.2, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'MDF', 20, 3, 35, 0.85, 35, 100, 400, 'Cable Tray', 1, 4, 25, 'XLPE/SWA/PVC'),
+    ('ESMDB-WH', 'IT+PSI', 20, 3, 62, 0.85, 62, 160, 400, 'Cable Tray', 1, 4, 70, 'XLPE/SWA/PVC'),
+    ('ESMDB-1F', 'EDB-Z1-1F', 85, 3, 6.8, 0.85, 5.1, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-1F', 'EDB-Z2-1F', 40, 3, 7.4, 0.85, 5.6, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-1F', 'EDB-Z3-1F', 10, 3, 7.2, 0.85, 5.4, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-2F', 'EDB-Z1-2F', 100, 3, 6.8, 0.85, 5.1, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-2F', 'EDB-Z2-2F', 50, 3, 7.4, 0.85, 5.6, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-2F', 'EDB-Z3-2F', 10, 3, 7.2, 0.85, 5.5, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-3F', 'EDB-Z1-3F', 100, 3, 6.8, 0.85, 5.1, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-3F', 'EDB-Z2-3F', 50, 3, 7.3, 0.85, 5.5, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-3F', 'EDB-Z3-3F', 10, 3, 7.2, 0.85, 5.5, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-4F', 'EDB-Z1-4F', 100, 3, 6.8, 0.85, 5.1, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-4F', 'EDB-Z2-4F', 50, 3, 7.4, 0.85, 5.6, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-4F', 'EDB-Z3-4F', 10, 3, 7.2, 0.85, 5.5, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 60, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 6, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 85, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 6, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 95, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 6, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 115, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 6, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 130, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 6, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 150, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 140, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 6, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-1', 'SEAF-03', 160, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SEAF-03', 180, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SEAF-03', 175, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SEAF-03', 200, 3, 7, 0.85, 6.3, 32, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SEAF-02', 170, 3, 13.2, 0.85, 11.88, 40, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SEAF-01', 55, 3, 1.8, 0.85, 1.62, 20, 400, 'Cable Tray', 1, 4, 4, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SMAF-01', 85, 3, 1.7, 0.85, 1.53, 20, 400, 'Cable Tray', 1, 4, 4, 'XLPE/SWA/PVC'),
+    ('ESMDB-EQ-2', 'SMAF-02', 190, 3, 13, 0.85, 11.7, 40, 400, 'Cable Tray', 1, 4, 25, 'XLPE/SWA/PVC'),
+    ('TR', 'MDB-02', 15, 3, 782.1, 0.85, 692.81, 1600, 400, 'Duct Bank', 7, 1, 630, 'XLPE/SWA/PVC'),
+    ('MDB-02', 'SMDB-SB-01', 175, 3, 107.4, 0.85, 93.38, 1250, 400, 'Ground', 4, 4, 300, 'XLPE/SWA/PVC'),
+    ('MDB-02', 'SMDB-GF-M2', 115, 3, 674.65, 0.85, 599.425, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'PDB-SB', 120, 3, 12.5, 0.85, 8.8, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'LDB-SB', 125, 3, 10.7, 0.85, 9.6, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'TP-01', 130, 3, 3, 0.85, 2.1, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'ERV-02', 160, 3, 4, 0.85, 3.6, 63, 400, 'Cable Tray', 1, 4, 25, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'CWP-01', 155, 3, 1, 0.85, 0.7, 63, 400, 'Cable Tray', 1, 4, 25, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'AHU-01', 148, 3, 36, 0.85, 32.4, 63, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'VRF-FAHU-04', 145, 3, 9.3, 0.85, 8.37, 63, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'VRF-FAHU-04', 60, 3, 9.3, 0.85, 8.37, 200, 400, 'Cable Tray', 1, 4, 95, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'VRF-FAHU-04', 55, 3, 9.3, 0.85, 8.37, 160, 400, 'Cable Tray', 1, 4, 50, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'VRF-SR-01', 50, 3, 5, 0.85, 4.5, 125, 400, 'Cable Tray', 1, 4, 50, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'FOR ERV-01', 55, 3, 6.3, 0.85, 5.67, 160, 400, 'Cable Tray', 1, 4, 50, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'FOR EXF-07', 10, 3, 0.5, 0.85, 0.45, 200, 400, 'Cable Tray', 1, 4, 70, 'XLPE/SWA/PVC'),
+    ('SMDB-SB-01', 'FOR EXF-06', 95, 3, 0.5, 0.85, 0.45, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-GF-M2', 'SMDB-RF-01', 50, 3, 357.7, 0.85, 314.17, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-GF-M2', 'SMDB-RF-02', 10, 3, 316.95, 0.85, 285.255, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'DB-RF-01', 100, 3, 42.4, 0.85, 30.4, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-L01-04', 50, 3, 33.6, 0.85, 30.24, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-GF-04', 10, 3, 33.6, 0.85, 30.24, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-L02-04', 100, 3, 33.6, 0.85, 30.24, 40, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-FAHU-03-01', 50, 3, 21.6, 0.85, 19.44, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-FAHU-03-02', 10, 3, 21.6, 0.85, 19.44, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-FAHU-03-03', 40, 3, 21.6, 0.85, 19.44, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'FAHU-03', 100, 3, 13.9, 0.85, 12.51, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'ECO-02', 50, 3, 5.5, 0.85, 4.95, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'MAHU-02', 10, 3, 3, 0.85, 2.7, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-MAHU-02-01', 100, 3, 18.6, 0.85, 16.74, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-MAHU-02-02', 50, 3, 18.6, 0.85, 16.74, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-MAHU-02-03', 10, 3, 18.6, 0.85, 16.74, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-GF-03', 100, 3, 26.6, 0.85, 23.94, 40, 400, 'Cable Tray', 1, 4, 25, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-L02-03', 45, 3, 27.9, 0.85, 25.11, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'VRF-L01-03', 10, 3, 16, 0.85, 14.4, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-01', 'EXF-02', 10, 3, 1, 0.85, 0.9, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'FAHU-02', 100, 3, 13.9, 0.85, 12.51, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-FAHU-02-03', 50, 3, 21.6, 0.85, 19.44, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-FAHU-02-02', 10, 3, 21.6, 0.85, 19.44, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-FAHU-02-01', 100, 3, 21.6, 0.85, 19.44, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-GF-02', 50, 3, 20.1, 0.85, 18.09, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-L02-02', 10, 3, 33.6, 0.85, 30.24, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-L01-02', 100, 3, 23.4, 0.85, 21.06, 40, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'FAHU-01', 50, 3, 12.9, 0.85, 11.61, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-FAHU-01-01', 10, 3, 18.6, 0.85, 16.74, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-FAHU-01-02', 85, 3, 18.6, 0.85, 16.74, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-FAHU-01-03', 40, 3, 18.6, 0.85, 16.74, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-L02-01', 10, 3, 28, 0.85, 25.2, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-GF-01', 85, 3, 29.5, 0.85, 26.55, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-L01-01', 40, 3, 22.4, 0.85, 20.16, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'VRF-DCWT', 10, 3, 10.8, 0.85, 9.72, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'EXF-03', 80, 3, 1, 0.85, 0.9, 40, 400, 'Cable Tray', 1, 4, 16, 'XLPE/SWA/PVC'),
+    ('SMDB-RF-02', 'EXF-04', 40, 3, 0.75, 0.85, 0.675, 40, 400, 'Cable Tray', 1, 4, 10, 'XLPE/SWA/PVC'),
+]
+
+
+def feeders(rows=ROWS):
+    """calc.Feeder list, one per row, in the sheet's order."""
+    boards = set(r[0] for r in rows)
+    out = []
+    for i, (src, dst, length, phases, tcl, pf, mdl, breaker, volts, installation,
+            runs, cores, size, insulation) in enumerate(rows):
+        out.append(Feeder(
+            # every main board has its own transformer
+            id=i, source_id="TR:" + dst if src == "TR" else src, source=src, target=dst,
+            target_id=dst if dst in boards else None,
+            length=length, phases=phases, voltage=volts, tcl_kw=tcl, mdl_kw=mdl,
+            power_factor=pf, breaker=breaker, installation=installation,
+            cable=Cable(runs, cores, size, insulation),
+            source_kind=TRANSFORMER if src == "TR" else BOARD, order=i))
+    return out
