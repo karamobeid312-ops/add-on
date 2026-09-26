@@ -242,8 +242,8 @@ def test_to_fix_names_the_missing_inputs():
     assert lines[1].startswith(u"2 cables have no cable size in mm² (Revit's wire size "
                                u"'3-#4/0, 1-#4/0' is not in mm²)")
     assert lines[2].startswith("1 cable has no load in the model")
-    assert lines[3] == ("2 breakers are below 1.1 x Ib (all are 20 A, Revit's default: set "
-                        "the real breaker in the circuit's Rating).")
+    assert lines[3] == ("2 breakers are below 1.1 x Ib (all are 20 A, Revit's default circuit "
+                        "Rating: set the MCB Rating of the panel).")
     assert len(lines) == 4
     assert to_fix(calculate(feeders_ok())) == []
 

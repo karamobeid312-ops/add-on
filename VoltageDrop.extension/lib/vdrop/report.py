@@ -126,14 +126,15 @@ def _plural(n, one, many):
     return "%d %s" % (n, one if n == 1 else many)
 
 
-def to_fix(result, schedule="Voltage Drop Circuits"):
+def to_fix(result, schedule="Voltage Drop Panels"):
     """What keeps the cables from passing, one line per cause."""
     rows = list(result.rows())
     lines = []
     n = sum(1 for r in rows if r.feeder.length is None)
     if n:
-        lines.append("%s no VD Length: type the lengths in metres (the '%s' schedule "
-                     "lists every circuit)." % (_plural(n, "cable has", "cables have"), schedule))
+        lines.append("%s no VD Length: type it in metres on the panel it feeds (the '%s' "
+                     "schedule lists every panel)." % (
+                         _plural(n, "cable has", "cables have"), schedule))
     sizes = [r for r in rows if r.size is None]
     if sizes:
         notes = [p for r in sizes for p in r.problems if p.startswith("wire size")]
@@ -151,9 +152,9 @@ def to_fix(result, schedule="Voltage Drop Circuits"):
         text = "%s below 1.1 x Ib" % _plural(len(small), "breaker is", "breakers are")
         default = sum(1 for r in small if r.feeder.breaker == REVIT_DEFAULT_RATING)
         if default:
-            text += (" (%s 20 A, Revit's default: set the real breaker in the circuit's "
-                     "Rating)" % ("it is" if len(small) == 1 else
-                                  "all are" if default == len(small) else "%d are" % default))
+            text += (" (%s 20 A, Revit's default circuit Rating: set the MCB Rating of "
+                     "the panel)" % ("it is" if len(small) == 1 else
+                                     "all are" if default == len(small) else "%d are" % default))
         lines.append(text + ".")
     n = sum(1 for r in rows if r.cable_ok is False)
     if n:
