@@ -418,11 +418,15 @@ def _panel_feeder(panel, system, source, values, model):
         _circuit_values(system) if system is not None else (None, None, None, None))
     # typed on the panel (or its circuit), else VD Settings (or the model)
     pf = _first(typed, _typed_pf, notes) or _pf(values, panel.load_pf or circuit_pf)
-    pf_used = pf or values["power_factor"]
-    tcl = panel.connected_kva * pf_used if panel.connected_kva else circuit_tcl
+    # Revit gives the panel loads in kVA; the power factor of its own loads
+    # (1 when they are entered in kW) makes them kW, so TCL and MDL are the
+    # model's figures. The design PF above only gives kVA = kW / PF, as the
+    # office sheet.
+    to_kw = panel.load_pf or circuit_pf or 1.0
+    tcl = panel.connected_kva * to_kw if panel.connected_kva else circuit_tcl
     mdl = _first(typed, _typed_load, notes)
     if mdl is None and values["load_basis"] == MDL and panel.demand_kva:
-        mdl = panel.demand_kva * pf_used
+        mdl = panel.demand_kva * to_kw
     cable = (_typed_cable(el, (P_CABLE, "SLD Incoming Cable"), notes) or
              (_typed_cable(system, (P_CABLE, "SLD Cable"), notes) if system is not None else None))
     if cable is None and not [n for n in notes if n.startswith("VD Cable")]:
