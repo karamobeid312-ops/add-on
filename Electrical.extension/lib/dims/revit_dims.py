@@ -7,11 +7,13 @@ centre reference planes of its family, Center (Left/Right) and Center
 plane is set as a Strong or Weak reference is found by the plane's name.
 
 Walls (and curtain panels and mullions) are found with rays shot from the
-devices along the strings, 150 mm below each device (under the ceiling
-for ceiling devices, above the doors), through this model and linked
-models, in a temporary 3D view deleted again at the end. A face in a link
-is dimensioned through a link reference; when Revit does not take it the
-string is made without it.
+devices along the strings: 150 mm below each device (under the ceiling
+for ceiling devices, above the doors) and 0.5 m above the plan's level
+(under the windows). A door or window a ray meets stands for the wall it
+is in. The rays go through this model and linked models, in a temporary
+3D view deleted again at the end. A face in a link is dimensioned through
+a link reference; when Revit does not take it the string is made without
+it.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 """
@@ -22,9 +24,9 @@ import math
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, Dimension, DimensionStyleType, DimensionType,
     ElementId, ElementMulticategoryFilter, ElementTypeGroup, FamilyInstance,
-    FamilyInstanceReferenceType, FilteredElementCollector, FindReferenceTarget, Line,
-    ReferenceArray, ReferenceIntersector, Transaction, TransactionGroup, TransactionStatus,
-    View3D, ViewFamily, ViewFamilyType, ViewPlan, XYZ,
+    FamilyInstanceReferenceType, FilteredElementCollector, FindReferenceTarget,
+    HostObjectUtils, Line, ReferenceArray, ReferenceIntersector, ShellLayerType, Transaction,
+    TransactionGroup, TransactionStatus, View3D, ViewFamily, ViewFamilyType, ViewPlan, XYZ,
 )
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
@@ -38,6 +40,9 @@ from firealarm.revit_fa import boundary_loops, selected_spaces, type_label
 M_PER_FOOT = 0.3048
 RAY_DROP = 0.5          # ft (150 mm): walls are looked for this far below each device
 RAY_MIN = 1.0           # ft: and at least this far above the view's level
+RAY_LOW = 1.6           # ft (0.5 m): and again this far above the view's level
+RAY_GAP = 1.0           # ft: when that is at least this far below the first ray
+WALL_TALL = 6.5         # ft (2 m): a wall only the lower ray meets counts from this tall
 UPRIGHT = 1e-3          # a centre plane whose normal rises more than this is flat in the plan
 SPACE_HEIGHT = 15.0     # ft: devices this high above a space's floor are in it (rooms
                         # are often modelled lower than the ceiling)
@@ -55,6 +60,10 @@ WALL_CATEGORIES = (
     BuiltInCategory.OST_Walls, BuiltInCategory.OST_CurtainWallPanels,
     BuiltInCategory.OST_CurtainWallMullions,
 )
+# a door or window a ray meets stands for the wall it is in
+OPENING_CATEGORIES = (BuiltInCategory.OST_Doors, BuiltInCategory.OST_Windows)
+_OPENINGS = set(int(bic) for bic in OPENING_CATEGORIES)
+_WALL = int(BuiltInCategory.OST_Walls)
 
 # centre planes: reference type, the instance axis that is the plane's normal, its name
 CENTRES = (
@@ -265,69 +274,150 @@ def _ray_view(doc, plan_view):
     return view
 
 
-class _Face(object):
-    """A face found by a ray: its normal in this model (None when not
-    known), whether it is flat, whether it is in a link, and the
-    references to dimension to, the one to try first first."""
+def _top(element, transform):
+    """Top of the element in this model (ft), or None."""
+    try:
+        top = element.get_BoundingBox(None).Max
+        return transform.OfPoint(top).Z if transform is not None else top.Z
+    except Exception:
+        return None
 
-    def __init__(self, doc, reference):
-        self.normal, self.flat = None, True
+
+def _opening_wall(element):
+    """The wall a door or window is in, or None."""
+    try:
+        if id_int(element.Category.Id) not in _OPENINGS:
+            return None
+        host = element.Host
+        return host if id_int(host.Category.Id) == _WALL else None
+    except Exception:
+        return None
+
+
+def _side_face(wall, transform, origin, ray):
+    """(distance ft, normal, reference) of the side face of `wall` that
+    faces the ray from `origin`, the nearest one ahead, or None."""
+    best = None
+    for side in (ShellLayerType.Exterior, ShellLayerType.Interior):
+        try:
+            refs = list(HostObjectUtils.GetSideFaces(wall, side))
+        except Exception:
+            continue
+        for ref in refs:
+            try:
+                face = wall.GetGeometryObjectFromReference(ref)
+                normal, point = face.FaceNormal, face.Origin
+            except Exception:
+                continue
+            if transform is not None:
+                normal, point = transform.OfVector(normal), transform.OfPoint(point)
+            facing = normal.DotProduct(ray)
+            if facing > -UPRIGHT:
+                continue                        # not facing the ray
+            distance = point.Subtract(origin).DotProduct(normal) / facing
+            if distance >= 0 and (best is None or distance < best[0]):
+                best = (distance, normal, ref)
+    return best
+
+
+class _Face(object):
+    """The wall face a ray meets: its distance (ft), its normal in this
+    model (None when not known), whether it is flat, whether it is in a
+    link, the references to dimension to (the one to try first first) and
+    the top of its wall (ft, None when not known). A door or window stands
+    for the side face of the wall it is in. skip: not a face to stop at."""
+
+    def __init__(self, doc, reference, proximity, origin, ray):
+        self.distance, self.normal, self.flat = proximity, None, True
+        self.top, self.skip = None, False
         self.refs = [reference]
         self.linked = _is_linked(reference)
         link = doc.GetElement(reference.ElementId) if self.linked else None
+        transform = link.GetTotalTransform() if link is not None else None
         try:
-            if link is not None:
-                inner = reference.CreateReferenceInLink()
-                element = link.GetLinkDocument().GetElement(inner.ElementId)
-                face = element.GetGeometryObjectFromReference(inner)
-            else:
-                face = doc.GetElement(reference.ElementId).GetGeometryObjectFromReference(reference)
+            inner = reference.CreateReferenceInLink() if link is not None else reference
+            source = link.GetLinkDocument() if link is not None else doc
+            element = source.GetElement(inner.ElementId)
+        except Exception:
+            return
+        wall = _opening_wall(element)
+        if wall is not None:
+            found = _side_face(wall, transform, origin, ray)
+            try:
+                self.distance, self.normal, ref = found
+                self.refs = [ref.CreateLinkReference(link) if link is not None else ref]
+            except Exception:
+                self.skip = True                # the wall's faces cannot be read
+                return
+            self.top = _top(wall, transform)
+            return
+        try:
+            face = element.GetGeometryObjectFromReference(inner)
         except Exception:
             face = None
         if face is not None:
             normal = getattr(face, "FaceNormal", None)
             if normal is not None:
-                self.normal = link.GetTotalTransform().OfVector(normal) if link is not None \
-                    else normal
+                self.normal = transform.OfVector(normal) if transform is not None else normal
             elif face.GetType().Name != "PlanarFace":
                 self.flat = False               # curved: cannot be dimensioned
         if link is not None:
             try:
-                self.refs.insert(0, reference.CreateReferenceInLink().CreateLinkReference(link))
+                self.refs.insert(0, inner.CreateLinkReference(link))
             except Exception:
                 pass
+        self.top = _top(element, transform)
 
 
 class WallFinder(object):
     """find_wall() for chains.plan(): the first wall face from a device
-    along a direction, in this model or a linked model."""
+    along a direction, in this model or a linked model.
+
+    Two rays: RAY_DROP below the device (above the doors, for ceiling
+    devices), and RAY_LOW above the plan's level (under the windows, and
+    for walls that stop short of the device). A door or window a ray meets
+    stands for the wall it is in. The nearer wall wins, but the lower ray
+    only counts walls at least WALL_TALL high, not half walls."""
 
     def __init__(self, doc, view3d, level_z=None):
         self.doc = doc
         self.level_z = level_z              # ft, the plan's level
         categories = List[BuiltInCategory]()
-        for bic in WALL_CATEGORIES:
+        for bic in WALL_CATEGORIES + OPENING_CATEGORIES:
             categories.Add(bic)
         self.intersector = ReferenceIntersector(
             ElementMulticategoryFilter(categories), FindReferenceTarget.Face, view3d)
         self.intersector.FindReferencesInRevitLinks = True
 
     def __call__(self, device, direction):
-        z = device.z / M_PER_FOOT - RAY_DROP
-        if self.level_z is not None:
-            z = max(z, self.level_z + RAY_MIN)
-        origin = XYZ(device.x / M_PER_FOOT, device.y / M_PER_FOOT, z)
+        x, y = device.x / M_PER_FOOT, device.y / M_PER_FOOT
         ray = XYZ(direction[0], direction[1], 0)
-        found = sorted(self.intersector.Find(origin, ray), key=lambda f: f.Proximity)
-        for hit in found:
+        high = device.z / M_PER_FOOT - RAY_DROP
+        if self.level_z is not None:
+            high = max(high, self.level_z + RAY_MIN)
+        face = self._first(XYZ(x, y, high), ray)
+        if self.level_z is not None and high - (self.level_z + RAY_LOW) >= RAY_GAP:
+            low = self._first(XYZ(x, y, self.level_z + RAY_LOW), ray, self.level_z + WALL_TALL)
+            if low is not None and (face is None or low.distance < face.distance - 1e-6):
+                face = low
+        if face is None:
+            return None
+        square = face.flat and (face.normal is None or
+                                abs(face.normal.DotProduct(ray)) >= math.cos(ANGLE_TOL))
+        return Hit(face.distance * M_PER_FOOT, face, square)
+
+    def _first(self, origin, ray, min_top=None):
+        """The first face the ray from `origin` stops at, or None. With
+        min_top, walls whose top is lower (half walls) are passed."""
+        for hit in sorted(self.intersector.Find(origin, ray), key=lambda f: f.Proximity):
             if hit.Proximity < 0:
                 continue
-            face = _Face(self.doc, hit.GetReference())
-            if face.normal is not None and face.normal.DotProduct(ray) > UPRIGHT:
+            face = _Face(self.doc, hit.GetReference(), hit.Proximity, origin, ray)
+            if face.skip or (face.normal is not None and face.normal.DotProduct(ray) > UPRIGHT):
                 continue                        # leaving a face: the wall behind the device
-            square = face.flat and (face.normal is None or
-                                    abs(face.normal.DotProduct(ray)) >= math.cos(ANGLE_TOL))
-            return Hit(hit.Proximity * M_PER_FOOT, face, square)
+            if min_top is not None and face.top is not None and face.top < min_top:
+                continue
+            return face
         return None
 
 
@@ -439,6 +529,7 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
                        walls=walls, right=(right.X, right.Y), up=(up.X, up.Y))
         run.alone = len(set(id(d) for d, _ in planned.alone))
         run.no_wall, run.skew = planned.no_wall, planned.skew
+        run.other_no_wall, run.other_skew = planned.other_no_wall, planned.other_skew
 
         t = Transaction(doc, "Dimension Devices")
         t.Start()

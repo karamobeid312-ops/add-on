@@ -43,6 +43,19 @@ def test_notes():
     assert lines[8].startswith("Dimensions are hidden in this view")
 
 
+def test_strings_sent_to_the_other_side():
+    run = Run("L1", 3)
+    run.made = [1, 2, 3]
+    run.other_no_wall, run.other_skew = 2, 1
+    headline, details = summarize(run)
+    assert headline.endswith("See the notes.")
+    lines = details.split("\n")
+    assert lines[0] == ("2 strings found no wall on one side, so they go to the wall on the "
+                        "other side, which may be the far one.")
+    assert lines[1] == ("1 string met a wall that is not square to the devices on one side, so "
+                        "it goes to the wall on the other side, which may be the far one.")
+
+
 def test_nothing_made():
     run = Run("L1", 3)
     run.failed = ["boom"]
