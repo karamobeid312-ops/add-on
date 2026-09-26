@@ -9,13 +9,14 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with three panels:
+Everything is on one **Electrical** ribbon tab, with four panels:
 
 | Panel | Buttons |
 | --- | --- |
 | **SLD** | Generate SLD, SLD Settings |
 | **Fire Alarm** | Smoke Detectors, Heat Detectors, FA Settings: places smoke and heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
+| **Dimensions** | Dimension Devices, Dim Settings: dimension strings from wall to device to device to wall in floor and ceiling plans, see [Dimensions](#dimensions) |
 
 ## What gets drawn
 
@@ -253,6 +254,61 @@ the tool differs from the sheet:
   the number of phases.
 - Only XLPE cables: the sheet's `ref_PVC` tab is a copy of the XLPE data.
 
+## Dimensions
+
+The **Dimensions** panel of the **Electrical** tab:
+
+- **Dimension Devices** – dimensions the devices of a floor plan or
+  ceiling plan (smoke and heat detectors, lights...) with a string along
+  each row and each column of devices: from the wall, device to device, to
+  the wall. Select the devices first, or the spaces or rooms they are in,
+  or after clicking take *All devices in this view*, *Pick devices*, or the
+  devices in spaces or rooms you pick (in this model or in a linked model).
+  When the devices are of more than one category you tick the ones to
+  dimension. The new dimensions are selected when done, one undo removes
+  them all, and a summary lists what could not be dimensioned.
+- **Dim Settings** – dimension type (the model's default until you pick
+  one), distance from the devices to the dimension line (5 mm on the
+  printed sheet), every row and column or only what is needed, and from
+  wall to wall or between devices only.
+
+![Dimension strings of the sample rooms](docs/dims-preview.png)
+
+*Sample rooms with the detectors the Smoke Detectors button places
+(`tools/preview_dims.py`): every row and column on the left, only what is
+needed on the right.*
+
+### How the strings are made
+
+1. Each device is dimensioned along its own axes, so detectors placed by
+   Smoke / Heat Detectors in a rotated room get strings square to the room.
+2. Devices lined up across (within 20 mm) are a row. A row is cut where a
+   wall runs between two of its devices, so a string never crosses a wall.
+3. A string goes from the wall face before its first device to the wall
+   face after its last one. A wall that is not square to the string (round
+   walls, devices not turned with the room) cannot be dimensioned, and that
+   end is left open.
+4. *Only what is needed* leaves out a row whose devices only repeat
+   positions that another row of the same room already dimensions: a
+   regular grid then gets one string along and one across.
+
+The dimension line is on the side of its text (above horizontal strings,
+left of vertical ones), so the text stays clear of the devices.
+
+### In Revit
+
+| Item | How |
+| --- | --- |
+| View | The active floor plan or ceiling plan. The dimension line is 5 mm on the printed sheet from the devices (0.5 m at 1:100). |
+| Devices | Family instances in this model. *All devices in this view* and spaces take fire alarm devices, lighting fixtures and devices, electrical fixtures, communication, data, security, nurse call and telephone devices, and generic models; selected or picked devices can be of any category. Devices in linked models are not dimensioned. |
+| Dimensioned to | The centre reference planes of the family, *Center (Left/Right)* and *Center (Front/Back)*, which Autodesk's family templates have. A centre plane set as a Strong or Weak reference is found by its name. Families without them are listed in the summary: open the family, select the centre reference plane and set *Is Reference* to *Center (Left/Right)* or *Center (Front/Back)*. |
+| Walls | Walls, curtain panels and mullions, in this model or in linked models, found by rays shot from the devices along the string, 150 mm below each device (for ceiling devices: under the ceiling and above the doors). A wall in a link is dimensioned through the link; when Revit does not take it, the string is made without that wall and the summary says so. |
+| Existing dimensions | Dimensions in the view that already go to the devices can be replaced or kept. |
+
+Made for devices on ceilings and floors: detectors, lights, floor boxes.
+Sockets and switches on walls need strings along each wall from the
+corner, which this does not do yet.
+
 ## Install
 
 1. Install pyRevit.
@@ -292,6 +348,12 @@ python tools/preview_vd_report.py report.xlsx
 saves the voltage drop report of the sample cables (`tools/sample_vd.py`,
 the rows of an office voltage drop sheet).
 
+```
+python tools/preview_dims.py dims.svg [spacing]
+```
+
+draws the dimension strings of the sample rooms with their detectors.
+
 ## Project layout
 
 ```
@@ -300,6 +362,7 @@ Electrical.extension/
     SLD.panel/            Generate SLD, SLD Settings
     Fire Alarm.panel/     Smoke Detectors, Heat Detectors, FA Settings
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
+    Dimensions.panel/     Dimension Devices, Dim Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -326,6 +389,12 @@ Electrical.extension/
     revit_vd.py    panels and circuits to rows, results to parameters, setup
     settings.py    per-user settings
     command.py     button entry points
+  lib/dims/
+    chains.py      rows, columns and walls to dimension strings (no Revit)
+    report.py      summary shown after dimensioning
+    revit_dims.py  devices and their centre planes, walls found by ray, dimensions
+    settings.py    per-user settings
+    command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
@@ -337,5 +406,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld`, `lib/firealarm` and `lib/vdrop` compatible with Python 2.7 (no
-f-strings, no type hints) so it runs in pyRevit's IronPython engine.
+Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop` and `lib/dims` compatible with Python
+2.7 (no f-strings, no type hints) so it runs in pyRevit's IronPython engine.
