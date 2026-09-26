@@ -5,7 +5,9 @@ Devices are family instances in this model. Each is dimensioned to the
 centre reference planes of its family, Center (Left/Right) and Center
 (Front/Back), those that stand upright in the plan. A centre plane set as
 a Strong or Weak reference is found by its name, or else by its position:
-the plane through the insertion point.
+the plane through the insertion point. A family with none is dimensioned
+to an invisible detail line drawn in the view through the device's centre
+(it does not move with the device; the next run replaces it).
 
 A device on a wall (face based on an upright face, or hosted by a wall) is
 dimensioned along its wall only, and its rays start 150 mm into the room.
@@ -26,10 +28,10 @@ from __future__ import division
 import math
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, BuiltInParameter, Dimension, DimensionStyleType, DimensionType,
-    ElementId, ElementMulticategoryFilter, ElementTypeGroup, FamilyInstance,
-    FamilyInstanceReferenceType, FilteredElementCollector, FindReferenceTarget,
-    HostObjectUtils, Line, ReferenceArray, ReferenceIntersector, ShellLayerType, SketchPlane,
+    BuiltInCategory, BuiltInParameter, CurveElement, Dimension, DimensionStyleType,
+    DimensionType, ElementId, ElementMulticategoryFilter, ElementTypeGroup, FamilyInstance,
+    FamilyInstanceReferenceType, FilteredElementCollector, FindReferenceTarget, GraphicsStyle,
+    GraphicsStyleType, HostObjectUtils, Line, ReferenceArray, ReferenceIntersector, ShellLayerType, SketchPlane,
     Transaction, TransactionGroup, TransactionStatus, View3D, ViewFamily, ViewFamilyType, ViewPlan,
     XYZ,
 )
@@ -52,6 +54,7 @@ WALL_OFF = 0.5          # ft (150 mm): rays of a device on a wall start this far
 TEXT_ROOM = 4.0         # mm on paper: more space when the text of a string along a wall
                         # would face the wall, so it clears the device symbols
 PLANE_TOL = 0.01        # ft (3 mm): a reference plane this near the insertion point is a centre
+HELPER_HALF = 0.164     # ft (50 mm): half the length of a helper line through a device centre
 UPRIGHT = 1e-3          # a centre plane whose normal rises more than this is flat in the plan
 SPACE_HEIGHT = 15.0     # ft: devices this high above a space's floor are in it (rooms
                         # are often modelled lower than the ceiling)
@@ -282,24 +285,6 @@ def _centre(instance, ref_type, name, basis, finder=None):
     return finder.centre(instance, basis) if finder is not None else None
 
 
-_KINDS = ("Left", "CenterLeftRight", "Right", "Front", "CenterFrontBack", "Back", "Bottom",
-          "CenterElevation", "Top", "StrongReference", "WeakReference")
-
-
-def _reference_names(instance):
-    """Names of the references the instance's family has (for the summary)."""
-    names = []
-    for kind in _KINDS:
-        try:
-            for ref in instance.GetReferences(getattr(FamilyInstanceReferenceType, kind)):
-                name = instance.GetReferenceName(ref) or kind
-                if name not in names:
-                    names.append(name)
-        except Exception:
-            pass
-    return names
-
-
 def _unit(x, y):
     length = math.hypot(x, y)
     return (x / length, y / length) if length > 1e-6 else None
@@ -346,15 +331,14 @@ def read_devices(instances):
             ref = _centre(instance, ref_type, name, basis, finder)
             if ref is None:
                 missing.append(name)
-            else:
-                axes.append((math.atan2(axis.Y, axis.X), ref))
+                ref = _Helper(point.X, point.Y, _unit(axis.X, axis.Y))
+            axes.append((math.atan2(axis.Y, axis.X), ref))
         label = type_label(instance.Symbol)
         note = None
         if missing:
-            names = _reference_names(instance)
-            note = "no %s reference plane in the family, %s (%s)" % (
-                " or ".join(missing), "dimensioned one way only" if axes else "not dimensioned",
-                "its references: " + ", ".join(names) if names else "it has no references")
+            note = ("no %s reference plane in the family: dimensioned to invisible lines through "
+                    "the device centres, which do not move with the devices (run again after "
+                    "moving them)" % " or ".join(missing))
         elif not axes:
             note = "tilted, not square to the plan: not dimensioned"
         if note:
@@ -363,6 +347,103 @@ def read_devices(instances):
             devices.append(Device(instance.Id, point.X * M_PER_FOOT, point.Y * M_PER_FOOT, axes,
                                   z=point.Z * M_PER_FOOT, label=label, facing=facing))
     return devices, notes
+
+
+# ---------------------------------------------------------------- helper lines
+
+class _Helper(object):
+    """Stands for a missing centre plane: an invisible detail line through
+    the device's centre, across `axis`, drawn when a string needs it."""
+
+    def __init__(self, x, y, axis):
+        self.x, self.y = x, y               # ft
+        self.axis = axis                    # (x, y): the normal of the missing plane
+
+
+def _invisible_style(doc):
+    """The <Invisible lines> line style, or None."""
+    try:
+        category = doc.Settings.Categories.get_Item(BuiltInCategory.OST_InvisibleLines)
+        style = category.GetGraphicsStyle(GraphicsStyleType.Projection)
+        if style is not None:
+            return style
+    except Exception:
+        pass
+    try:
+        wanted = int(BuiltInCategory.OST_InvisibleLines)
+        for style in FilteredElementCollector(doc).OfClass(GraphicsStyle):
+            if id_int(style.GraphicsStyleCategory.Id) == wanted:
+                return style
+    except Exception:
+        pass
+    return None
+
+
+class _Helpers(object):
+    """The helper lines of one run: drawn in the view when a string needs
+    them, the ones no dimension goes to deleted at the end."""
+
+    def __init__(self, doc, view, z):
+        self.doc, self.view, self.z = doc, view, z
+        self.style = _invisible_style(doc)
+        self.lines = {}                     # id(_Helper) -> DetailCurve
+        self.used = set()                   # id(_Helper) of the lines dimensions go to
+
+    def reference(self, helper):
+        line = self.lines.get(id(helper))
+        if line is None:
+            line = self.lines[id(helper)] = self._draw(helper)
+        return line.GeometryCurve.Reference
+
+    def _draw(self, helper):
+        ax, ay = helper.axis
+        dx, dy = -ay * HELPER_HALF, ax * HELPER_HALF       # across the axis
+        error = None
+        for z in (self.z, 0.0):
+            try:
+                curve = self.doc.Create.NewDetailCurve(self.view, Line.CreateBound(
+                    XYZ(helper.x - dx, helper.y - dy, z), XYZ(helper.x + dx, helper.y + dy, z)))
+            except Exception as err:
+                error = err
+                continue
+            if self.style is not None:
+                try:
+                    curve.LineStyle = self.style
+                except Exception:
+                    pass
+            return curve
+        raise error
+
+    def delete_unused(self):
+        unused = [line.Id for key, line in self.lines.items() if key not in self.used]
+        if unused:
+            self.doc.Delete(List[ElementId](unused))
+
+
+def helper_lines(doc, view, devices):
+    """Ids of the invisible detail lines of the view through the centres of
+    `devices` ([Device]): the helper lines of an earlier run."""
+    style = _invisible_style(doc)
+    if style is None or not devices:
+        return []
+    cell = 0.02                             # ft
+    centres = set()
+    for d in devices:
+        cx, cy = int(round(d.x / M_PER_FOOT / cell)), int(round(d.y / M_PER_FOOT / cell))
+        centres.update((cx + i, cy + j) for i in (-1, 0, 1) for j in (-1, 0, 1))
+    found = []
+    for curve in FilteredElementCollector(doc).OfClass(CurveElement):
+        try:
+            if id_int(curve.OwnerViewId) != id_int(view.Id) or \
+                    id_int(curve.LineStyle.Id) != id_int(style.Id):
+                continue
+            a, b = curve.GeometryCurve.GetEndPoint(0), curve.GeometryCurve.GetEndPoint(1)
+        except Exception:
+            continue
+        mid = (int(round((a.X + b.X) / 2 / cell)), int(round((a.Y + b.Y) / 2 / cell)))
+        if mid in centres and a.DistanceTo(b) <= 4 * HELPER_HALF:
+            found.append(curve.Id)
+    return found
 
 
 # ---------------------------------------------------------------- walls
@@ -588,10 +669,11 @@ def dimensions_to(doc, view, device_ids):
     return found
 
 
-def _make(doc, view, chain, line, dim_type):
+def _make(doc, view, chain, line, dim_type, helpers):
     """(Dimension or None, walls left out, error). Tries the walls with
     their first reference; walls in links with their other reference;
-    without the walls in links; then between the devices only."""
+    without the walls in links; then between the devices only. Devices
+    without a centre plane go to helper lines."""
     walls = [s.ref for s in chain.stops if s.is_wall]      # _Face
     linked = [w for w in walls if w.linked]
     tries = []
@@ -605,12 +687,21 @@ def _make(doc, view, chain, line, dim_type):
     error = None
     for pick in tries:
         refs, dropped = ReferenceArray(), 0
-        for stop in chain.stops:
-            ref = pick(stop.ref) if stop.is_wall else stop.ref
-            if ref is None:
-                dropped += 1
-            else:
-                refs.Append(ref)
+        try:
+            for stop in chain.stops:
+                if stop.is_wall:
+                    ref = pick(stop.ref)
+                elif isinstance(stop.ref, _Helper):
+                    ref = helpers.reference(stop.ref)
+                else:
+                    ref = stop.ref
+                if ref is None:
+                    dropped += 1
+                else:
+                    refs.Append(ref)
+        except Exception as err:
+            error = err
+            continue
         if refs.Size < 2:
             continue
         try:
@@ -622,16 +713,17 @@ def _make(doc, view, chain, line, dim_type):
             error = err
             continue
         if dim is not None:
+            helpers.used.update(id(s.ref) for s in chain.stops if isinstance(s.ref, _Helper))
             return dim, dropped, None
     return None, 0, error or "Revit did not take the references"
 
 
 def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
-              walls=NEAREST, old=()):
+              walls=NEAREST, old=(), old_helpers=()):
     """Plan the strings of `devices` ([Device]) and make them in `view`,
-    one undo. walls: chains.NEAREST, BOTH or NONE. `old`: dimensions
-    deleted when new ones are made. Returns a report.Run; nothing is
-    changed when no string is made."""
+    one undo. walls: chains.NEAREST, BOTH or NONE. `old`: dimensions, and
+    `old_helpers` helper lines, deleted when new ones are made. Returns a
+    report.Run; nothing is changed when no string is made."""
     run = Run(view.Name, len(devices))
     level = getattr(view, "GenLevel", None)
     level_z = level.ProjectElevation if level is not None else None
@@ -656,19 +748,22 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
 
         t = Transaction(doc, "Dimension Devices")
         t.Start()
+        helpers = _Helpers(doc, view, z)
         for chain in planned.chains:
             (x0, y0), (x1, y1) = chain.line(offset, extra)
             line = Line.CreateBound(XYZ(x0 / M_PER_FOOT, y0 / M_PER_FOOT, z),
                                     XYZ(x1 / M_PER_FOOT, y1 / M_PER_FOOT, z))
-            dim, dropped, error = _make(doc, view, chain, line, dim_type)
+            dim, dropped, error = _make(doc, view, chain, line, dim_type, helpers)
             if dim is None:
                 run.failed.append(u"%s" % error)
                 continue
             run.made.append(dim.Id)
             if dropped:
                 run.no_walls += 1
-        if run.made and old:
-            doc.Delete(List[ElementId](list(old)))
+        helpers.delete_unused()
+        run.helpers = len(helpers.used)
+        if run.made and (old or old_helpers):
+            doc.Delete(List[ElementId](list(old) + list(old_helpers)))
             run.replaced = len(old)
         doc.Delete(ray_view.Id)
         if t.Commit() != TransactionStatus.Committed:
