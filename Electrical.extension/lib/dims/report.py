@@ -14,6 +14,8 @@ class Run(object):
         self.alone = 0              # devices with nothing to dimension to along one direction
         self.no_wall = 0            # string ends where no wall was found
         self.skew = 0               # string ends at a wall not square to the string
+        self.other_no_wall = 0      # strings to the wall on one side: none found on the other
+        self.other_skew = 0         # strings to the wall on one side: skew wall on the other
         self.notes = {}             # {(family : type, note): count}: families missing centre planes
         self.hidden = 0             # selected devices not shown in the view
         self.replaced = 0           # old dimensions deleted
@@ -51,6 +53,15 @@ def summarize(run):
     if run.skew:
         lines.append("%s at a wall that is not square to the string, left open (round walls, "
                      "or devices not turned with the room)." % _count(run.skew, "string end"))
+    if run.other_no_wall:
+        lines.append("%s found no wall on one side, so %s to the wall on the other side, which "
+                     "may be the far one." % (_count(run.other_no_wall, "string"),
+                                              "it goes" if run.other_no_wall == 1 else "they go"))
+    if run.other_skew:
+        lines.append("%s met a wall that is not square to the devices on one side, so %s to the "
+                     "wall on the other side, which may be the far one."
+                     % (_count(run.other_skew, "string"),
+                        "it goes" if run.other_skew == 1 else "they go"))
     if run.no_walls:
         lines.append("%s made without some of their walls: Revit did not take them (walls "
                      "in a linked model?)." % _count(run.no_walls, "string"))

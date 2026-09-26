@@ -83,13 +83,15 @@ class Stop(object):
 class Chain(object):
     """One dimension string."""
 
-    def __init__(self, angle, across, stops, side, members, ends):
+    def __init__(self, angle, across, stops, side, members, ends, other=None):
         self.angle = angle          # direction of the string (radians)
         self.across = across        # position across the string (m, string frame)
         self.stops = stops          # [Stop] in order along the string
         self.side = side            # +1 / -1: side across the string that has the text
         self.members = members      # [Device] in the string (repeats share a stop)
         self.ends = ends            # [start, end]: None, NO_WALL or SKEW
+        self.other = other          # NEAREST: why the wall on the other side was not
+                                    # taken instead (NO_WALL, SKEW), None: it was farther
 
     @property
     def walls(self):
@@ -115,6 +117,8 @@ class Plan(object):
         self.alone = []             # [(Device, angle)]: nothing to dimension to along angle
         self.no_wall = 0            # string ends where no wall was found
         self.skew = 0               # string ends at a wall not square to the string
+        self.other_no_wall = 0      # NEAREST: strings with no wall found on the other side
+        self.other_skew = 0         # NEAREST: strings with a skew wall on the other side
 
 
 def text_side(dx, dy, right=(1.0, 0.0), up=(0.0, 1.0)):
@@ -231,7 +235,7 @@ def _end(hit, along, sign):
 def _chain(piece, alpha, ray, walls, tol, side):
     """The string of a piece of row, or None when it has fewer than two stops."""
     first, last = piece[0], piece[-1]
-    stops, ends = [], [None, None]
+    stops, ends, other = [], [None, None], None
     at = None
     for item in piece:
         if at is not None and item.along - at <= tol:
@@ -244,9 +248,9 @@ def _chain(piece, alpha, ray, walls, tol, side):
         if walls == NEAREST and (start[1] is not None or end[1] is not None):
             # keep the nearer wall, the start one when they are as near
             if end[1] is None or (start[1] is not None and start[1] <= end[1] + tol):
-                end = _NO_END
+                other, end = end[2], _NO_END
             else:
-                start = _NO_END
+                other, start = start[2], _NO_END
         if start[0] is not None:
             stops.insert(0, start[0])
         if end[0] is not None:
@@ -255,7 +259,7 @@ def _chain(piece, alpha, ray, walls, tol, side):
     if len(stops) < 2:
         return None
     across = sum(i.across for i in piece) / len(piece)
-    return Chain(alpha, across, stops, side, [i.device for i in piece], ends)
+    return Chain(alpha, across, stops, side, [i.device for i in piece], ends, other)
 
 
 def _pick(k, candidates, tol, every_row):
@@ -340,6 +344,8 @@ def plan(devices, find_wall, every_row=True, walls=NEAREST, right=(1.0, 0.0), up
             result.chains.append(chain)
             result.no_wall += chain.ends.count(NO_WALL)
             result.skew += chain.ends.count(SKEW)
+            result.other_no_wall += chain.other == NO_WALL
+            result.other_skew += chain.other == SKEW
     return result
 
 

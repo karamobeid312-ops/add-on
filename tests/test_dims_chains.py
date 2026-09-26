@@ -98,6 +98,7 @@ def test_each_fixture_is_dimensioned_from_its_nearest_walls():
         ("WD", 1.11, 0.0), ("WD", 2.385, 1.571),        # corridor, bottom: left and bottom walls
     ])
     assert not result.alone and result.no_wall == 0
+    assert result.other_no_wall == 0 and result.other_skew == 0
 
 
 def test_nearest_wall_takes_the_other_end_when_one_is_open():
@@ -106,6 +107,7 @@ def test_nearest_wall_takes_the_other_end_when_one_is_open():
     row = horizontal(result)[0]
     assert kinds(row) == "WD" and along(row) == [0.0, 8.0]
     assert result.no_wall == 0                          # the open end is not needed
+    assert result.other_no_wall == 1                    # but it is why the far wall is used
 
 
 def test_nearest_wall_passes_over_a_wall_that_is_not_square():
@@ -113,7 +115,7 @@ def test_nearest_wall_passes_over_a_wall_that_is_not_square():
     result = run([(7.0, 5.0)], walls)
     row = horizontal(result)[0]
     assert kinds(row) == "WD" and along(row) == [0.0, 7.0]
-    assert result.skew == 0
+    assert result.skew == 0 and result.other_skew == 1
 
 
 # two offices side by side, 200 mm wall between them, rows lined up
