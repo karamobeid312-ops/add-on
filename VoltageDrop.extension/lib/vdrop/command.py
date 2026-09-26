@@ -5,7 +5,7 @@ import re
 
 from pyrevit import forms, revit, script
 
-from vdrop import calc, report, revit_vd, settings
+from vdrop import VERSION, calc, report, revit_vd, settings
 from vdrop.parse import format_number
 
 TITLE = "Voltage Drop"
@@ -58,10 +58,19 @@ def _calculate(doc, values):
 
 # ---------------------------------------------------------------- calculate
 
+def _voltage_text():
+    values = settings.load()
+    if values["voltage_source"] == "model":
+        return "each panel's distribution system in Revit"
+    return "%s V three phase, %s V single phase (VD Settings)" % (
+        format_number(values["voltage_3ph"]), format_number(values["voltage_1ph"]))
+
+
 def _show(result, model, written):
     output = script.get_output()
     output.set_title(TITLE)
     output.print_md("# Voltage drop")
+    output.print_md("*Voltage Drop add-in %s. Voltage: %s.*" % (VERSION, _voltage_text()))
     output.print_md(report.headline(result))
     notes = []
     if model.skipped:
@@ -214,7 +223,8 @@ def edit_settings():
             shown = _shown(key, values[key])
             options.append(u"%s: %s%s" % (label, shown if shown != "" else "-",
                                           " " + unit if unit and shown != "" else ""))
-        choice = forms.CommandSwitchWindow.show(options, message="Click a setting to change it:")
+        choice = forms.CommandSwitchWindow.show(
+            options, message="Voltage Drop add-in %s. Click a setting to change it:" % VERSION)
         if not choice:
             return
         key, label, unit = _SETTINGS[options.index(choice)]

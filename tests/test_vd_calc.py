@@ -270,3 +270,12 @@ def test_cable_text():
     assert cable_text(1, 4, 16) == u"4Cx16mm²"
     assert cable_text(11, 1, 630) == u"11x(1Cx630mm²)"
     assert cable_text(1, 4, None) == ""
+
+
+def test_wrong_voltage_is_reported():
+    f = feeder(0, "MDB", "DB-1")
+    f.voltage = 37.2          # 400 V read in the wrong unit
+    row = next(calculate([f]).rows())
+    assert "voltage 37.2 V looks wrong" in row.problems
+    assert row.status() != "OK"
+    assert not next(calculate([feeder(0, "MDB", "DB-1")]).rows()).problems

@@ -251,3 +251,10 @@ def test_to_fix_names_the_missing_inputs():
 def feeders_ok():
     return [Feeder(0, "MDB", "MDB", "DB-1", length=20, mdl_kw=10, breaker=40,
                    cable=Cable(1, 4, 16))]
+
+
+def test_report_shows_the_add_in_version():
+    from vdrop import VERSION
+    _, parts = _saved_report()
+    values = [v for _, v in _cells(parts["xl/worksheets/sheet1.xml"]).values()]
+    assert "Voltage Drop add-in" in values and VERSION in values

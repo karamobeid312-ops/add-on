@@ -5,6 +5,7 @@ from __future__ import division
 
 import datetime
 
+from vdrop import VERSION
 from vdrop.parse import format_number
 from vdrop.xlsx import Formula, Style, Workbook, col_letter, ref
 
@@ -247,6 +248,7 @@ def _title_block(sheet, info, settings):
         ("Soil thermal resistivity", settings.soil_resistivity or "-", "K.m/W"),
         ("Grouping factor Cg", settings.grouping, ""),
         ("Maximum operating temp of XLPE", 90, u"°C"),
+        ("Voltage Drop add-in", VERSION, ""),
     ]
     for i, (name, number, unit) in enumerate(params):
         r = 7 + i
