@@ -7,13 +7,13 @@ DEFAULTS = {
     "dim_type": "",             # linear dimension type name, "" = the model's default
     "offset": 5.0,              # mm on the printed sheet, devices to the dimension line
     "strings": "every",         # 'every' row and column, or only what is 'needed'
-    "walls": "walls",           # 'walls': from wall to wall, 'devices': between devices only
+    "ends": "nearest",          # 'nearest' wall, 'both' walls, or 'none': devices only
 }
 
 # key -> allowed values (settings picked from a list)
 CHOICES = {
     "strings": ("every", "needed"),
-    "walls": ("walls", "devices"),
+    "ends": ("nearest", "both", "none"),
 }
 
 MAX_OFFSET = 50.0               # mm

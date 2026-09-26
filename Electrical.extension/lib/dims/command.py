@@ -118,7 +118,7 @@ def run():
         dim_type = revit_dims.dimension_types(doc).get(values["dim_type"])
     result = revit_dims.dimension(
         doc, view, devices, dim_type, values["offset"], every_row=values["strings"] == "every",
-        to_walls=values["walls"] == "walls", old=old if replace else ())
+        walls=values["ends"], old=old if replace else ())
     result.notes, result.hidden = notes, hidden
     if values["dim_type"] and dim_type is None:
         result.type_missing = values["dim_type"]
@@ -136,13 +136,14 @@ _SETTINGS = [
     ("dim_type", "Dimension type"),
     ("offset", "Dimension line from the devices"),
     ("strings", "Strings"),
-    ("walls", "Ends"),
+    ("ends", "Walls"),
 ]
 
 _SHOWN = {
     "strings": {"every": "every row and column",
                 "needed": "only what is needed to place every device"},
-    "walls": {"walls": "from wall to wall", "devices": "between devices only"},
+    "ends": {"nearest": "nearest wall only", "both": "both walls (wall to wall)",
+             "none": "none (between devices only)"},
 }
 
 

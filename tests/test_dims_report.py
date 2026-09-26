@@ -59,7 +59,9 @@ def test_settings_values():
     assert settings.valid("offset", "abc") is None
     assert settings.valid("strings", "needed") == "needed"
     assert settings.valid("strings", "some") is None
-    assert settings.valid("walls", "devices") == "devices"
+    assert settings.valid("ends", "none") == "none"
+    assert settings.valid("ends", "walls") is None
+    assert settings.DEFAULTS["ends"] == "nearest"
     assert settings.valid("dim_type", "Linear - 2.5mm Arial") == "Linear - 2.5mm Arial"
     assert settings.coerce("offset", "x") == settings.DEFAULTS["offset"]
-    assert settings.coerce("walls", None) == "walls"
+    assert settings.coerce("ends", None) == "nearest"

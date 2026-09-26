@@ -30,7 +30,7 @@ from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
 
-from dims.chains import ANGLE_TOL, Device, Hit, plan
+from dims.chains import ANGLE_TOL, NEAREST, Device, Hit, plan
 from dims.report import Run
 from firealarm.layout import point_in_loops
 from firealarm.revit_fa import boundary_loops, selected_spaces, type_label
@@ -415,10 +415,11 @@ def _make(doc, view, chain, line, dim_type):
 
 
 def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
-              to_walls=True, old=()):
+              walls=NEAREST, old=()):
     """Plan the strings of `devices` ([Device]) and make them in `view`,
-    one undo. `old`: dimensions deleted when new ones are made. Returns a
-    report.Run; nothing is changed when no string is made."""
+    one undo. walls: chains.NEAREST, BOTH or NONE. `old`: dimensions
+    deleted when new ones are made. Returns a report.Run; nothing is
+    changed when no string is made."""
     run = Run(view.Name, len(devices))
     level = getattr(view, "GenLevel", None)
     level_z = level.ProjectElevation if level is not None else None
@@ -435,7 +436,7 @@ def dimension(doc, view, devices, dim_type=None, offset_mm=5.0, every_row=True,
         t.Commit()
 
         planned = plan(devices, WallFinder(doc, ray_view, level_z), every_row=every_row,
-                       to_walls=to_walls, right=(right.X, right.Y), up=(up.X, up.Y))
+                       walls=walls, right=(right.X, right.Y), up=(up.X, up.Y))
         run.alone = len(set(id(d) for d, _ in planned.alone))
         run.no_wall, run.skew = planned.no_wall, planned.skew
 
