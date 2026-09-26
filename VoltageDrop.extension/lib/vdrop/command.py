@@ -72,6 +72,12 @@ def _show(result, model, written):
     for line in notes + model.warnings + result.warnings:
         output.print_md("- " + line)
 
+    fixes = report.to_fix(result, revit_vd.SCHEDULE_NAME)
+    if fixes:
+        output.print_md("## To fix")
+        for line in fixes:
+            output.print_md("- " + line)
+
     attention = [r for r in result.rows() if r.status() != "OK"]
     if attention:
         output.print_md("## Needs a look")

@@ -205,6 +205,11 @@ def _cable_values(row, size, runs=None):
     return rating, cb, cr, capacity, mv
 
 
+def _noted(row, *starts):
+    """True when a problem about this was already noted (e.g. while reading)."""
+    return any(p.startswith(starts) for p in row.problems)
+
+
 def calculate_row(row, settings):
     """Everything but the cumulative voltage drop."""
     f = row.feeder
@@ -215,7 +220,7 @@ def calculate_row(row, settings):
     row.basis = MDL if f.mdl_kw is not None else TCL
     row.load_kw = f.mdl_kw if f.mdl_kw is not None else f.tcl_kw
     if row.load_kw is None:
-        row.problems.append("no load")
+        row.problems.append("no load in the model")
     else:
         row.kva = row.load_kw / row.power_factor
         root = SQRT3 if row.phases == 3 else 1.0
@@ -235,7 +240,8 @@ def calculate_row(row, settings):
     row.cg = settings.grouping
 
     if row.size is None:
-        row.problems.append("no cable size")
+        if not _noted(row, "VD Cable", "wire size", "no wire size"):
+            row.problems.append("no cable size")
     else:
         row.rating, row.cb, row.cr, row.capacity, row.mv = _cable_values(row, row.size)
         row.mv_table = tables.mv_per_a_m(row.single_core, row.size)
@@ -249,7 +255,7 @@ def calculate_row(row, settings):
         else:
             row.mv_row = row.mv / row.runs
 
-    if f.length is None and not any(n.startswith("VD Length") for n in row.problems):
+    if f.length is None and not _noted(row, "VD Length"):
         row.problems.append("no VD Length")
     if None not in (f.length, row.mv_row, row.current):
         row.vd_volts = row.mv_row * f.length * row.current / 1000.0
@@ -271,8 +277,9 @@ def total_row(row):
     if row.resets:
         row.upstream = 0.0
     elif parent.total_percent is None:
-        row.problems.append("no total: %s -> %s is incomplete" % (
-            parent.feeder.source, parent.feeder.target))
+        if row.vd_percent is not None:
+            row.problems.append("no total: %s -> %s is incomplete" % (
+                parent.feeder.source, parent.feeder.target))
     else:
         row.upstream = parent.total_percent
     if row.vd_percent is not None and row.upstream is not None:

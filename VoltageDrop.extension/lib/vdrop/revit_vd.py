@@ -248,11 +248,13 @@ def _typed_cable(element, names, notes):
     return None
 
 
-def _revit_cable(system):
+def _revit_cable(system, notes):
     hots = _attr(system, "HotConductorsNumber") or 0
     neutrals = _attr(system, "NeutralConductorsNumber") or 0
-    size = parse.metric_size(_bip_text(system, "RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM"))
+    text = _bip_text(system, "RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM")
+    size = parse.metric_size(text)
     if size is None:
+        notes.append(u"wire size '%s' is not in mm²" % text if text else "no wire size")
         return None
     return parse.Cable(runs=max(int(_attr(system, "RunsNumber") or 1), 1),
                        cores=int(hots + neutrals) or None, size=size)
@@ -316,7 +318,7 @@ def _circuit_feeder(system, equipment, values, model):
         tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
         breaker=_positive(_attr(system, "Rating")),
         installation=_installation(system, notes),
-        cable=_typed_cable(system, (P_CABLE, "SLD Cable"), notes) or _revit_cable(system),
+        cable=_typed_cable(system, (P_CABLE, "SLD Cable"), notes) or _revit_cable(system, notes),
         source_kind=source.kind,
         order=(slot if slot and slot > 0 else 10 ** 6, natural_key(number)),
         ref=system.Id, notes=notes))

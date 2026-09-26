@@ -149,8 +149,10 @@ too narrow for it, where they go on the centreline.
 - **Calculate VD** – calculates every cable from the transformer to the
   final loads with the lengths you typed, writes `VD Percent` and
   `VD Total Percent` on each circuit and lists the results in the output
-  window, with what fails and the breaker or cable that would pass
-  (e.g. `V.D 5.52% > 4%; use 4Cx25mm²`). Click a circuit id to select it.
+  window: first a **To fix** list of what is missing in the model (lengths,
+  cable sizes, loads, breaker ratings), then every cable that fails with
+  the breaker or cable that would pass (e.g. `V.D 5.52% > 4%; use
+  4Cx25mm²`). Click a circuit id to select it.
 - **VD Report** – saves the calculation as an Excel file in the office
   voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
   MAX V.D %) with a REMARKS column, and opens it. The cells hold formulas,
@@ -196,6 +198,11 @@ the model and circuited to the board, that circuit is used. Otherwise type
 | Breaker rating | circuit rating (main board incomer: the board's Mains) |
 | Runs, cores, CSA | `VD Cable`, else `SLD Cable`, else number of runs, hot + neutral conductors and Revit's metric wire size |
 | Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
+
+The cable tables are metric: with imperial wire sizes (`3-#4/0, 1-#4/0`)
+use a metric wire size table in Revit or type each cable in `VD Cable`.
+The breaker check uses the circuit's **Rating**; Revit gives new circuits
+20 A, so set the real breaker on every feeder.
 
 ### How it is calculated
 

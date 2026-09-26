@@ -119,6 +119,52 @@ def headline(result):
     return text
 
 
+REVIT_DEFAULT_RATING = 20.0   # A, rating of a new circuit in Revit
+
+
+def _plural(n, one, many):
+    return "%d %s" % (n, one if n == 1 else many)
+
+
+def to_fix(result, schedule="Voltage Drop Circuits"):
+    """What keeps the cables from passing, one line per cause."""
+    rows = list(result.rows())
+    lines = []
+    n = sum(1 for r in rows if r.feeder.length is None)
+    if n:
+        lines.append("%s no VD Length: type the lengths in metres (the '%s' schedule "
+                     "lists every circuit)." % (_plural(n, "cable has", "cables have"), schedule))
+    sizes = [r for r in rows if r.size is None]
+    if sizes:
+        notes = [p for r in sizes for p in r.problems if p.startswith("wire size")]
+        text = "%s no cable size in mm²" % _plural(len(sizes), "cable has", "cables have")
+        if notes:
+            text += u" (Revit's %s)" % notes[0]
+        lines.append(text + ": use metric wire sizes in Revit, or type the cable in VD Cable, "
+                     "e.g. 4Cx95 or 2x4Cx240.")
+    n = sum(1 for r in rows if r.load_kw is None)
+    if n:
+        lines.append("%s no load in the model, so no current: connect the loads, or type "
+                     "the demand in VD Load kW." % _plural(n, "cable has", "cables have"))
+    small = [r for r in rows if r.breaker_ok is False]
+    if small:
+        text = "%s below 1.1 x Ib" % _plural(len(small), "breaker is", "breakers are")
+        default = sum(1 for r in small if r.feeder.breaker == REVIT_DEFAULT_RATING)
+        if default:
+            text += (" (%s 20 A, Revit's default: set the real breaker in the circuit's "
+                     "Rating)" % ("it is" if len(small) == 1 else
+                                  "all are" if default == len(small) else "%d are" % default))
+        lines.append(text + ".")
+    n = sum(1 for r in rows if r.cable_ok is False)
+    if n:
+        lines.append("%s less than the breaker (Iz < In)." % _plural(
+            n, "cable carries", "cables carry"))
+    n = sum(1 for r in rows if r.vd_ok is False)
+    if n:
+        lines.append("%s over the voltage drop limit." % _plural(n, "cable is", "cables are"))
+    return lines
+
+
 def result_text(row):
     status = row.status()
     if status == "OK":
