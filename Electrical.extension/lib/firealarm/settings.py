@@ -16,6 +16,7 @@ DEFAULTS = {
     "loop_devices": MAX_DEVICES,    # most devices on one loop
     "loop_square": True,        # loop lines at right angles (else straight device to device)
     "loop_gap": 2.0,            # mm on paper between a loop line and a device's centre, at least
+    "riser_symbols": "",        # {'Family : Type': symbol code} chosen for the riser (JSON)
 }
 
 
@@ -52,6 +53,34 @@ def load():
     except Exception:
         pass
     return values
+
+
+def chosen_symbols(values):
+    """{'Family : Type': symbol code} chosen in FA Settings."""
+    import json
+    raw = values.get("riser_symbols") or ""
+    if isinstance(raw, dict):
+        return dict(raw)
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        try:
+            import ast
+            data = ast.literal_eval(raw)     # pyRevit may hand back the dict's repr
+        except (ValueError, SyntaxError):
+            data = {}
+    return dict(data) if isinstance(data, dict) else {}
+
+
+def choose_symbol(values, name, code):
+    """Remember the symbol `code` for 'Family : Type' `name` (None: guess it)."""
+    import json
+    data = chosen_symbols(values)
+    if code:
+        data[name] = code
+    else:
+        data.pop(name, None)
+    values["riser_symbols"] = json.dumps(data, sort_keys=True)
 
 
 def save(values):

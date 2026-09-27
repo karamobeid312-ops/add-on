@@ -14,7 +14,7 @@ Everything is on one **Electrical** ribbon tab, with four panels:
 | Panel | Buttons |
 | --- | --- |
 | **SLD** | Generate SLD, SLD Settings |
-| **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, FA Settings: places smoke and heat detectors in the selected spaces and connects the devices in loops, see [Fire alarm detectors](#fire-alarm-detectors) and [Fire alarm loops](#fire-alarm-loops) |
+| **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops) and [Fire alarm riser](#fire-alarm-riser) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 
@@ -114,10 +114,12 @@ The **Fire Alarm** panel of the **Electrical** tab:
   summary lists each space with its count and ceiling height.
 - **Draw FA Loop** – connects the fire alarm devices of the plan with
   detail lines, loop by loop, see [Fire alarm loops](#fire-alarm-loops).
+- **FA Riser** – draws the riser diagram from those loops, see
+  [Fire alarm riser](#fire-alarm-riser).
 - **FA Settings** – smoke and heat spacing, min distance from walls
   (0.5 m), the detector family type for smoke and for heat, devices per
-  loop (120), square or straight loop lines, and the loop line gap at
-  devices (2 mm).
+  loop (120), square or straight loop lines, the loop line gap at
+  devices (2 mm), and the riser symbol of each fire alarm type.
 
 ![Detector layouts of the sample rooms](docs/detector-preview.png)
 
@@ -208,8 +210,45 @@ core of small rooms.*
 | Start | The element you click. A panel (Electrical Equipment, or a family or type named PANEL, FACP or CIE) is only where the loops start and come back to; any other device is device 1 of loop 1. When the devices are split into several loops, they all start and end there. |
 | Lines | Detail lines in the plan, square (right angles) or straight from device to device (FA Settings), and back to the start. They stop at the edge of each device (its box in the view) and at least 2 mm on paper from its centre (FA Settings). |
 | Line styles | **FA Loop 1**, **FA Loop 2**... – one per loop, made the first time in red, blue, green, magenta, orange... Change colour, weight or pattern in Manage → Additional Settings → Line Styles. |
-| Drawing again | Loop lines already in the view are replaced, or kept and the new loops numbered after them (to draw separate zones one after the other). One undo removes a run. |
+| Loop numbers | Numbers go on across the building: when loops are already drawn on other floors, the new ones get the next free numbers (ground floor FA Loop 1 and 2, first floor from 3...). Or choose *Continue FA Loop n*: this floor's first loop keeps that number, and the riser draws the loop over both floors. |
+| Drawing again | Loop lines already in the view are replaced, or kept and new loops added with new numbers (to draw separate zones one after the other). One undo removes a run. |
 | Lengths | Along the lines in plan (square: across plus up), start to start, without drops and risers. |
+
+## Fire alarm riser
+
+**FA Riser** (Fire Alarm panel) draws the fire alarm riser diagram in a new
+drafting view, *FA Riser Diagram* (1:1, earlier ones are never
+overwritten), from the loops drawn with **Draw FA Loop**, in the office
+format:
+
+![Riser of the sample building](docs/riser-preview.png)
+
+*Sample building (`tools/preview_riser.py`): podiums, typical floors in
+pairs on one loop, the roof with typical floor 11.*
+
+- **Floors** bottom to top, dashed floor lines with the level names.
+- **Main panel** on its floor: MAIN FIRE ALARM CONTROL PANEL, the number
+  of loops and its room (LOC. ...), with BATTERY & CHARGER, in a dashed
+  frame.
+- **Every loop** leaves the panel with an OUT line and comes back with a
+  RETURN line (red, labelled LOOP#n OUT / RETURN up the riser). A loop on
+  two floors (the same loop number drawn on both) runs OUT along the upper
+  floor, across at the right end and RETURN along the lower floor; a loop
+  on one floor comes back just under its row. Loops to the furthest floors
+  take the outer riser lines, so no lines cross. Floors below the panel
+  (basements) get their loops going down.
+- **Symbols** of the office legend, in columns in the legend order, with
+  the quantity (NO.14) above each, and a **legend** with the total of each.
+
+### How the model is read
+
+| Item | How |
+| --- | --- |
+| Loops | A device is on FA Loop n when an FA Loop n line of a floor or ceiling plan ends at it (within half its box). Devices no loop line reaches are listed in the summary, per floor. |
+| Floor | The device's level, else its schedule level, else the level below it. |
+| Main panel | A fire alarm device or electrical equipment named MFACP, FACP, CIE or ...CONTROL PANEL (MAIN or MFACP first). Its level is the panel's floor, its room the LOC. text. With none, the panel is drawn on the lowest floor. |
+| Symbol | The type's `FA Symbol` parameter (a code such as `SD`, `MCP`, `BELLS`, or the legend description), else the one chosen in **FA Settings → Riser symbols**, else a guess from the family and type name: SMOKE / OPTICAL / PHOTO → photoelectric smoke detector (ABOVE / FALSE CEILING, RAISED FLOOR, TRENCH, DUCT, BEAM TX / RX variants), HEAT → heat detector, MANUAL / CALL POINT / MCP / BREAK GLASS → manual station, BELL / SOUNDER (with STROBE / BEACON) → bell (with strobe), HORN → horn with strobe, STROBE / BEACON / VAD (CEILING) → wall (ceiling) strobe, TELEPHONE / JACK, FLOW, TAMPER, MONITOR → MM, CONTROL / RELAY → CM, ZONE → ZM, LINEAR HEAT, VESDA / ASPIRATING → HSSD, REPEATER, EOL, ISOLATOR. A type nothing fits gets a box with its initials and its own legend line. The summary lists every type with its symbol. |
+| Line styles | **FA Riser Wiring** (loop lines) and **FA Riser Symbols** (symbols, panel), made red the first time; text notes use the `SLD <size>mm Arial` types. |
 
 ## Voltage drop
 
@@ -418,6 +457,12 @@ draws sample fire alarm loops: an open office with a panel on the wall,
 open space with a core of small rooms.
 
 ```
+python tools/preview_riser.py riser.svg [pixels per mm]
+```
+
+draws the fire alarm riser of the sample building (`tools/sample_riser.py`).
+
+```
 python tools/preview_vd_report.py report.xlsx
 ```
 
@@ -436,7 +481,7 @@ draws the dimension strings of the sample rooms with their detectors.
 Electrical.extension/
   Electrical.tab/
     SLD.panel/            Generate SLD, SLD Settings
-    Fire Alarm.panel/     Smoke Detectors, Heat Detectors, Draw FA Loop, FA Settings
+    Fire Alarm.panel/     Smoke Detectors, Heat Detectors, Draw FA Loop, FA Riser, FA Settings
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
   lib/sld/
@@ -454,7 +499,10 @@ Electrical.extension/
     revit_fa.py    spaces (here or in links), ceilings found by ray, placing
     loops.py       fire alarm loops: split, shortest routes, line ends (no Revit)
     revit_loop.py  devices of the plan, loop line styles, detail lines
-    report.py      summaries shown after placing and after drawing loops
+    riser.py       riser diagram layout: floors, panel, loops, symbols (no Revit)
+    riser_symbols.py  the office legend symbols, which symbol a type gets
+    revit_riser.py devices, floors and loop lines read, riser drawn
+    report.py      summaries shown after placing, drawing loops and the riser
     settings.py    per-user settings
     command.py     button entry points
   lib/vdrop/

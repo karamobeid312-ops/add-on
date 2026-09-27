@@ -70,3 +70,46 @@ def summarize_loops(view_name, results, start_label, start_counted, replaced=0):
     lines.append(u"Lengths are straight lines in plan from the start and back, "
                  u"without drops and risers.")
     return headline, "\n".join(lines)
+
+
+def summarize_riser(run, describe):
+    """(headline, details) after FA Riser. run: revit_riser.RiserRun;
+    describe(code) -> the symbol's description."""
+    riser = run.riser
+    loops = riser.loops if riser else []
+    devices = sum(l.devices for l in loops)
+    off = sum(run.off_loop.values())
+    if not loops:
+        headline = u"No loops found: draw them with Draw FA Loop first."
+        if off:
+            headline += u" %d fire alarm device%s found." % (off, "" if off == 1 else "s")
+    else:
+        floors = len(set(f for l in loops for f in l.floors))
+        headline = u"Riser drawn in '%s': %d loop%s, %d device%s on %d floor%s." % (
+            run.view_name, len(loops), "" if len(loops) == 1 else "s",
+            devices, "" if devices == 1 else "s", floors, "" if floors == 1 else "s")
+    if off and loops:
+        headline += u" %d device%s on no loop." % (off, "" if off == 1 else "s")
+    lines = []
+    if run.panel:
+        lines.append(u"Main panel: %s on %s" % (run.panel, run.panel_floor))
+    else:
+        lines.append(u"No fire alarm panel found (a family named FACP, MFACP or ...CONTROL "
+                     u"PANEL): the panel is drawn on %s." % run.panel_floor)
+    for loop in loops:
+        lines.append(u"LOOP#%d: %s, %d device%s" % (
+            loop.number, " + ".join(loop.floors), loop.devices, "" if loop.devices == 1 else "s"))
+    for warning in (riser.warnings if riser else []):
+        lines.append(warning)
+    if off:
+        lines.append(u"On no loop (no FA Loop line ends at them):")
+        for floor, n in sorted(run.off_loop.items()):
+            lines.append(u"    %s: %d" % (floor, n))
+    if run.two_loops:
+        lines.append(u"%d device%s at the ends of two loops' lines, counted on the first." % (
+            run.two_loops, "" if run.two_loops == 1 else "s"))
+    if run.symbols:
+        lines.append(u"Symbols (change them in FA Settings > Riser symbols):")
+        for name, code in sorted(run.symbols.items()):
+            lines.append(u"    %s -> %s" % (name, describe(code)))
+    return headline, "\n".join(lines)

@@ -631,3 +631,22 @@ def loop_lines(loop, points, start_xy, boxes=None, start_box=None, gap=0.0,
         drawn.extend(legs)
         found.extend(legs)
     return [(_rotate(p, angle), _rotate(q, angle)) for p, q in found]
+
+
+# ---------------------------------------------------------------- numbers
+
+def loop_count(devices, max_devices=MAX_DEVICES):
+    """How many loops plan_loops makes for this many devices."""
+    return int(math.ceil(devices / max(1, int(max_devices)))) if devices else 0
+
+
+def loop_numbers(count, taken, carry_on=None):
+    """Numbers for a floor's `count` loops: loop numbers go on across the
+    building after the highest one `taken`; carry_on: the number of a loop
+    from another floor that this floor's first loop continues."""
+    numbers = [carry_on] if carry_on is not None and count else []
+    following = max(list(taken) + [carry_on or 0, 0]) + 1
+    while len(numbers) < count:
+        numbers.append(following)
+        following += 1
+    return numbers
