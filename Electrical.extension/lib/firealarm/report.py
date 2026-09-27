@@ -46,3 +46,27 @@ def summarize(plans, kind, replaced=False):
         headline += " %d space%s need%s a look." % (
             problems, "" if problems == 1 else "s", "s" if problems == 1 else "")
     return headline, "\n".join(space_line(p) for p in plans)
+
+
+def summarize_loops(view_name, results, start_label, start_counted, replaced=0):
+    """(headline, details) after Draw FA Loop. results: [LoopResult]."""
+    devices = sum(r.devices for r in results)
+    headline = u"%d loop%s drawn in '%s': %d device%s." % (
+        len(results), "" if len(results) == 1 else "s", view_name,
+        devices, "" if devices == 1 else "s")
+    if replaced:
+        headline += u" %d old loop line%s replaced." % (replaced, "" if replaced == 1 else "s")
+    if any(r.failed for r in results):
+        headline += u" Some lines could not be drawn."
+    lines = [u"Start: %s%s" % (start_label, " (device 1 of loop %d)" % results[0].number
+                               if start_counted and results else " (not counted)")]
+    for r in results:
+        line = u"FA Loop %d: %d device%s, %.0f m of line" % (
+            r.number, r.devices, "" if r.devices == 1 else "s", r.length)
+        for message in sorted(set(r.failed)):
+            count = r.failed.count(message)
+            line += u"\n    not drawn%s: %s" % (" (%d)" % count if count > 1 else "", message)
+        lines.append(line)
+    lines.append(u"Lengths are straight lines in plan from the start and back, "
+                 u"without drops and risers.")
+    return headline, "\n".join(lines)

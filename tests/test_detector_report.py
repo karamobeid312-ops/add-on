@@ -51,3 +51,27 @@ def test_summary_existing():
         "2 heat detectors placed in 1 space. 2 existing ones replaced."
     assert summarize(plans, "heat", replaced=False)[0] == \
         "2 heat detectors placed in 1 space. 2 existing ones kept."
+
+
+class LoopResult(object):
+    def __init__(self, number, devices, length, failed=()):
+        self.number, self.devices, self.length = number, devices, length
+        self.lines = devices + 1
+        self.failed = list(failed)
+
+
+def test_loop_summary():
+    from firealarm.report import summarize_loops
+    results = [LoopResult(1, 120, 431.4), LoopResult(2, 87, 250.0, failed=["too short"] * 2)]
+    headline, details = summarize_loops("L1 - FIRE ALARM", results, "FACP : Main", False,
+                                        replaced=12)
+    assert headline == ("2 loops drawn in 'L1 - FIRE ALARM': 207 devices. "
+                        "12 old loop lines replaced. Some lines could not be drawn.")
+    lines = details.splitlines()
+    assert lines[0] == "Start: FACP : Main (not counted)"
+    assert lines[1] == "FA Loop 1: 120 devices, 431 m of line"
+    assert lines[2] == "FA Loop 2: 87 devices, 250 m of line"
+    assert lines[3] == "    not drawn (2): too short"
+    headline, details = summarize_loops("L2", [LoopResult(3, 1, 12.0)], "Detector : Smoke", True)
+    assert headline == "1 loop drawn in 'L2': 1 device."
+    assert details.splitlines()[0] == "Start: Detector : Smoke (device 1 of loop 3)"

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """User settings, saved per user in the pyRevit configuration."""
 from firealarm.layout import DEFAULT_CLEARANCE
+from firealarm.loops import MAX_DEVICES
 
 SECTION = "FireAlarmDetectors"
 
@@ -12,6 +13,8 @@ DEFAULTS = {
     "clearance": DEFAULT_CLEARANCE,   # m min from walls and columns
     "smoke_type": "",           # 'Family : Type' of the detector, asked on first use
     "heat_type": "",
+    "loop_devices": MAX_DEVICES,    # most devices on one loop
+    "loop_gap": 2.0,            # mm on paper between a loop line and a device's centre, at least
 }
 
 
@@ -25,8 +28,11 @@ def _coerce(key, value):
     try:
         if isinstance(default, float):
             value = float(value)
-            allowed = value >= 0 if key == "clearance" else value > 0
+            allowed = value >= 0 if key in ("clearance", "loop_gap") else value > 0
             return value if allowed else default
+        if isinstance(default, int):
+            value = int(float(value))
+            return value if value >= 1 else default
         return "" if value is None else u"%s" % value
     except (TypeError, ValueError):
         return default
