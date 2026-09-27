@@ -172,7 +172,7 @@ def draw_loop():
         return
     counted = any(revit_loop.id_int(d.Id) == start_id for d in devices)
 
-    old = revit_loop.loop_lines(doc, view)
+    old = revit_loop.existing_loop_lines(doc, view)
     first_number, replace = 1, []
     if old:
         count = sum(len(ids) for ids in old.values())
@@ -190,7 +190,8 @@ def draw_loop():
 
     values = settings.load()
     results = revit_loop.draw_loops(doc, view, devices, start, values["loop_devices"],
-                                    values["loop_gap"], first_number, replace)
+                                    values["loop_gap"], first_number, replace,
+                                    square=values["loop_square"])
     headline, details = summarize_loops(view.Name, results, revit_loop.label(start), counted,
                                         replaced=len(replace))
     forms.alert(headline, expanded=details, title=TITLE)
@@ -205,6 +206,7 @@ _SETTINGS = [
     ("smoke_type", "Smoke detector type", ""),
     ("heat_type", "Heat detector type", ""),
     ("loop_devices", "Devices per loop", ""),
+    ("loop_square", "Loop lines", ""),
     ("loop_gap", "Loop line gap at devices", "mm"),
 ]
 
@@ -233,13 +235,19 @@ def edit_settings():
         options = []
         for key, name, unit in _SETTINGS:
             value = values[key]
-            if unit:
+            if key == "loop_square":
+                value = "square (right angles)" if value else "straight device to device"
+            elif unit:
                 value = "%s %s" % (_number(value), unit)
             options.append(u"%s: %s" % (name, value or "asked on first use"))
         choice = forms.CommandSwitchWindow.show(options, message="Click a setting to change it:")
         if not choice:
             return
         key = _SETTINGS[options.index(choice)][0]
+        if key == "loop_square":                # a switch: square <-> straight
+            values[key] = not values[key]
+            settings.save(values)
+            continue
         if key.endswith("_type"):
             if doc is None or doc.IsFamilyDocument:
                 forms.alert("Open the project model to pick the detector type.", title=TITLE)

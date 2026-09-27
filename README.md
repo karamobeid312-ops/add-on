@@ -116,7 +116,8 @@ The **Fire Alarm** panel of the **Electrical** tab:
   detail lines, loop by loop, see [Fire alarm loops](#fire-alarm-loops).
 - **FA Settings** – smoke and heat spacing, min distance from walls
   (0.5 m), the detector family type for smoke and for heat, devices per
-  loop (120) and the loop line gap at devices (2 mm).
+  loop (120), square or straight loop lines, and the loop line gap at
+  devices (2 mm).
 
 ![Detector layouts of the sample rooms](docs/detector-preview.png)
 
@@ -156,7 +157,10 @@ too narrow for it, where they go on the centreline.
 **Draw FA Loop** (Fire Alarm panel) connects the fire alarm devices of the
 open floor or ceiling plan with detail lines. Every loop leaves the start –
 the panel, or the device you click – passes each of its devices once and
-comes back to the start. One plan (one floor) at a time.
+comes back to the start. Lines are **square**: horizontal and vertical
+along the grid the devices are laid out on, meeting each device at right
+angles (FA Settings can switch to straight lines device to device). One
+plan (one floor) at a time.
 
 1. Select the devices, or click the button and choose *All fire alarm
    devices in this view* or *Pick devices*.
@@ -167,7 +171,8 @@ comes back to the start. One plan (one floor) at a time.
 ![Sample loops](docs/loop-preview.png)
 
 *Sample loops (`tools/preview_loops.py`); the square is the panel, the
-thick circle a start device.*
+thick circle a start device. Bottom right: an open space on a grid and a
+core of small rooms.*
 
 ### How the route is found
 
@@ -179,8 +184,19 @@ thick circle a start device.*
   in two across its longer side, and again, until each part is one loop.
 - **Shortest route**: from the start to the nearest device and so on, then
   improved until nothing shortens it – turning stretches of the route
-  round (2-opt) and moving one to three devices elsewhere (or-opt). The
-  lines of a loop **never cross**.
+  round (2-opt) and moving one to three devices elsewhere (or-opt). Square
+  loops measure along the grid (across plus up), also start from routes
+  shaped for a grid (snakes along the rows or columns, and combs – a snake
+  back along one edge column), and never pass a device on a row or column
+  without stopping at it: on a grid the route snakes along the rows and
+  columns as drawn by hand.
+- **Square lines**: devices in line (a row or column, within half a
+  device) get one straight line. Other steps get an L with one right-angle
+  bend, on the side that runs through no other device and crosses or
+  overlaps the fewest lines drawn; when both Ls run through a device, a Z
+  that jogs half way between. The grid direction is found from the
+  devices (a wing at an angle gets lines at that angle), else the view's.
+  Straight loops never cross themselves.
 - **Numbering**: anticlockwise round the start, from one side of the
   panel's wall round to the other; the loop of the start device first.
 
@@ -190,10 +206,10 @@ thick circle a start device.*
 | --- | --- |
 | Devices | Fire alarm devices shown in the view (family instances of the Fire Alarm Devices category, not nested parts), or the devices selected or picked (any family at a point). |
 | Start | The element you click. A panel (Electrical Equipment, or a family or type named PANEL, FACP or CIE) is only where the loops start and come back to; any other device is device 1 of loop 1. When the devices are split into several loops, they all start and end there. |
-| Lines | Detail lines in the plan, straight from device to device and back to the start. They stop at the edge of each device (its box in the view) and at least 2 mm on paper from its centre (FA Settings). |
+| Lines | Detail lines in the plan, square (right angles) or straight from device to device (FA Settings), and back to the start. They stop at the edge of each device (its box in the view) and at least 2 mm on paper from its centre (FA Settings). |
 | Line styles | **FA Loop 1**, **FA Loop 2**... – one per loop, made the first time in red, blue, green, magenta, orange... Change colour, weight or pattern in Manage → Additional Settings → Line Styles. |
 | Drawing again | Loop lines already in the view are replaced, or kept and the new loops numbered after them (to draw separate zones one after the other). One undo removes a run. |
-| Lengths | Straight lines in plan, start to start, without drops and risers. |
+| Lengths | Along the lines in plan (square: across plus up), start to start, without drops and risers. |
 
 ## Voltage drop
 
@@ -394,11 +410,12 @@ python tools/preview_detectors.py detectors.svg [smoke spacing] [heat spacing]
 draws the detector layout of the sample rooms (`tools/sample_rooms.py`).
 
 ```
-python tools/preview_loops.py loops.svg [devices per loop]
+python tools/preview_loops.py loops.svg [devices per loop] [straight]
 ```
 
 draws sample fire alarm loops: an open office with a panel on the wall,
-250 scattered devices split into three loops, and an L-shaped floor.
+250 scattered devices split into three loops, an L-shaped floor, and an
+open space with a core of small rooms.
 
 ```
 python tools/preview_vd_report.py report.xlsx
