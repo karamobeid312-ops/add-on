@@ -21,7 +21,8 @@ from __future__ import division
 
 
 from Autodesk.Revit.DB import (
-    Arc, BuiltInCategory, BuiltInParameter, CurveArray, ElementId,
+    Arc, BuiltInCategory, BuiltInParameter, Color, CurveArray, ElementId,
+    GraphicsStyleType,
     ElementTypeGroup, FilteredElementCollector, HorizontalTextAlignment, Line,
     StorageType, TextNote, TextNoteOptions, TextNoteType, Transaction,
     VerticalTextAlignment, View, ViewDrafting, ViewFamily, ViewFamilyType, XYZ,
@@ -382,6 +383,19 @@ _H_ALIGN = {CENTER: HorizontalTextAlignment.Center, RIGHT: HorizontalTextAlignme
 _V_ALIGN = {TOP: VerticalTextAlignment.Top, MIDDLE: VerticalTextAlignment.Middle}
 
 
+def line_style(doc, name, colour):
+    """The line style (a Lines subcategory) called `name`, made with
+    `colour` (r, g, b) the first time."""
+    categories = doc.Settings.Categories
+    lines = categories.get_Item(BuiltInCategory.OST_Lines)
+    if lines.SubCategories.Contains(name):
+        sub = lines.SubCategories.get_Item(name)
+    else:
+        sub = categories.NewSubcategory(lines, name)
+        sub.LineColor = Color(colour[0], colour[1], colour[2])
+    return sub.GetGraphicsStyle(GraphicsStyleType.Projection)
+
+
 def render(doc, drawing, view_name=VIEW_NAME):
     """Create a new 1:1 drafting view and draw `drawing` into it.
 
@@ -392,17 +406,26 @@ def render(doc, drawing, view_name=VIEW_NAME):
     view.Scale = 1  # 1:1 so layout millimetres == paper millimetres
 
     short = doc.Application.ShortCurveTolerance
-    curves = CurveArray()
+    by_style = {}
     for ln in drawing.lines:
         a, b = _xyz(ln.x1, ln.y1), _xyz(ln.x2, ln.y2)
         if a.DistanceTo(b) > short:
-            curves.Append(Line.CreateBound(a, b))
+            by_style.setdefault(getattr(ln, "style", None), CurveArray()).Append(
+                Line.CreateBound(a, b))
     for arc in drawing.arcs:
         if arc.r * (arc.a1 - arc.a0) / MM_PER_FOOT > short:
-            curves.Append(Arc.Create(_xyz(arc.cx, arc.cy), arc.r / MM_PER_FOOT,
-                                     arc.a0, arc.a1, XYZ.BasisX, XYZ.BasisY))
-    if not curves.IsEmpty:
-        doc.Create.NewDetailCurveArray(view, curves)
+            by_style.setdefault(getattr(arc, "style", None), CurveArray()).Append(
+                Arc.Create(_xyz(arc.cx, arc.cy), arc.r / MM_PER_FOOT,
+                           arc.a0, arc.a1, XYZ.BasisX, XYZ.BasisY))
+    for name, curves in by_style.items():
+        if curves.IsEmpty:
+            continue
+        made = doc.Create.NewDetailCurveArray(view, curves)
+        if name is None:
+            continue
+        graphics = line_style(doc, name, getattr(drawing, "styles", {}).get(name, (0, 0, 0)))
+        for curve in made:
+            curve.LineStyle = graphics
 
     types = _TextTypes(doc)
     for t in drawing.texts:

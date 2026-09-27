@@ -22,8 +22,9 @@ VERTICAL = math.pi / 2  # text rotation: reads bottom -> top
 
 
 class Line(object):
-    def __init__(self, x1, y1, x2, y2):
+    def __init__(self, x1, y1, x2, y2, style=None):
         self.x1, self.y1, self.x2, self.y2 = x1, y1, x2, y2
+        self.style = style      # line style name (Drawing.styles), None: the default
 
     def length(self):
         return math.hypot(self.x2 - self.x1, self.y2 - self.y1)
@@ -35,8 +36,9 @@ class Line(object):
 class Arc(object):
     """Counter-clockwise arc from angle a0 to a1 (radians), a1 > a0."""
 
-    def __init__(self, cx, cy, r, a0, a1):
+    def __init__(self, cx, cy, r, a0, a1, style=None):
         self.cx, self.cy, self.r, self.a0, self.a1 = cx, cy, r, a0, a1
+        self.style = style
 
     def point(self, a):
         return (self.cx + self.r * math.cos(a), self.cy + self.r * math.sin(a))
@@ -124,32 +126,33 @@ class Drawing(object):
         self.lines = []
         self.arcs = []
         self.texts = []
+        self.styles = {}        # line style name -> (r, g, b) colour, for styled lines
 
     # -- basic shapes
-    def line(self, x1, y1, x2, y2):
+    def line(self, x1, y1, x2, y2, style=None):
         if abs(x1 - x2) > 1e-9 or abs(y1 - y2) > 1e-9:
-            self.lines.append(Line(x1, y1, x2, y2))
+            self.lines.append(Line(x1, y1, x2, y2, style))
 
-    def polyline(self, points):
+    def polyline(self, points, style=None):
         for (x1, y1), (x2, y2) in zip(points, points[1:]):
-            self.line(x1, y1, x2, y2)
+            self.line(x1, y1, x2, y2, style)
 
-    def rect(self, left, bottom, right, top):
+    def rect(self, left, bottom, right, top, style=None):
         self.polyline([(left, bottom), (right, bottom), (right, top),
-                       (left, top), (left, bottom)])
+                       (left, top), (left, bottom)], style)
 
-    def arc(self, cx, cy, r, a0, a1):
-        self.arcs.append(Arc(cx, cy, r, a0, a1))
+    def arc(self, cx, cy, r, a0, a1, style=None):
+        self.arcs.append(Arc(cx, cy, r, a0, a1, style))
 
-    def circle(self, cx, cy, r):
+    def circle(self, cx, cy, r, style=None):
         # Two halves: Revit refuses closed curves as detail lines.
-        self.arc(cx, cy, r, 0.0, math.pi)
-        self.arc(cx, cy, r, math.pi, 2 * math.pi)
+        self.arc(cx, cy, r, 0.0, math.pi, style)
+        self.arc(cx, cy, r, math.pi, 2 * math.pi, style)
 
-    def dashed_line(self, x1, x2, y, dash, gap):
+    def dashed_line(self, x1, x2, y, dash, gap, style=None):
         x = x1
         while x < x2:
-            self.line(x, y, min(x + dash, x2), y)
+            self.line(x, y, min(x + dash, x2), y, style)
             x += dash + gap
 
     def text(self, x, y, text, size, **kwargs):

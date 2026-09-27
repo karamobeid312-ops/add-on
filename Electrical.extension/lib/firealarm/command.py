@@ -4,8 +4,10 @@ from Autodesk.Revit.DB import ElementId
 from pyrevit import forms, revit
 from System.Collections.Generic import List
 
-from firealarm import revit_loop, settings
-from firealarm.report import summarize, summarize_loops
+from firealarm import revit_loop, revit_riser, settings
+from firealarm.loops import loop_count, loop_numbers
+from firealarm.report import summarize, summarize_loops, summarize_riser
+from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
 from firealarm.revit_fa import (by_level, detector_types, linked_models,
                                 pick_linked_spaces, pick_spaces, place_detectors,
                                 placement_kind, selected_spaces, space_sources)
@@ -147,6 +149,32 @@ def _loop_devices(doc, uidoc, view):
     return []
 
 
+def _loop_numbers(doc, view, devices, max_devices, kept):
+    """Loop numbers for this floor: new ones, going on across the building,
+    or the first loop continuing a loop of another floor. None: cancelled."""
+    drawn = revit_loop.loop_views(doc)
+    others = dict((n, views - set([view.Name])) for n, views in drawn.items())
+    others = dict((n, views) for n, views in others.items() if views)
+    taken = set(others) | set(kept)
+    count = loop_count(devices, max_devices)
+    new = loop_numbers(count, taken)
+    if not others:
+        return new
+    fresh = "New loop numbers: FA Loop %s" % (
+        "%d" % new[0] if len(new) == 1 else "%d to %d" % (new[0], new[-1]))
+    options = [fresh] + ["Continue FA Loop %d (%s)" % (n, ", ".join(sorted(views)))
+                         for n, views in sorted(others.items())]
+    choice = forms.CommandSwitchWindow.show(
+        options, message="Loop numbers on this floor (a loop going on from another floor "
+                         "keeps its number):")
+    if not choice:
+        return None
+    if choice == fresh:
+        return new
+    carry_on = int(choice.split()[2])
+    return loop_numbers(count, taken, carry_on)
+
+
 def draw_loop():
     """Connect the fire alarm devices of the active plan with detail
     lines, loop by loop, from the start and back."""
@@ -173,7 +201,7 @@ def draw_loop():
     counted = any(revit_loop.id_int(d.Id) == start_id for d in devices)
 
     old = revit_loop.existing_loop_lines(doc, view)
-    first_number, replace = 1, []
+    replace = []
     if old:
         count = sum(len(ids) for ids in old.values())
         numbers = ", ".join("%d" % n for n in sorted(old))
@@ -185,16 +213,63 @@ def draw_loop():
             return
         if answer.startswith("Replace"):
             replace = [i for ids in old.values() for i in ids]
-        else:
-            first_number = max(old) + 1
 
     values = settings.load()
+    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"],
+                            kept=[] if replace else list(old))
+    if numbers is None:
+        return
     results = revit_loop.draw_loops(doc, view, devices, start, values["loop_devices"],
-                                    values["loop_gap"], first_number, replace,
+                                    values["loop_gap"], numbers, replace,
                                     square=values["loop_square"])
     headline, details = summarize_loops(view.Name, results, revit_loop.label(start), counted,
                                         replaced=len(replace))
     forms.alert(headline, expanded=details, title=TITLE)
+
+
+# ---------------------------------------------------------------- riser
+
+def draw_riser():
+    """Draw the fire alarm riser diagram from the loops drawn in the plans."""
+    doc = revit.doc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model to draw the riser.", title=TITLE)
+        return
+    values = settings.load()
+    view, run = revit_riser.generate(doc, settings.chosen_symbols(values), values["loop_gap"],
+                                     values["loop_devices"])
+    if view is not None:
+        revit.uidoc.ActiveView = view
+    headline, details = summarize_riser(run, lambda code: symbol(code).description)
+    forms.alert(headline, expanded=details, title=TITLE)
+
+
+AUTOMATIC = u"Automatic: %s"
+
+
+def _edit_riser_symbols(doc, values):
+    """Pick a fire alarm type placed in the model, then its riser symbol."""
+    names = revit_riser.type_names(doc)
+    if not names:
+        forms.alert("No fire alarm devices are placed in this model.", title=TITLE)
+        return
+    while True:
+        chosen = settings.chosen_symbols(values)
+        items = [u"%s  ->  %s%s" % (name, symbol(resolve(name, None, chosen.get(name))).description,
+                                   "" if name in chosen else "  (automatic)") for name in names]
+        pick = forms.SelectFromList.show(items, title="Riser symbols: pick a type to change",
+                                         button_name="Change symbol", multiselect=False)
+        if not pick:
+            return
+        name = names[items.index(pick)]
+        options = [AUTOMATIC % symbol(guess(name)).description] + [s.description for s in SYMBOLS]
+        choice = forms.SelectFromList.show(options, title=name, button_name="Use this symbol",
+                                           multiselect=False)
+        if not choice:
+            continue
+        code = None if choice == options[0] else SYMBOLS[options.index(choice) - 1].code
+        settings.choose_symbol(values, name, code)
+        settings.save(values)
 
 
 # ---------------------------------------------------------------- settings
@@ -208,6 +283,7 @@ _SETTINGS = [
     ("loop_devices", "Devices per loop", ""),
     ("loop_square", "Loop lines", ""),
     ("loop_gap", "Loop line gap at devices", "mm"),
+    ("riser_symbols", "Riser symbols", ""),
 ]
 
 _PROMPTS = {
@@ -237,6 +313,9 @@ def edit_settings():
             value = values[key]
             if key == "loop_square":
                 value = "square (right angles)" if value else "straight device to device"
+            elif key == "riser_symbols":
+                count = len(settings.chosen_symbols(values))
+                value = "%d type%s set by you, the rest automatic" % (count, "" if count == 1 else "s")
             elif unit:
                 value = "%s %s" % (_number(value), unit)
             options.append(u"%s: %s" % (name, value or "asked on first use"))
@@ -247,6 +326,12 @@ def edit_settings():
         if key == "loop_square":                # a switch: square <-> straight
             values[key] = not values[key]
             settings.save(values)
+            continue
+        if key == "riser_symbols":
+            if doc is None or doc.IsFamilyDocument:
+                forms.alert("Open the project model to set the riser symbols.", title=TITLE)
+            else:
+                _edit_riser_symbols(doc, values)
             continue
         if key.endswith("_type"):
             if doc is None or doc.IsFamilyDocument:

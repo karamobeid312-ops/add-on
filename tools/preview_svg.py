@@ -33,13 +33,20 @@ def to_svg(drawing, margin=20.0, px_per_mm=4.0):
     out = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
            'viewBox="%f %f %f %f" style="background:#fff">' % (w * px_per_mm, h * px_per_mm, x0, -y1, w, h),
            '<g stroke="#000" stroke-width="0.18" fill="none">']
+    styles = getattr(drawing, "styles", {})
+
+    def colour(item):
+        rgb = styles.get(getattr(item, "style", None))
+        return ' stroke="#%02x%02x%02x"' % tuple(rgb) if rgb else ""
     for l in drawing.lines:
-        out.append('<line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f"/>' % (l.x1, -l.y1, l.x2, -l.y2))
+        out.append('<line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f"%s/>'
+                   % (l.x1, -l.y1, l.x2, -l.y2, colour(l)))
     for a in drawing.arcs:
         sx, sy = a.point(a.a0)
         ex, ey = a.point(a.a1)
         large = 1 if (a.a1 - a.a0) > math.pi else 0
-        out.append('<path d="M %.3f %.3f A %.3f %.3f 0 %d 0 %.3f %.3f"/>' % (sx, -sy, a.r, a.r, large, ex, -ey))
+        out.append('<path d="M %.3f %.3f A %.3f %.3f 0 %d 0 %.3f %.3f"%s/>'
+                   % (sx, -sy, a.r, a.r, large, ex, -ey, colour(a)))
     out.append('</g><g font-family="Arial" fill="#000">')
     for t in drawing.texts:
         lines = t.lines

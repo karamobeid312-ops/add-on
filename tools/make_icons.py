@@ -242,6 +242,17 @@ def fa_loop(c, ink):
         c.fill([circle(x, y, 1.1)], RED)
 
 
+def fa_riser(c, ink):
+    for y in (6, 13, 20):                                        # floors
+        stroke(c, [(2, y), (30, y)], 1.0, GRAY)
+    c.fill([rounded(3, 24, 17, 30, 1.2)], ink)                   # panel
+    for x, top in ((6, 3.5), (9, 10.5), (12, 17.5)):             # loops up the riser
+        stroke(c, [(x, 24), (x, top), (28, top)], 1.4, RED)
+    for x, y in ((18, 3.5), (24, 10.5), (21, 17.5)):             # devices
+        c.fill([[(x - 2.3, y), (x, y - 2.3), (x + 2.3, y), (x, y + 2.3)]], WHITE)
+        stroke(c, [(x - 2.3, y), (x, y - 2.3), (x + 2.3, y), (x, y + 2.3)], 1.0, RED, closed=True)
+
+
 def bell(c):
     c.fill([[(24, 18.3), (25.9, 19.1), (26.8, 21.2), (27.2, 24.3), (28.7, 26.2), (19.3, 26.2),
              (20.8, 24.3), (21.2, 21.2), (22.1, 19.1)]], WHITE)
@@ -280,6 +291,7 @@ ICONS = [
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
+    (TAB + "Fire Alarm.panel/FA Riser.pushbutton", fa_riser),
     (TAB + "Fire Alarm.panel/Settings.pushbutton", fa_settings),
     (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
     (TAB + "Voltage Drop.panel/VD Report.pushbutton", vd_report),

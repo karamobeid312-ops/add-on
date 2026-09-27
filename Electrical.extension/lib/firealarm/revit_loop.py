@@ -24,7 +24,7 @@ from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
 
-from firealarm.loops import grid_angle, loop_lines, plan_loops
+from firealarm.loops import grid_angle, loop_lines, loop_numbers, plan_loops
 
 M_PER_FOOT = 0.3048
 STYLE = u"FA Loop %d"
@@ -134,6 +134,34 @@ def pick_start(uidoc):
 
 # ---------------------------------------------------------------- lines
 
+def loop_curves(doc):
+    """[(loop number, owner view id (int), curve)] of every FA Loop line."""
+    found = []
+    for curve in FilteredElementCollector(doc).OfClass(CurveElement):
+        try:
+            owner = id_int(curve.OwnerViewId)
+            if owner == id_int(ElementId.InvalidElementId):
+                continue
+            match = _STYLE_NAME.match(curve.LineStyle.Name)
+        except Exception:
+            continue
+        if match:
+            found.append((int(match.group(1)), owner, curve))
+    return found
+
+
+def loop_views(doc):
+    """{loop number: set(names of the views it is drawn in)}."""
+    found = {}
+    names = {}
+    for number, owner, curve in loop_curves(doc):
+        if owner not in names:
+            view = doc.GetElement(curve.OwnerViewId)
+            names[owner] = view.Name if view is not None else "view %d" % owner
+        found.setdefault(number, set()).add(names[owner])
+    return found
+
+
 def existing_loop_lines(doc, view):
     """{loop number: [ElementId]} of the FA Loop lines drawn in the view."""
     found = {}
@@ -205,12 +233,13 @@ def _band(boxes, gap):
     return max(typical, gap, 0.05)
 
 
-def draw_loops(doc, view, devices, start, max_devices, gap_mm, first_number=1, old=(),
+def draw_loops(doc, view, devices, start, max_devices, gap_mm, numbers=None, old=(),
                square=True):
     """Plan the loops of `devices` from `start` (an element; one of the
     devices, or the panel) and draw them in `view` as detail lines, one
-    undo. `old`: ids of loop lines to delete. square: lines at right
-    angles along the devices' grid. Returns [LoopResult]."""
+    undo. numbers: the loop numbers to give them (loops.loop_numbers);
+    `old`: ids of loop lines to delete. square: lines at right angles
+    along the devices' grid. Returns [LoopResult]."""
     points = [(p.X * M_PER_FOOT, p.Y * M_PER_FOOT) for p in (_point(d) for d in devices)]
     ids = [id_int(d.Id) for d in devices]
     start_xy = _point(start)
@@ -234,7 +263,9 @@ def draw_loops(doc, view, devices, start, max_devices, gap_mm, first_number=1, o
         if old:
             doc.Delete(List[ElementId](list(old)))
         drawn = []                          # square lines so far, kept clear of
-        for number, loop in enumerate(loops, first_number):
+        numbers = list(numbers or [])
+        numbers += loop_numbers(len(loops) - len(numbers), numbers)
+        for number, loop in zip(numbers, loops):
             result = LoopResult(number, len(loop.devices), loop.length)
             results.append(result)
             style = _style(doc, number)
