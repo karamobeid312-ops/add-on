@@ -3,10 +3,11 @@
 loops (firealarm.loops) -> detail lines in that view.
 
 Every loop leaves the start (the panel, or the device clicked first),
-passes each of its devices once and comes back. Each loop has its own
-line style, FA Loop 1, FA Loop 2... (subcategories of Lines, made with a
-colour the first time; change them in Object Styles). Lines stop at the
-edge of each device.
+passes each of its devices once and comes back. Lines are square (at
+right angles, along the grid the devices are laid out on) or straight.
+Each loop has its own line style, FA Loop 1, FA Loop 2... (subcategories
+of Lines, made with a colour the first time). Lines stop at the edge of
+each device.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 """
@@ -23,7 +24,7 @@ from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
 
-from firealarm.loops import START, line_between, plan_loops
+from firealarm.loops import grid_angle, loop_lines, plan_loops
 
 M_PER_FOOT = 0.3048
 STYLE = u"FA Loop %d"
@@ -133,7 +134,7 @@ def pick_start(uidoc):
 
 # ---------------------------------------------------------------- lines
 
-def loop_lines(doc, view):
+def existing_loop_lines(doc, view):
     """{loop number: [ElementId]} of the FA Loop lines drawn in the view."""
     found = {}
     for curve in FilteredElementCollector(doc, view.Id).OfClass(CurveElement):
@@ -196,25 +197,35 @@ class LoopResult(object):
         self.failed = []            # messages
 
 
-def draw_loops(doc, view, devices, start, max_devices, gap_mm, first_number=1, old=()):
+def _band(boxes, gap):
+    """How far off a row or column a device can be and still be on it:
+    half the size of a typical device (m)."""
+    sizes = sorted(min(b[2] - b[0], b[3] - b[1]) / 2 for b in boxes if b is not None)
+    typical = sizes[len(sizes) // 2] if sizes else 0.0
+    return max(typical, gap, 0.05)
+
+
+def draw_loops(doc, view, devices, start, max_devices, gap_mm, first_number=1, old=(),
+               square=True):
     """Plan the loops of `devices` from `start` (an element; one of the
     devices, or the panel) and draw them in `view` as detail lines, one
-    undo. `old`: ids of loop lines to delete. Returns [LoopResult]."""
+    undo. `old`: ids of loop lines to delete. square: lines at right
+    angles along the devices' grid. Returns [LoopResult]."""
     points = [(p.X * M_PER_FOOT, p.Y * M_PER_FOOT) for p in (_point(d) for d in devices)]
     ids = [id_int(d.Id) for d in devices]
     start_xy = _point(start)
     start_xy = (start_xy.X * M_PER_FOOT, start_xy.Y * M_PER_FOOT)
     first = ids.index(id_int(start.Id)) if id_int(start.Id) in ids else None
-    loops = plan_loops(points, first if first is not None else start_xy, max_devices)
 
     boxes = [_box(d, view) for d in devices]
     start_box = _box(start, view)
     gap = gap_mm / 1000.0 * view.Scale                  # m in the model
     level = getattr(view, "GenLevel", None)
     z = level.ProjectElevation if level is not None else 0.0
-
-    def where(stop):
-        return (start_xy, start_box) if stop == START else (points[stop], boxes[stop])
+    right = view.RightDirection
+    angle = grid_angle(points, math.atan2(right.Y, right.X)) if square else 0.0
+    loops = plan_loops(points, first if first is not None else start_xy, max_devices,
+                       square, angle, _band(boxes, gap))
 
     results = []
     t = Transaction(doc, "Draw FA Loop")
@@ -222,15 +233,14 @@ def draw_loops(doc, view, devices, start, max_devices, gap_mm, first_number=1, o
     try:
         if old:
             doc.Delete(List[ElementId](list(old)))
+        drawn = []                          # square lines so far, kept clear of
         for number, loop in enumerate(loops, first_number):
             result = LoopResult(number, len(loop.devices), loop.length)
             results.append(result)
             style = _style(doc, number)
-            for a, b in loop.segments():
-                (pa, box_a), (pb, box_b) = where(a), where(b)
-                line = line_between(pa, pb, box_a, box_b, gap)
-                if line is None or math.hypot(line[1][0] - line[0][0],
-                                              line[1][1] - line[0][1]) < MIN_LINE:
+            for line in loop_lines(loop, points, start_xy, boxes, start_box, gap,
+                                   square, angle, drawn):
+                if math.hypot(line[1][0] - line[0][0], line[1][1] - line[0][1]) < MIN_LINE:
                     continue
                 try:
                     curve = _detail_line(doc, view, line[0], line[1], z)

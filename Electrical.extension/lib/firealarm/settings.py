@@ -14,6 +14,7 @@ DEFAULTS = {
     "smoke_type": "",           # 'Family : Type' of the detector, asked on first use
     "heat_type": "",
     "loop_devices": MAX_DEVICES,    # most devices on one loop
+    "loop_square": True,        # loop lines at right angles (else straight device to device)
     "loop_gap": 2.0,            # mm on paper between a loop line and a device's centre, at least
 }
 
@@ -26,6 +27,10 @@ def _config():
 def _coerce(key, value):
     default = DEFAULTS[key]
     try:
+        if isinstance(default, bool):
+            if isinstance(value, bool):
+                return value
+            return u"%s" % value in ("True", "true", "1", "yes")
         if isinstance(default, float):
             value = float(value)
             allowed = value >= 0 if key in ("clearance", "loop_gap") else value > 0
