@@ -231,6 +231,17 @@ def heat_detectors(c, ink):
     c.fill([flame(16, 30, 9)], AMBER)
 
 
+def fa_loop(c, ink):
+    c.fill([rounded(2, 12, 9, 21, 1.5)], ink)                   # panel
+    c.fill([rect(3.8, 14, 7.2, 16.5)], RED)
+    stops = [(9, 14), (15, 5), (25, 6), (28, 16), (24, 27), (14, 26), (9, 19)]
+    stroke(c, stops, 1.6, RED)                                   # the loop, out and back
+    for x, y in stops[1:-1]:                                     # devices
+        c.fill([circle(x, y, 3.3)], WHITE)
+        stroke(c, circle(x, y, 3.3, 24), 1.2, ink, closed=True)
+        c.fill([circle(x, y, 1.1)], RED)
+
+
 def bell(c):
     c.fill([[(24, 18.3), (25.9, 19.1), (26.8, 21.2), (27.2, 24.3), (28.7, 26.2), (19.3, 26.2),
              (20.8, 24.3), (21.2, 21.2), (22.1, 19.1)]], WHITE)
@@ -268,6 +279,7 @@ ICONS = [
     (TAB + "SLD.panel/Settings.pushbutton", sld_settings),
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
+    (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
     (TAB + "Fire Alarm.panel/Settings.pushbutton", fa_settings),
     (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
     (TAB + "Voltage Drop.panel/VD Report.pushbutton", vd_report),

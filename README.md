@@ -14,7 +14,7 @@ Everything is on one **Electrical** ribbon tab, with four panels:
 | Panel | Buttons |
 | --- | --- |
 | **SLD** | Generate SLD, SLD Settings |
-| **Fire Alarm** | Smoke Detectors, Heat Detectors, FA Settings: places smoke and heat detectors in the selected spaces, see [Fire alarm detectors](#fire-alarm-detectors) |
+| **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, FA Settings: places smoke and heat detectors in the selected spaces and connects the devices in loops, see [Fire alarm detectors](#fire-alarm-detectors) and [Fire alarm loops](#fire-alarm-loops) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 
@@ -112,8 +112,11 @@ The **Fire Alarm** panel of the **Electrical** tab:
   the ceiling is then within 0.71 × spacing of a detector. The new
   detectors are selected when done, one undo removes them all, and a
   summary lists each space with its count and ceiling height.
+- **Draw FA Loop** – connects the fire alarm devices of the plan with
+  detail lines, loop by loop, see [Fire alarm loops](#fire-alarm-loops).
 - **FA Settings** – smoke and heat spacing, min distance from walls
-  (0.5 m) and the detector family type for smoke and for heat.
+  (0.5 m), the detector family type for smoke and for heat, devices per
+  loop (120) and the loop line gap at devices (2 mm).
 
 ![Detector layouts of the sample rooms](docs/detector-preview.png)
 
@@ -147,6 +150,50 @@ too narrow for it, where they go on the centreline.
 | Ceiling | A ray is shot straight up from each detector point and the detector goes on the **ceiling** under the slab above – in this model or in a linked model. Where there is no ceiling under the slab it goes on the slab (floor or roof), and the summary says so; floors lower than 1.5 m (stages, raised floors) are ignored. |
 | Detector family | Any family in the **Fire Alarm Devices** category. Face-based families go on the ceiling face (host or linked ceiling), ceiling-hosted families on the ceiling (only ceilings in this model can host), level-based families at ceiling height. The type is asked the first time and remembered; change it in FA Settings. |
 | Detectors already there | Detectors of the same type already in the selected spaces can be replaced or kept. |
+
+## Fire alarm loops
+
+**Draw FA Loop** (Fire Alarm panel) connects the fire alarm devices of the
+open floor or ceiling plan with detail lines. Every loop leaves the start –
+the panel, or the device you click – passes each of its devices once and
+comes back to the start. One plan (one floor) at a time.
+
+1. Select the devices, or click the button and choose *All fire alarm
+   devices in this view* or *Pick devices*.
+2. Click the start: the fire alarm panel, or the first device.
+3. The loops are drawn, and a summary gives each loop's devices and its
+   length of line.
+
+![Sample loops](docs/loop-preview.png)
+
+*Sample loops (`tools/preview_loops.py`); the square is the panel, the
+thick circle a start device.*
+
+### How the route is found
+
+- **Up to 120 devices** (FA Settings) make one loop. More devices are
+  split into as few loops as possible, of equal size (250 devices: 83 +
+  84 + 83), each one area of the floor. Two splits are tried and the one
+  with less line is kept: by direction from the start, like slices of a
+  pie, so every loop begins right at the panel; and by cutting the floor
+  in two across its longer side, and again, until each part is one loop.
+- **Shortest route**: from the start to the nearest device and so on, then
+  improved until nothing shortens it – turning stretches of the route
+  round (2-opt) and moving one to three devices elsewhere (or-opt). The
+  lines of a loop **never cross**.
+- **Numbering**: anticlockwise round the start, from one side of the
+  panel's wall round to the other; the loop of the start device first.
+
+### In Revit
+
+| Item | How |
+| --- | --- |
+| Devices | Fire alarm devices shown in the view (family instances of the Fire Alarm Devices category, not nested parts), or the devices selected or picked (any family at a point). |
+| Start | The element you click. A panel (Electrical Equipment, or a family or type named PANEL, FACP or CIE) is only where the loops start and come back to; any other device is device 1 of loop 1. When the devices are split into several loops, they all start and end there. |
+| Lines | Detail lines in the plan, straight from device to device and back to the start. They stop at the edge of each device (its box in the view) and at least 2 mm on paper from its centre (FA Settings). |
+| Line styles | **FA Loop 1**, **FA Loop 2**... – one per loop, made the first time in red, blue, green, magenta, orange... Change colour, weight or pattern in Manage → Additional Settings → Line Styles. |
+| Drawing again | Loop lines already in the view are replaced, or kept and the new loops numbered after them (to draw separate zones one after the other). One undo removes a run. |
+| Lengths | Straight lines in plan, start to start, without drops and risers. |
 
 ## Voltage drop
 
@@ -347,6 +394,13 @@ python tools/preview_detectors.py detectors.svg [smoke spacing] [heat spacing]
 draws the detector layout of the sample rooms (`tools/sample_rooms.py`).
 
 ```
+python tools/preview_loops.py loops.svg [devices per loop]
+```
+
+draws sample fire alarm loops: an open office with a panel on the wall,
+250 scattered devices split into three loops, and an L-shaped floor.
+
+```
 python tools/preview_vd_report.py report.xlsx
 ```
 
@@ -365,7 +419,7 @@ draws the dimension strings of the sample rooms with their detectors.
 Electrical.extension/
   Electrical.tab/
     SLD.panel/            Generate SLD, SLD Settings
-    Fire Alarm.panel/     Smoke Detectors, Heat Detectors, FA Settings
+    Fire Alarm.panel/     Smoke Detectors, Heat Detectors, Draw FA Loop, FA Settings
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
   lib/sld/
@@ -381,7 +435,9 @@ Electrical.extension/
   lib/firealarm/
     layout.py      detector points in a space outline (no Revit)
     revit_fa.py    spaces (here or in links), ceilings found by ray, placing
-    report.py      summary shown after placing
+    loops.py       fire alarm loops: split, shortest routes, line ends (no Revit)
+    revit_loop.py  devices of the plan, loop line styles, detail lines
+    report.py      summaries shown after placing and after drawing loops
     settings.py    per-user settings
     command.py     button entry points
   lib/vdrop/
