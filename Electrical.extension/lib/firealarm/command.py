@@ -4,7 +4,8 @@ from Autodesk.Revit.DB import ElementId
 from pyrevit import forms, revit
 from System.Collections.Generic import List
 
-from firealarm import revit_loop, revit_riser, settings
+from firealarm import revit_address, revit_loop, revit_riser, settings
+from firealarm.addresses import DETECTION, SOUNDER, on_loop
 from firealarm.loops import loop_count, loop_numbers
 from firealarm.report import summarize, summarize_loops, summarize_riser
 from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
@@ -149,35 +150,96 @@ def _loop_devices(doc, uidoc, view):
     return []
 
 
-def _loop_numbers(doc, view, devices, max_devices, kept):
-    """Loop numbers for this floor: new ones, going on across the building,
-    or the first loop continuing a loop of another floor. None: cancelled."""
-    drawn = revit_loop.loop_views(doc)
-    others = dict((n, views - set([view.Name])) for n, views in drawn.items())
-    others = dict((n, views) for n, views in others.items() if views)
+KIND_DETECTION = "Detection loop: detectors, manual stations, modules... (no sirens or flashers)"
+KIND_SOUNDER = "Sounder loop: sirens and flashers only"
+
+
+def _loop_kind(devices, codes):
+    """DETECTION or SOUNDER, and the devices for it; (None, []) cancelled."""
+    choice = forms.CommandSwitchWindow.show([KIND_DETECTION, KIND_SOUNDER],
+                                            message="Which loop?")
+    if not choice:
+        return None, []
+    kind = SOUNDER if choice == KIND_SOUNDER else DETECTION
+    chosen = [d for d in devices if on_loop(codes[revit_loop.id_int(d.Id)], kind)]
+    if not chosen:
+        forms.alert("None of these devices go on a %s loop%s." % (
+            kind, " (sirens and flashers: bells, sounders, horns, strobes, beacons)"
+            if kind == SOUNDER else ""), title=TITLE)
+    return kind, chosen
+
+
+def _loop_numbers(doc, view, devices, max_devices, kind, kept):
+    """Loop numbers for this floor: new ones, going on across the building
+    (detection and sounder loops share them), or the first loop continuing
+    a loop of the same kind on another floor. kept: numbers staying in this
+    view. None: cancelled."""
+    def elsewhere(drawn):
+        found = dict((n, views - set([view.Name])) for n, views in drawn.items())
+        return dict((n, views) for n, views in found.items() if views)
+    others = elsewhere(revit_loop.loop_views(doc))
+    same_kind = elsewhere(revit_loop.loop_views(doc, kind))
     taken = set(others) | set(kept)
     count = loop_count(devices, max_devices)
     new = loop_numbers(count, taken)
-    if not others:
+    if not same_kind:
         return new
-    fresh = "New loop numbers: FA Loop %s" % (
-        "%d" % new[0] if len(new) == 1 else "%d to %d" % (new[0], new[-1]))
-    options = [fresh] + ["Continue FA Loop %d (%s)" % (n, ", ".join(sorted(views)))
-                         for n, views in sorted(others.items())]
+    fresh = "New loop numbers: L%s" % (
+        "%d" % new[0] if len(new) == 1 else "%d to L%d" % (new[0], new[-1]))
+    options = [fresh] + ["Continue L%d (%s)" % (n, ", ".join(sorted(views)))
+                         for n, views in sorted(same_kind.items())]
     choice = forms.CommandSwitchWindow.show(
         options, message="Loop numbers on this floor (a loop going on from another floor "
-                         "keeps its number):")
+                         "keeps its number and its addresses go on):")
     if not choice:
         return None
     if choice == fresh:
         return new
-    carry_on = int(choice.split()[2])
+    carry_on = int(choice.split()[1][1:])
     return loop_numbers(count, taken, carry_on)
+
+
+def _address_tag(doc, values):
+    """The tag type for the addresses: the one chosen before, or asked the
+    first time; None: no tag (or none loaded)."""
+    types = revit_address.tag_types(doc)
+    saved = values["address_tag"]
+    if saved == settings.NO_TAG or not types:
+        return None
+    if saved in types:
+        return types[saved]
+    options = sorted(types) + [settings.NO_TAG]
+    choice = forms.SelectFromList.show(options, title="Tag for the addresses (FA Address)",
+                                       button_name="Use this tag", multiselect=False)
+    if not choice:
+        return None
+    values["address_tag"] = choice
+    settings.save(values)
+    return types.get(choice)
+
+
+def _address_notes(addresser, tag_loaded):
+    notes = []
+    if addresser.parameter_added:
+        notes.append(u"The FA Address parameter was added to Fire Alarm Devices.")
+    notes.append(u"Addresses written: %d." % addresser.written)
+    if addresser.tag_type is not None:
+        notes.append(u"Address tags placed: %d%s." % (
+            addresser.tagged, " (%d old ones replaced)" % addresser.tags_replaced
+            if addresser.tags_replaced else ""))
+    elif not tag_loaded:
+        notes.append(u"No fire alarm device tag is loaded: make one with a label showing "
+                     u"FA Address (see the README) to tag the addresses.")
+    else:
+        notes.append(u"No address tags (choose one in FA Settings > Address tag).")
+    for problem in sorted(set(addresser.problems)):
+        notes.append(u"    %s" % problem)
+    return notes
 
 
 def draw_loop():
     """Connect the fire alarm devices of the active plan with detail
-    lines, loop by loop, from the start and back."""
+    lines, loop by loop, from the start and back, and address them."""
     doc, uidoc = revit.doc, revit.uidoc
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model to draw the loop.", title=TITLE)
@@ -187,6 +249,13 @@ def draw_loop():
         forms.alert("Open the floor or ceiling plan to draw the loop in.", title=TITLE)
         return
     devices = _loop_devices(doc, uidoc, view)
+    if not devices:
+        return
+    values = settings.load()
+    chosen_symbols = settings.chosen_symbols(values)
+    codes = dict((revit_loop.id_int(d.Id), revit_address.symbol_of(d, chosen_symbols))
+                 for d in devices)
+    kind, devices = _loop_kind(devices, codes)
     if not devices:
         return
     start = revit_loop.pick_start(uidoc)
@@ -200,30 +269,34 @@ def draw_loop():
         return
     counted = any(revit_loop.id_int(d.Id) == start_id for d in devices)
 
-    old = revit_loop.existing_loop_lines(doc, view)
+    old = revit_loop.existing_loop_lines(doc, view, kind)
+    other_kind = revit_loop.existing_loop_lines(doc, view, SOUNDER if kind == DETECTION else DETECTION)
     replace = []
     if old:
         count = sum(len(ids) for ids in old.values())
-        numbers = ", ".join("%d" % n for n in sorted(old))
+        numbers = ", ".join("L%d" % n for n in sorted(old))
         answer = forms.alert(
-            "This view already has %d loop line%s (FA Loop %s)." % (count, "" if count == 1 else "s",
-                                                                   numbers),
+            "This view already has %d %s loop line%s (%s)." % (
+                count, kind, "" if count == 1 else "s", numbers),
             options=["Replace them", "Keep them and add new loops"], title=TITLE)
         if not answer:
             return
         if answer.startswith("Replace"):
             replace = [i for ids in old.values() for i in ids]
 
-    values = settings.load()
-    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"],
-                            kept=[] if replace else list(old))
+    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
+                            kept=list(other_kind) + ([] if replace else list(old)))
     if numbers is None:
         return
+    tag_type = _address_tag(doc, values)
+    addresser = revit_address.Addresser(doc, view, codes, tag_type)
     results = revit_loop.draw_loops(doc, view, devices, start, values["loop_devices"],
                                     values["loop_gap"], numbers, replace,
-                                    square=values["loop_square"])
+                                    square=values["loop_square"], addresser=addresser, kind=kind)
     headline, details = summarize_loops(view.Name, results, revit_loop.label(start), counted,
-                                        replaced=len(replace))
+                                        replaced=len(replace), kind=kind,
+                                        notes=_address_notes(addresser,
+                                                             bool(revit_address.tag_types(doc))))
     forms.alert(headline, expanded=details, title=TITLE)
 
 
@@ -284,6 +357,7 @@ _SETTINGS = [
     ("loop_square", "Loop lines", ""),
     ("loop_gap", "Loop line gap at devices", "mm"),
     ("riser_symbols", "Riser symbols", ""),
+    ("address_tag", "Address tag", ""),
 ]
 
 _PROMPTS = {
@@ -313,6 +387,8 @@ def edit_settings():
             value = values[key]
             if key == "loop_square":
                 value = "square (right angles)" if value else "straight device to device"
+            elif key == "address_tag":
+                value = value or "asked on first use"
             elif key == "riser_symbols":
                 count = len(settings.chosen_symbols(values))
                 value = "%d type%s set by you, the rest automatic" % (count, "" if count == 1 else "s")
@@ -326,6 +402,23 @@ def edit_settings():
         if key == "loop_square":                # a switch: square <-> straight
             values[key] = not values[key]
             settings.save(values)
+            continue
+        if key == "address_tag":
+            if doc is None or doc.IsFamilyDocument:
+                forms.alert("Open the project model to pick the address tag.", title=TITLE)
+                continue
+            types = revit_address.tag_types(doc)
+            if not types:
+                forms.alert("No fire alarm device tag is loaded in this model.\n\nMake one "
+                            "with a label showing FA Address (see the README) and load it.",
+                            title=TITLE)
+                continue
+            choice = forms.SelectFromList.show(sorted(types) + [settings.NO_TAG],
+                                               title="Tag for the addresses (FA Address)",
+                                               button_name="Use this tag", multiselect=False)
+            if choice:
+                values[key] = choice
+                settings.save(values)
             continue
         if key == "riser_symbols":
             if doc is None or doc.IsFamilyDocument:

@@ -24,11 +24,12 @@ from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
 
+from firealarm.addresses import DETECTION, SOUNDER
 from firealarm.loops import grid_angle, loop_lines, loop_numbers, plan_loops
 
 M_PER_FOOT = 0.3048
-STYLE = u"FA Loop %d"
-_STYLE_NAME = re.compile(r"^FA Loop (\d+)$")
+STYLES = {DETECTION: u"FA Loop %d", SOUNDER: u"FA Sounder Loop %d"}
+_STYLE_NAME = re.compile(r"^FA (Sounder )?Loop (\d+)$")
 COLOURS = [(255, 0, 0), (0, 0, 255), (0, 153, 0), (255, 0, 255), (255, 128, 0),
            (0, 153, 153), (128, 0, 255), (153, 76, 0)]
 LINE_WEIGHT = 3
@@ -134,27 +135,39 @@ def pick_start(uidoc):
 
 # ---------------------------------------------------------------- lines
 
+def _loop_style(curve):
+    """(loop number, kind) of a loop line, or None."""
+    match = _STYLE_NAME.match(curve.LineStyle.Name)
+    if not match:
+        return None
+    return int(match.group(2)), (SOUNDER if match.group(1) else DETECTION)
+
+
 def loop_curves(doc):
-    """[(loop number, owner view id (int), curve)] of every FA Loop line."""
+    """[(loop number, owner view id (int), curve, kind)] of every FA Loop
+    and FA Sounder Loop line."""
     found = []
     for curve in FilteredElementCollector(doc).OfClass(CurveElement):
         try:
             owner = id_int(curve.OwnerViewId)
             if owner == id_int(ElementId.InvalidElementId):
                 continue
-            match = _STYLE_NAME.match(curve.LineStyle.Name)
+            style = _loop_style(curve)
         except Exception:
             continue
-        if match:
-            found.append((int(match.group(1)), owner, curve))
+        if style:
+            found.append((style[0], owner, curve, style[1]))
     return found
 
 
-def loop_views(doc):
-    """{loop number: set(names of the views it is drawn in)}."""
+def loop_views(doc, kind=None):
+    """{loop number: set(names of the views it is drawn in)}, of one kind
+    of loop (DETECTION / SOUNDER) or of both."""
     found = {}
     names = {}
-    for number, owner, curve in loop_curves(doc):
+    for number, owner, curve, loop_kind in loop_curves(doc):
+        if kind is not None and loop_kind != kind:
+            continue
         if owner not in names:
             view = doc.GetElement(curve.OwnerViewId)
             names[owner] = view.Name if view is not None else "view %d" % owner
@@ -162,26 +175,28 @@ def loop_views(doc):
     return found
 
 
-def existing_loop_lines(doc, view):
-    """{loop number: [ElementId]} of the FA Loop lines drawn in the view."""
+def existing_loop_lines(doc, view, kind=None):
+    """{loop number: [ElementId]} of the loop lines drawn in the view, of
+    one kind of loop or of both."""
     found = {}
     for curve in FilteredElementCollector(doc, view.Id).OfClass(CurveElement):
         try:
             if id_int(curve.OwnerViewId) != id_int(view.Id):
                 continue
-            match = _STYLE_NAME.match(curve.LineStyle.Name)
+            style = _loop_style(curve)
         except Exception:
             continue
-        if match:
-            found.setdefault(int(match.group(1)), []).append(curve.Id)
+        if style and (kind is None or style[1] == kind):
+            found.setdefault(style[0], []).append(curve.Id)
     return found
 
 
-def _style(doc, number):
-    """The FA Loop <number> line style, made the first time."""
+def _style(doc, number, kind=DETECTION):
+    """The FA Loop <number> (or FA Sounder Loop <number>) line style, made
+    the first time."""
     categories = doc.Settings.Categories
     lines = categories.get_Item(BuiltInCategory.OST_Lines)
-    name = STYLE % number
+    name = STYLES[kind] % number
     if lines.SubCategories.Contains(name):
         sub = lines.SubCategories.get_Item(name)
     else:
@@ -223,6 +238,7 @@ class LoopResult(object):
         self.length = length        # m, centre to centre, back to the start
         self.lines = 0              # detail lines drawn
         self.failed = []            # messages
+        self.addresses = None       # (first, last) address, when addressed
 
 
 def _band(boxes, gap):
@@ -234,12 +250,14 @@ def _band(boxes, gap):
 
 
 def draw_loops(doc, view, devices, start, max_devices, gap_mm, numbers=None, old=(),
-               square=True):
+               square=True, addresser=None, kind=DETECTION):
     """Plan the loops of `devices` from `start` (an element; one of the
     devices, or the panel) and draw them in `view` as detail lines, one
     undo. numbers: the loop numbers to give them (loops.loop_numbers);
     `old`: ids of loop lines to delete. square: lines at right angles
-    along the devices' grid. Returns [LoopResult]."""
+    along the devices' grid. addresser: revit_address.Addresser, given the
+    devices of each loop in route order to address and tag them. Returns
+    [LoopResult]."""
     points = [(p.X * M_PER_FOOT, p.Y * M_PER_FOOT) for p in (_point(d) for d in devices)]
     ids = [id_int(d.Id) for d in devices]
     start_xy = _point(start)
@@ -265,10 +283,12 @@ def draw_loops(doc, view, devices, start, max_devices, gap_mm, numbers=None, old
         drawn = []                          # square lines so far, kept clear of
         numbers = list(numbers or [])
         numbers += loop_numbers(len(loops) - len(numbers), numbers)
+        numbered = []                       # (loop number, devices in route order)
         for number, loop in zip(numbers, loops):
+            numbered.append((number, [devices[i] for i in loop.devices]))
             result = LoopResult(number, len(loop.devices), loop.length)
             results.append(result)
-            style = _style(doc, number)
+            style = _style(doc, number, kind)
             for line in loop_lines(loop, points, start_xy, boxes, start_box, gap,
                                    square, angle, drawn):
                 if math.hypot(line[1][0] - line[0][0], line[1][1] - line[0][1]) < MIN_LINE:
@@ -279,6 +299,10 @@ def draw_loops(doc, view, devices, start, max_devices, gap_mm, numbers=None, old
                     result.lines += 1
                 except Exception as err:
                     result.failed.append(u"%s" % err)
+        if addresser is not None:
+            addresser.apply(numbered)
+            for result in results:
+                result.addresses = addresser.ranges.get(result.number)
         t.Commit()
     except Exception:
         if t.HasStarted() and not t.HasEnded():

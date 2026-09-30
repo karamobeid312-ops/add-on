@@ -16,12 +16,13 @@ import math
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, ElementId, FamilyInstance, FilteredElementCollector,
-    Level, StorageType, Transaction, ViewPlan,
+    Level, Transaction, ViewPlan,
 )
 
+from firealarm.revit_address import symbol_of
 from firealarm.revit_loop import id_int, label, loop_curves
 from firealarm.riser import Segment, riser_layout
-from firealarm.riser_symbols import is_panel_name, resolve
+from firealarm.riser_symbols import is_panel_name
 from sld.revit_sld import render
 
 VIEW_NAME = "FA Riser Diagram"
@@ -31,29 +32,6 @@ TOLERANCE = 0.1         # ft round a device's box in which a loop line may end
 
 def _point(element):
     return getattr(getattr(element, "Location", None), "Point", None)
-
-
-def _text(element, name):
-    try:
-        p = element.LookupParameter(name)
-        if p is None or not p.HasValue:
-            return ""
-        return ((p.AsString() if p.StorageType == StorageType.String else p.AsValueString())
-                or "").strip()
-    except Exception:
-        return ""
-
-
-def symbol_of(element, chosen):
-    """Symbol code of a device (see the module docstring)."""
-    name = label(element)
-    override = _text(element, "FA Symbol")
-    if not override:
-        try:
-            override = _text(element.Symbol, "FA Symbol")
-        except Exception:
-            override = ""
-    return resolve(name, override, chosen.get(name))
 
 
 def _instances(doc, bic):
@@ -115,7 +93,7 @@ def loop_of_devices(doc, devices, gap_mm):
     nearest device takes the end."""
     wanted = set(id_int(d.Id) for d in devices)
     by_view = {}
-    for number, owner, curve in loop_curves(doc):
+    for number, owner, curve, _ in loop_curves(doc):
         by_view.setdefault(owner, (curve.OwnerViewId, []))[1].append((number, curve))
     found, twice = {}, set()
     for owner, (view_id, lines) in by_view.items():
