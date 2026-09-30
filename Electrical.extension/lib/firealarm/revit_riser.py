@@ -15,19 +15,18 @@ from __future__ import division
 import math
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, BuiltInParameter, ElementId, FamilyInstance, FilteredElementCollector,
-    Level, Transaction, ViewPlan,
+    BuiltInCategory, BuiltInParameter, FamilyInstance, FilteredElementCollector, Transaction,
+    ViewPlan,
 )
 
 from firealarm.revit_address import symbol_of
-from firealarm.revit_loop import id_int, label, loop_curves
+from firealarm.revit_loop import device_reach, id_int, label, level_of, loop_curves, model_levels
 from firealarm.riser import Segment, riser_layout
 from firealarm.riser_symbols import is_panel_name
 from sld.revit_sld import render
 
 VIEW_NAME = "FA Riser Diagram"
 MM_PER_FOOT = 304.8
-TOLERANCE = 0.1         # ft round a device's box in which a loop line may end
 
 
 def _point(element):
@@ -58,32 +57,6 @@ def type_names(doc):
     return sorted(set(label(d) for d in devices_and_panels(doc)[0]))
 
 
-# ---------------------------------------------------------------- floors
-
-def _levels(doc):
-    return sorted(FilteredElementCollector(doc).OfClass(Level), key=lambda l: l.ProjectElevation)
-
-
-def level_of(doc, element, levels):
-    """The element's level, schedule level, or the level at or below it."""
-    for level_id in (getattr(element, "LevelId", None), _schedule_level(element)):
-        if level_id is not None and id_int(level_id) != id_int(ElementId.InvalidElementId):
-            level = doc.GetElement(level_id)
-            if isinstance(level, Level):
-                return level
-    z = _point(element).Z
-    below = [l for l in levels if l.ProjectElevation <= z + 0.01]
-    return below[-1] if below else (levels[0] if levels else None)
-
-
-def _schedule_level(element):
-    try:
-        p = element.get_Parameter(BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM)
-        return p.AsElementId() if p is not None else None
-    except Exception:
-        return None
-
-
 # ---------------------------------------------------------------- loops
 
 def loop_of_devices(doc, devices, gap_mm):
@@ -107,12 +80,7 @@ def loop_of_devices(doc, devices, gap_mm):
             if id_int(element.Id) not in wanted:
                 continue
             p = _point(element)
-            box = element.get_BoundingBox(view)
-            size = gap
-            if box is not None:
-                size = max(size, math.hypot(max(p.X - box.Min.X, box.Max.X - p.X),
-                                            max(p.Y - box.Min.Y, box.Max.Y - p.Y)))
-            reach.append((id_int(element.Id), p.X, p.Y, size + TOLERANCE))
+            reach.append((id_int(element.Id), p.X, p.Y, device_reach(element, view, gap)))
         for number, curve in lines:
             try:
                 ends = [curve.GeometryCurve.GetEndPoint(0), curve.GeometryCurve.GetEndPoint(1)]
@@ -145,7 +113,7 @@ class RiserRun(object):
         self.symbols = {}           # 'Family : Type' -> symbol code
 
 
-def _main_panel(panels):
+def main_panel(panels):
     main = [p for p in panels if "MAIN" in label(p).upper() or "MFACP" in label(p).upper()]
     return (main or panels or [None])[0]
 
@@ -171,7 +139,7 @@ def generate(doc, chosen, gap_mm, max_devices):
     None, RiserRun)."""
     run = RiserRun()
     devices, panels = devices_and_panels(doc)
-    levels = _levels(doc)
+    levels = model_levels(doc)
     if not levels:
         return None, run
     floor_of = dict((id_int(d.Id), level_of(doc, d, levels)) for d in devices)
@@ -195,7 +163,7 @@ def generate(doc, chosen, gap_mm, max_devices):
         per_type = counts.setdefault((number, level.Name), {})
         per_type[code] = per_type.get(code, 0) + 1
 
-    panel = _main_panel(panels)
+    panel = main_panel(panels)
     if panel is not None:
         run.panel = label(panel)
         panel_level = level_of(doc, panel, levels)

@@ -51,8 +51,7 @@ def summarize(plans, kind, replaced=False):
 def summarize_loops(view_name, results, start_label, start_counted, replaced=0, notes=(),
                     kind="detection"):
     """(headline, details) after Draw FA Loop. results: [LoopResult];
-    notes: more lines for the end (addresses, tags); kind: 'detection' or
-    'sounder'."""
+    notes: more lines for the end; kind: 'detection' or 'sounder'."""
     devices = sum(r.devices for r in results)
     sounder = kind == "sounder"
     headline = u"%d %sloop%s drawn in '%s': %d device%s." % (
@@ -68,14 +67,32 @@ def summarize_loops(view_name, results, start_label, start_counted, replaced=0, 
         line = u"FA %sLoop %d: %d device%s, %.0f m of line" % (
             "Sounder " if sounder else "", r.number, r.devices, "" if r.devices == 1 else "s",
             r.length)
-        if getattr(r, "addresses", None):
-            line += u", %s to %s" % r.addresses
         for message in sorted(set(r.failed)):
             count = r.failed.count(message)
             line += u"\n    not drawn%s: %s" % (" (%d)" % count if count > 1 else "", message)
         lines.append(line)
     lines.append(u"Lengths are along the lines in plan, from the start and back, "
                  u"without drops and risers.")
+    lines.extend(notes)
+    return headline, "\n".join(lines)
+
+
+def summarize_addresses(loops, warnings=(), notes=()):
+    """(headline, details) after Address Devices. loops: what was addressed
+    (revit_address.AddressedLoop: number, kind, floors, devices, first,
+    last); warnings: lines about devices that need a look; notes: more
+    lines for the end (parameter, tags)."""
+    devices = sum(l.devices for l in loops)
+    headline = u"%d device%s addressed on %d loop%s." % (
+        devices, "" if devices == 1 else "s", len(loops), "" if len(loops) == 1 else "s")
+    if warnings:
+        headline += u" Some need a look."
+    lines = []
+    for l in sorted(loops, key=lambda l: l.number):
+        lines.append(u"L%d%s (%s): %d device%s, %s to %s" % (
+            l.number, " sounder" if l.kind == "sounder" else "", " + ".join(l.floors),
+            l.devices, "" if l.devices == 1 else "s", l.first, l.last))
+    lines.extend(warnings)
     lines.extend(notes)
     return headline, "\n".join(lines)
 

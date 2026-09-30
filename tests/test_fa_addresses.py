@@ -73,10 +73,37 @@ def test_sounder_loop_summary():
 
     class Result(object):
         number, devices, length, lines, failed = 5, 3, 42.0, 4, []
-        addresses = ("L5/BS-01", "L5/HS-03")
     headline, details = summarize_loops("L1 - FA", [Result()], "MFACP : Main", False,
-                                        kind=SOUNDER, notes=["Addresses written: 3."])
+                                        kind=SOUNDER, notes=["Address them with Address Devices."])
     assert headline == "1 sounder loop drawn in 'L1 - FA': 3 devices."
     lines = details.splitlines()
-    assert lines[1] == "FA Sounder Loop 5: 3 devices, 42 m of line, L5/BS-01 to L5/HS-03"
-    assert lines[-1] == "Addresses written: 3."
+    assert lines[1] == "FA Sounder Loop 5: 3 devices, 42 m of line"
+    assert lines[-1] == "Address them with Address Devices."
+
+
+def test_loop_kind_from_the_address():
+    from firealarm.addresses import address_kind
+    assert address_kind("L1/SD-01") == DETECTION
+    assert address_kind("L4/BS-12") == SOUNDER
+    assert address_kind("L4/ST-02") == SOUNDER
+    assert address_kind("L2/MCP-07") == DETECTION
+    assert address_kind("nonsense") is None
+
+
+def test_address_summary():
+    from firealarm.report import summarize_addresses
+
+    class Loop(object):
+        def __init__(self, number, kind, floors, devices, first, last):
+            self.number, self.kind, self.floors = number, kind, floors
+            self.devices, self.first, self.last = devices, first, last
+    loops = [Loop(4, SOUNDER, ["L1 - FA"], 30, "L4/BS-01", "L4/HS-30"),
+             Loop(1, DETECTION, ["L3 - FA", "L2 - FA"], 120, "L1/SD-01", "L1/MCP-120")]
+    headline, details = summarize_addresses(loops, notes=["Address tags placed: 150."])
+    assert headline == "150 devices addressed on 2 loops."
+    assert details.splitlines() == [
+        "L1 (L3 - FA + L2 - FA): 120 devices, L1/SD-01 to L1/MCP-120",
+        "L4 sounder (L1 - FA): 30 devices, L4/BS-01 to L4/HS-30",
+        "Address tags placed: 150."]
+    headline, _ = summarize_addresses(loops[:1], warnings=["L4 in L1 - FA: ..."])
+    assert headline == "30 devices addressed on 1 loop. Some need a look."

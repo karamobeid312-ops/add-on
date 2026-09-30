@@ -25,6 +25,7 @@ ADDRESS_CODES = {
     "HSSD": "HSSD", "EOL": "EOL", "ISO": "ISO", "FARP": "FARP",
 }
 SIRENS_AND_FLASHERS = ("BELL", "BELLS", "STC", "STW", "HS")
+SOUNDER_TYPES = frozenset(ADDRESS_CODES[c] for c in SIRENS_AND_FLASHERS)    # B, BS, ST, HS
 
 _ADDRESS = re.compile(r"^L(\d+)/([A-Z0-9?]+)-(\d+)$")
 
@@ -56,6 +57,15 @@ def parse_address(text):
     if not match:
         return None
     return int(match.group(1)), match.group(2), int(match.group(3))
+
+
+def address_kind(address):
+    """DETECTION or SOUNDER, from the type in the address; None when it is
+    not an address."""
+    parsed = parse_address(address)
+    if not parsed:
+        return None
+    return SOUNDER if parsed[1] in SOUNDER_TYPES else DETECTION
 
 
 def next_number(addresses, loop):
