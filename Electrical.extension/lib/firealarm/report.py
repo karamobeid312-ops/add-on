@@ -48,11 +48,15 @@ def summarize(plans, kind, replaced=False):
     return headline, "\n".join(space_line(p) for p in plans)
 
 
-def summarize_loops(view_name, results, start_label, start_counted, replaced=0):
-    """(headline, details) after Draw FA Loop. results: [LoopResult]."""
+def summarize_loops(view_name, results, start_label, start_counted, replaced=0, notes=(),
+                    kind="detection"):
+    """(headline, details) after Draw FA Loop. results: [LoopResult];
+    notes: more lines for the end (addresses, tags); kind: 'detection' or
+    'sounder'."""
     devices = sum(r.devices for r in results)
-    headline = u"%d loop%s drawn in '%s': %d device%s." % (
-        len(results), "" if len(results) == 1 else "s", view_name,
+    sounder = kind == "sounder"
+    headline = u"%d %sloop%s drawn in '%s': %d device%s." % (
+        len(results), "sounder " if sounder else "", "" if len(results) == 1 else "s", view_name,
         devices, "" if devices == 1 else "s")
     if replaced:
         headline += u" %d old loop line%s replaced." % (replaced, "" if replaced == 1 else "s")
@@ -61,14 +65,18 @@ def summarize_loops(view_name, results, start_label, start_counted, replaced=0):
     lines = [u"Start: %s%s" % (start_label, " (device 1 of loop %d)" % results[0].number
                                if start_counted and results else " (not counted)")]
     for r in results:
-        line = u"FA Loop %d: %d device%s, %.0f m of line" % (
-            r.number, r.devices, "" if r.devices == 1 else "s", r.length)
+        line = u"FA %sLoop %d: %d device%s, %.0f m of line" % (
+            "Sounder " if sounder else "", r.number, r.devices, "" if r.devices == 1 else "s",
+            r.length)
+        if getattr(r, "addresses", None):
+            line += u", %s to %s" % r.addresses
         for message in sorted(set(r.failed)):
             count = r.failed.count(message)
             line += u"\n    not drawn%s: %s" % (" (%d)" % count if count > 1 else "", message)
         lines.append(line)
-    lines.append(u"Lengths are straight lines in plan from the start and back, "
+    lines.append(u"Lengths are along the lines in plan, from the start and back, "
                  u"without drops and risers.")
+    lines.extend(notes)
     return headline, "\n".join(lines)
 
 

@@ -119,7 +119,8 @@ The **Fire Alarm** panel of the **Electrical** tab:
 - **FA Settings** – smoke and heat spacing, min distance from walls
   (0.5 m), the detector family type for smoke and for heat, devices per
   loop (120), square or straight loop lines, the loop line gap at
-  devices (2 mm), and the riser symbol of each fire alarm type.
+  devices (2 mm), the riser symbol of each fire alarm type, and the tag
+  for the addresses.
 
 ![Detector layouts of the sample rooms](docs/detector-preview.png)
 
@@ -166,9 +167,13 @@ plan (one floor) at a time.
 
 1. Select the devices, or click the button and choose *All fire alarm
    devices in this view* or *Pick devices*.
-2. Click the start: the fire alarm panel, or the first device.
-3. The loops are drawn, and a summary gives each loop's devices and its
-   length of line.
+2. Choose the loop: a **detection loop** (detectors, manual stations,
+   modules... everything but sirens and flashers) or a **sounder loop**
+   (sirens and flashers only: bells, sounders, horns, strobes, beacons,
+   bell + strobe, horn + strobe). Only those devices go on it.
+3. Click the start: the fire alarm panel, or the first device.
+4. The loops are drawn, every device gets its **address** (and its tag),
+   and a summary gives each loop's devices, length of line and addresses.
 
 ![Sample loops](docs/loop-preview.png)
 
@@ -210,9 +215,52 @@ core of small rooms.*
 | Start | The element you click. A panel (Electrical Equipment, or a family or type named PANEL, FACP or CIE) is only where the loops start and come back to; any other device is device 1 of loop 1. When the devices are split into several loops, they all start and end there. |
 | Lines | Detail lines in the plan, square (right angles) or straight from device to device (FA Settings), and back to the start. They stop at the edge of each device (its box in the view) and at least 2 mm on paper from its centre (FA Settings). |
 | Line styles | **FA Loop 1**, **FA Loop 2**... – one per loop, made the first time in red, blue, green, magenta, orange... Change colour, weight or pattern in Manage → Additional Settings → Line Styles. |
-| Loop numbers | Numbers go on across the building: when loops are already drawn on other floors, the new ones get the next free numbers (ground floor FA Loop 1 and 2, first floor from 3...). Or choose *Continue FA Loop n*: this floor's first loop keeps that number, and the riser draws the loop over both floors. |
-| Drawing again | Loop lines already in the view are replaced, or kept and new loops added with new numbers (to draw separate zones one after the other). One undo removes a run. |
+| Loop numbers | L1, L2... go on across the building, detection and sounder loops sharing them: when loops are already drawn on other floors, the new ones get the next free numbers (ground floor L1 and L2, first floor from L3...). Or choose *Continue Ln*: this floor's first loop keeps that number, its addresses go on counting, and the riser draws the loop over both floors. |
+| Sounder loops | Drawn with the **FA Sounder Loop n** line styles (detection loops: **FA Loop n**), so drawing one never replaces the detection loop lines of the view, and the other way round. |
+| Drawing again | Loop lines of the same kind already in the view are replaced, or kept and new loops added with new numbers (to draw separate zones one after the other). One undo removes a run. |
 | Lengths | Along the lines in plan (square: across plus up), start to start, without drops and risers. |
+
+### Addresses
+
+Every device on a loop gets an address in the **FA Address** parameter:
+
+```
+L1/SD-01   L1/SD-02   L1/MCP-03   L1/HD-04 ...   L5/BS-01   L5/ST-02 ...
+```
+
+loop / device type - number. The number is the device's place on the loop
+in route order from the start, one count for all types (01 ... 99, then
+100 ... 120). A loop going on from another floor goes on counting after
+the numbers there; a floor drawn again keeps its numbers when they still
+fit. Types: SD smoke detector (also above false ceiling, raised floor,
+trench), HD heat, DD duct, TX / RX beam transmitter / receiver, MCP manual
+station, B bell, BS bell + strobe, ST strobe / flasher, HS horn + strobe,
+J telephone jack, FS flow switch, TS tamper switch, CM / MM / ZM control /
+monitor / zone module, LHD linear heat detector, HSSD, EOL, ISO isolator;
+another type gets its initials. The type comes from the same symbol as on
+the riser (FA Settings → Riser symbols).
+
+**FA Address** is a shared parameter (text, instance) from
+`Electrical.extension/FA shared parameters.txt`, added to Fire Alarm
+Devices the first time loops are drawn; schedules can show it.
+
+**Address tags.** Draw FA Loop places a tag on every device it addresses
+(above and to the right, no leader), replacing its earlier address tags,
+with the tag type chosen the first time (or in FA Settings → Address
+tag). Revit does not let add-ins make the label of a tag family, so make
+the tag once:
+
+1. **File → New → Annotation Symbol**, template *Fire Alarm Device Tag*
+   (*Metric Fire Alarm Device Tag.rft*).
+2. **Create → Label**, click in the view.
+3. In *Edit Label* click **Add Parameter** (bottom left) → **Select...** →
+   **Browse** to `Electrical.extension/FA shared parameters.txt` → group
+   *Fire Alarm* → **FA Address** → OK, OK.
+4. Move **FA Address** to *Label Parameters* → OK. Set the text size (e.g.
+   1.8 mm) in the label's type.
+5. Save it (e.g. *FA Address Tag.rfa*) and **Load into Project**.
+
+With no tag loaded the addresses are still written, and the summary says so.
 
 ## Fire alarm riser
 
@@ -244,7 +292,7 @@ pairs on one loop, the roof with typical floor 11.*
 
 | Item | How |
 | --- | --- |
-| Loops | A device is on FA Loop n when an FA Loop n line of a floor or ceiling plan ends at it (within half its box). Devices no loop line reaches are listed in the summary, per floor. |
+| Loops | A device is on loop n when an FA Loop n (or FA Sounder Loop n) line of a floor or ceiling plan ends at it (within half its box); sounder loops are drawn like the others, with their sirens and flashers. Devices no loop line reaches are listed in the summary, per floor. |
 | Floor | The device's level, else its schedule level, else the level below it. |
 | Main panel | A fire alarm device or electrical equipment named MFACP, FACP, CIE or ...CONTROL PANEL (MAIN or MFACP first). Its level is the panel's floor, its room the LOC. text. With none, the panel is drawn on the lowest floor. |
 | Symbol | The type's `FA Symbol` parameter (a code such as `SD`, `MCP`, `BELLS`, or the legend description), else the one chosen in **FA Settings → Riser symbols**, else a guess from the family and type name: SMOKE / OPTICAL / PHOTO → photoelectric smoke detector (ABOVE / FALSE CEILING, RAISED FLOOR, TRENCH, DUCT, BEAM TX / RX variants), HEAT → heat detector, MANUAL / CALL POINT / MCP / BREAK GLASS → manual station, BELL / SOUNDER (with STROBE / BEACON) → bell (with strobe), HORN → horn with strobe, STROBE / BEACON / VAD (CEILING) → wall (ceiling) strobe, TELEPHONE / JACK, FLOW, TAMPER, MONITOR → MM, CONTROL / RELAY → CM, ZONE → ZM, LINEAR HEAT, VESDA / ASPIRATING → HSSD, REPEATER, EOL, ISOLATOR. A type nothing fits gets a box with its initials and its own legend line. The summary lists every type with its symbol. |
@@ -502,6 +550,9 @@ Electrical.extension/
     riser.py       riser diagram layout: floors, panel, loops, symbols (no Revit)
     riser_symbols.py  the office legend symbols, which symbol a type gets
     revit_riser.py devices, floors and loop lines read, riser drawn
+    addresses.py   addresses L1/SD-01, loop kinds (no Revit)
+    revit_address.py  FA Address parameter, addresses written, address tags
+  FA shared parameters.txt   the FA Address shared parameter
     report.py      summaries shown after placing, drawing loops and the riser
     settings.py    per-user settings
     command.py     button entry points

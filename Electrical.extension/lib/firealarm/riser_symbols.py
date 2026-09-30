@@ -180,11 +180,15 @@ ORDER = dict((s.code, k) for k, s in enumerate(SYMBOLS))
 PANEL = Symbol("MFACP", "MAIN FIRE ALARM CONTROL PANEL", _text_box("MFACP"))
 
 
+def initials(name):
+    """Up to four initials of a name: 'Mystery Gadget : Type 1' -> 'MGT1'."""
+    words = re.findall(r"[A-Z0-9]+", name.upper())
+    return "".join(w[0] for w in words)[:4] or "?"
+
+
 def other_symbol(name):
     """A box with the initials of a type no legend symbol fits."""
-    words = re.findall(r"[A-Z0-9]+", name.upper())
-    letters = "".join(w[0] for w in words)[:4] or "?"
-    return Symbol(u"?" + name, name.upper(), _text_box(letters))
+    return Symbol(u"?" + name, name.upper(), _text_box(initials(name)))
 
 
 def symbol(code):

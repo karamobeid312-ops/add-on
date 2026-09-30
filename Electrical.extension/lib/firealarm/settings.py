@@ -17,7 +17,10 @@ DEFAULTS = {
     "loop_square": True,        # loop lines at right angles (else straight device to device)
     "loop_gap": 2.0,            # mm on paper between a loop line and a device's centre, at least
     "riser_symbols": "",        # {'Family : Type': symbol code} chosen for the riser (JSON)
+    "address_tag": "",          # 'Family : Type' of the address tag, NO_TAG, or '' (ask)
 }
+
+NO_TAG = "(no tag)"
 
 
 def _config():
