@@ -18,7 +18,9 @@ passes each of its devices once and comes back to the start.
    elsewhere). A route that no 2-opt move shortens never crosses itself.
    Square loops (lines at right angles, along the grid the devices are
    laid out on) measure the distance along the grid, across plus up, so
-   the route runs along rows and columns.
+   the route runs along rows and columns. Every route runs anticlockwise
+   round what it encloses (a loop read back from its lines runs the same
+   way, firealarm.loop_order).
 3. Loops are numbered anticlockwise round the start, beginning after the
    widest direction without devices (for a panel on a wall: from one
    side of the wall round to the other); the loop of the start device,
@@ -63,6 +65,30 @@ class Loop(object):
 
 def _distance(a, b):
     return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def turning(corners):
+    """Which way a closed route turns: 1 anticlockwise, -1 clockwise, 0
+    neither (its corners in line, e.g. out along a row and back)."""
+    area = sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(corners, corners[1:] + corners[:1]))
+    size = sum(_distance(a, b) for a, b in zip(corners, corners[1:] + corners[:1]))
+    if abs(area) <= 1e-9 * max(size * size, 1.0):
+        return 0
+    return 1 if area > 0 else -1
+
+
+def _anticlockwise(stops, where):
+    """The closed route turned round (the start staying first) when it runs
+    clockwise, or, its corners in line, when the start's nearer neighbour
+    is last."""
+    if len(stops) < 3:
+        return stops
+    corners = [where(s) for s in stops]
+    way = turning(corners)
+    if way < 0 or (way == 0 and _distance(corners[0], corners[1]) >
+                   _distance(corners[0], corners[-1]) + EPS):
+        return stops[:1] + stops[:0:-1]
+    return stops
 
 
 def _grid(a, b):
@@ -405,7 +431,7 @@ def plan_loops(points, start, max_devices=MAX_DEVICES, square=False, angle=0.0, 
             stops, length, c = _route([depot] + [i for i in group if i != depot], where,
                                       metric, measure, band if square else 0.0,
                                       [points[k] for k in range(n) if k not in members], quick)
-            loops.append(Loop(stops, length))
+            loops.append(Loop(_anticlockwise(stops, where), length))
             cost += c
         return loops, cost
 

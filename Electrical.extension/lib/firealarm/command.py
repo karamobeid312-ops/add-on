@@ -4,10 +4,10 @@ from Autodesk.Revit.DB import ElementId
 from pyrevit import forms, revit
 from System.Collections.Generic import List
 
-from firealarm import revit_address, revit_loop, revit_riser, settings
+from firealarm import revit_address, revit_loop, revit_riser, revit_routes, settings
 from firealarm.addresses import DETECTION, SOUNDER, on_loop
 from firealarm.loops import loop_count, loop_numbers
-from firealarm.report import summarize, summarize_loops, summarize_riser
+from firealarm.report import summarize, summarize_addresses, summarize_loops, summarize_riser
 from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
 from firealarm.revit_fa import (by_level, detector_types, linked_models,
                                 pick_linked_spaces, pick_spaces, place_detectors,
@@ -132,14 +132,13 @@ def run(kind):
 
 # ---------------------------------------------------------------- loops
 
-def _loop_devices(doc, uidoc, view):
-    """Devices selected before clicking (two or more), or all the fire
-    alarm devices of the view, or picked now."""
+def _loop_devices(doc, uidoc, view, least=2, message="Which devices go on the loop?"):
+    """Devices selected before clicking (at least `least`), or all the
+    fire alarm devices of the view, or picked now."""
     devices = revit_loop.selected_devices(uidoc)
-    if len(devices) >= 2:
+    if len(devices) >= least:
         return devices
-    choice = forms.CommandSwitchWindow.show([LOOP_ALL, LOOP_PICK],
-                                            message="Which devices go on the loop?")
+    choice = forms.CommandSwitchWindow.show([LOOP_ALL, LOOP_PICK], message=message)
     if choice == LOOP_ALL:
         devices = revit_loop.view_devices(doc, view)
         if not devices:
@@ -169,16 +168,23 @@ def _loop_kind(devices, codes):
     return kind, chosen
 
 
-def _loop_numbers(doc, view, devices, max_devices, kind, kept):
+def _loop_numbers(doc, view, devices, max_devices, kind, kept, skip, here_too=False):
     """Loop numbers for this floor: new ones, going on across the building
     (detection and sounder loops share them), or the first loop continuing
     a loop of the same kind on another floor. kept: numbers staying in this
-    view. None: cancelled."""
+    view; skip: ids of the devices whose addresses do not count (the ones
+    being connected or addressed now); here_too: loops drawn in this view
+    can be continued too. None: cancelled."""
     def elsewhere(drawn):
-        found = dict((n, views - set([view.Name])) for n, views in drawn.items())
+        found = dict((n, views - (set() if here_too else set([view.Name])))
+                     for n, views in drawn.items())
         return dict((n, views) for n, views in found.items() if views)
     others = elsewhere(revit_loop.loop_views(doc))
     same_kind = elsewhere(revit_loop.loop_views(doc, kind))
+    for number, (kinds, floors) in revit_address.addressed_loops(doc, skip).items():
+        others.setdefault(number, set()).update(floors)
+        if kind in kinds:                   # addressed, maybe without loop lines
+            same_kind.setdefault(number, set()).update(floors or ["addressed"])
     taken = set(others) | set(kept)
     count = loop_count(devices, max_devices)
     new = loop_numbers(count, taken)
@@ -218,28 +224,9 @@ def _address_tag(doc, values):
     return types.get(choice)
 
 
-def _address_notes(addresser, tag_loaded):
-    notes = []
-    if addresser.parameter_added:
-        notes.append(u"The FA Address parameter was added to Fire Alarm Devices.")
-    notes.append(u"Addresses written: %d." % addresser.written)
-    if addresser.tag_type is not None:
-        notes.append(u"Address tags placed: %d%s." % (
-            addresser.tagged, " (%d old ones replaced)" % addresser.tags_replaced
-            if addresser.tags_replaced else ""))
-    elif not tag_loaded:
-        notes.append(u"No fire alarm device tag is loaded: make one with a label showing "
-                     u"FA Address (see the README) to tag the addresses.")
-    else:
-        notes.append(u"No address tags (choose one in FA Settings > Address tag).")
-    for problem in sorted(set(addresser.problems)):
-        notes.append(u"    %s" % problem)
-    return notes
-
-
 def draw_loop():
     """Connect the fire alarm devices of the active plan with detail
-    lines, loop by loop, from the start and back, and address them."""
+    lines, loop by loop, from the start and back."""
     doc, uidoc = revit.doc, revit.uidoc
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model to draw the loop.", title=TITLE)
@@ -284,19 +271,187 @@ def draw_loop():
         if answer.startswith("Replace"):
             replace = [i for ids in old.values() for i in ids]
 
+    # the addresses of this floor's devices are redone after the loops
+    shown = set(revit_loop.id_int(d.Id) for d in revit_loop.view_devices(doc, view))
     numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
-                            kept=list(other_kind) + ([] if replace else list(old)))
+                            kept=list(other_kind) + ([] if replace else list(old)),
+                            skip=shown | set(revit_loop.id_int(d.Id) for d in devices))
     if numbers is None:
         return
-    tag_type = _address_tag(doc, values)
-    addresser = revit_address.Addresser(doc, view, codes, tag_type)
     results = revit_loop.draw_loops(doc, view, devices, start, values["loop_devices"],
                                     values["loop_gap"], numbers, replace,
-                                    square=values["loop_square"], addresser=addresser, kind=kind)
-    headline, details = summarize_loops(view.Name, results, revit_loop.label(start), counted,
-                                        replaced=len(replace), kind=kind,
-                                        notes=_address_notes(addresser,
-                                                             bool(revit_address.tag_types(doc))))
+                                    square=values["loop_square"], kind=kind)
+    headline, details = summarize_loops(
+        view.Name, results, revit_loop.label(start), counted, replaced=len(replace), kind=kind,
+        notes=[u"Give the devices their addresses (FA Address and tags) with Address Devices."])
+    forms.alert(headline, expanded=details, title=TITLE)
+
+
+# ---------------------------------------------------------------- addresses
+
+ADDRESS_VIEW = "Loops drawn in this plan"
+ADDRESS_ALL = "Loops drawn in all plans"
+ADDRESS_FREE = "Devices without a loop line"
+
+
+def _address_notes(addresser, tag_loaded):
+    notes = []
+    if addresser.parameter_added:
+        notes.append(u"The FA Address parameter was added to Fire Alarm Devices.")
+    if addresser.tag_type is not None:
+        notes.append(u"Address tags placed: %d%s." % (
+            addresser.tagged, " (%d device%s had one already, kept)" % (
+                addresser.already_tagged, "" if addresser.already_tagged == 1 else "s")
+            if addresser.already_tagged else ""))
+    elif not tag_loaded:
+        notes.append(u"No fire alarm device tag is loaded: make one with a label showing "
+                     u"FA Address (see the README) to tag the addresses.")
+    else:
+        notes.append(u"No address tags (choose one in FA Settings > Address tag).")
+    for problem in sorted(set(addresser.problems)):
+        notes.append(u"    %s" % problem)
+    return notes
+
+
+def _ids(devices):
+    """'id 12, 15, 40...' of the devices, for Select by ID."""
+    ids = sorted(set(revit_loop.id_int(d.Id) for d in devices))
+    return u", ".join(u"%d" % i for i in ids[:12]) + (u"..." if len(ids) > 12 else u"")
+
+
+def _plural(count, word):
+    return u"%d %s%s" % (count, word, "" if count == 1 else "s")
+
+
+def _drawn_loops(doc, view, values):
+    """The loops drawn in `view` (None: in every plan), in route order ->
+    (loops for Addresser.run, ids of the devices shown in their plans,
+    warnings, notes, devices that need a look)."""
+    panel = revit_riser.main_panel(revit_riser.devices_and_panels(doc)[1])
+    drawn = revit_routes.read_loops(doc, values["loop_gap"], panel, view)
+    warnings, notes, look = [], [], []
+    for loop in drawn:
+        where = u"L%d%s in %s" % (loop.number, " sounder" if loop.kind == SOUNDER else "",
+                                  loop.view.Name)
+        counted = [revit_loop.id_int(d.Id) for d in loop.devices[:1]]
+        if loop.start is not None and counted == [revit_loop.id_int(loop.start.Id)]:
+            notes.append(u"%s starts at a device (no line end at a panel): counted from %s "
+                         u"(id %d)." % (where, revit_loop.label(loop.start),
+                                        revit_loop.id_int(loop.start.Id)))
+        if not loop.devices:
+            warnings.append(u"%s: its lines reach no fire alarm device." % where)
+        elif loop.loose:
+            look.extend(loop.loose)
+            warnings.append(u"%s: %s at its lines not on one line from the start (lines not "
+                            u"joined?), not addressed: ids %s." % (
+                                where, _plural(len(loop.loose), "device"), _ids(loop.loose)))
+        elif not loop.closed:
+            warnings.append(u"%s: its lines do not come back to the start (addressed as far "
+                            u"as they go)." % where)
+    parts = {}
+    for loop in drawn:
+        if loop.devices:
+            parts.setdefault((loop.number, loop.kind), []).append(loop)
+    elevation = revit_routes.panel_elevation(doc, panel)
+    loops = [(number, kind, [(p.view, p.devices)
+                             for p in revit_routes.counting_order(found, elevation)])
+             for (number, kind), found in sorted(parts.items())]
+    shown = set()
+    for plan in dict((revit_loop.id_int(l.view.Id), l.view) for l in drawn).values():
+        shown.update(revit_loop.id_int(d.Id) for d in revit_loop.view_devices(doc, plan))
+    return loops, shown, warnings, notes, look
+
+
+def _free_loops(doc, uidoc, view, values):
+    """Devices without loop lines, in the order Draw FA Loop would connect
+    them -> (loops for Addresser.run, a note on the start); (None, None)
+    when cancelled."""
+    devices = _loop_devices(doc, uidoc, view, least=1, message="Which devices get addresses?")
+    if not devices:
+        return None, None
+    chosen_symbols = settings.chosen_symbols(values)
+    codes = dict((revit_loop.id_int(d.Id), revit_address.symbol_of(d, chosen_symbols))
+                 for d in devices)
+    kind, devices = _loop_kind(devices, codes)
+    if not devices:
+        return None, None
+    start = revit_loop.pick_start(uidoc)
+    if start is None:
+        return None, None
+    start_id = revit_loop.id_int(start.Id)
+    if revit_loop.is_panel(start):
+        devices = [d for d in devices if revit_loop.id_int(d.Id) != start_id]
+    if not devices:
+        forms.alert("There are no devices to address.", title=TITLE)
+        return None, None
+    counted = any(revit_loop.id_int(d.Id) == start_id for d in devices)
+    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
+                            kept=list(revit_loop.existing_loop_lines(doc, view)),
+                            skip=set(revit_loop.id_int(d.Id) for d in devices), here_too=True)
+    if numbers is None:
+        return None, None
+    routes = revit_loop.Plan(view, devices, start, values["loop_devices"], values["loop_gap"],
+                             values["loop_square"]).routes()
+    numbers = list(numbers) + loop_numbers(len(routes) - len(numbers), numbers)
+    loops = [(number, kind, [(view, route)]) for number, route in zip(numbers, routes)]
+    note = u"Start: %s%s; the devices are counted in the order Draw FA Loop would " \
+           u"connect them." % (revit_loop.label(start), " (device 1)" if counted else "")
+    return loops, note
+
+
+def address_devices():
+    """Write FA Address on the fire alarm devices, loop by loop in route
+    order (L1/SD-01...), and tag them."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model to address the devices.", title=TITLE)
+        return
+    view = doc.ActiveView
+    plan = revit_loop.is_plan(view)
+    owners = set(owner for _, owner, _, _ in revit_loop.loop_curves(doc))
+    options = ([ADDRESS_VIEW] if plan and revit_loop.id_int(view.Id) in owners else []) + \
+        ([ADDRESS_ALL] if owners else []) + ([ADDRESS_FREE] if plan else [])
+    if not options:
+        forms.alert("No loop lines are drawn in this model.\n\nDraw the loops with Draw FA "
+                    "Loop, or open a floor or ceiling plan to address its devices without "
+                    "loop lines.", title=TITLE)
+        return
+    choice = options[0] if len(options) == 1 else forms.CommandSwitchWindow.show(
+        options, message="Which devices get their addresses? (A loop over several floors "
+                         "counts on, the floor furthest from the panel first.)")
+    if not choice:
+        return
+    values = settings.load()
+    look, notes = [], []
+    if choice == ADDRESS_FREE:
+        loops, note = _free_loops(doc, uidoc, view, values)
+        if loops is None:
+            return
+        skip, keep_ranges, warnings, notes = (), True, [], [note]
+    else:
+        loops, skip, warnings, notes, look = _drawn_loops(
+            doc, view if choice == ADDRESS_VIEW else None, values)
+        keep_ranges = choice == ADDRESS_VIEW    # all plans: every loop counts afresh from 01
+        if not loops:
+            forms.alert("The loop lines reach no fire alarm devices.",
+                        expanded="\n".join(warnings), title=TITLE)
+            return
+    tag_type = _address_tag(doc, values)
+    addresser = revit_address.Addresser(doc, settings.chosen_symbols(values), tag_type)
+    addresser.run(loops, skip, keep_ranges)
+    if addresser.twice:
+        look.extend(addresser.twice)
+        warnings.append(u"%s on the routes of two loops, addressed on the first: ids %s." % (
+            _plural(len(addresser.twice), "device"), _ids(addresser.twice)))
+    if addresser.clashes:
+        look.extend(addresser.clashes)
+        warnings.append(u"%s already had an address given now (left from before?): ids %s." % (
+            _plural(len(addresser.clashes), "other device"), _ids(addresser.clashes)))
+    if look:
+        uidoc.Selection.SetElementIds(List[ElementId]([d.Id for d in look]))
+        warnings.append(u"The devices that need a look are selected.")
+    notes += _address_notes(addresser, bool(revit_address.tag_types(doc)))
+    headline, details = summarize_addresses(addresser.loops, warnings, notes)
     forms.alert(headline, expanded=details, title=TITLE)
 
 

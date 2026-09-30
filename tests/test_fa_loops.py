@@ -183,13 +183,29 @@ def test_square_loop_on_an_open_space_grid():
     boxes = [box(p) for p in points]
     angle, loops, lines, drawn = square(points, 0, boxes)
     assert angle == 0.0 and len(loops) == 1
-    # up the first column, then a snake through the other two, as drawn by hand
+    # a snake through the last two columns, then down the first, as drawn
+    # by hand; anticlockwise
     assert abs(loops[0].length - 161.2) < 1e-6
     assert [points[i] for i in loops[0].stops] == [
-        (0.0, 0.0), (0.0, 10.8), (0.0, 23.2), (0.0, 34.5), (15.5, 34.5), (30.8, 34.5),
-        (30.8, 23.2), (15.5, 23.2), (15.5, 10.8), (30.8, 10.8), (30.8, 0.0), (15.5, 0.0)]
+        (0.0, 0.0), (15.5, 0.0), (30.8, 0.0), (30.8, 10.8), (15.5, 10.8), (15.5, 23.2),
+        (30.8, 23.2), (30.8, 34.5), (15.5, 34.5), (0.0, 34.5), (0.0, 23.2), (0.0, 10.8)]
     check_square(points, drawn, boxes)
     assert len(lines[0]) == 12          # one straight line per step, no bends needed
+
+
+@pytest.mark.parametrize("square", [True, False])
+def test_every_loop_runs_anticlockwise(square):
+    from firealarm.loops import turning
+    points = layout_detectors([rect(0, 0, 60, 40)], 4.5).points
+    for start in ((30.0, 0.0), 5):
+        start_xy = start if isinstance(start, tuple) else points[start]
+        for loop in plan_loops(points, start, 40, square):
+            corners = [start_xy if s == START else points[s] for s in loop.stops]
+            assert turning(corners) == 1
+            if not isinstance(start, tuple) and start in loop.devices:
+                assert loop.stops[0] == start
+    row = [(float(x), 0.0) for x in (8, 2, 6, 4)]           # a row: the nearer end first
+    assert plan_loops(row, (0.0, 0.0), 120, square)[0].devices == [1, 3, 2, 0]
 
 
 def test_square_loops_on_detector_grids_never_run_through_devices():

@@ -253,6 +253,21 @@ def fa_riser(c, ink):
         stroke(c, [(x - 2.3, y), (x, y - 2.3), (x + 2.3, y), (x, y + 2.3)], 1.0, RED, closed=True)
 
 
+def address_devices(c, ink):
+    stroke(c, [(1.5, 25), (30.5, 25)], 1.6, RED)                 # loop line
+    for x in (8, 22):                                            # devices
+        c.fill([circle(x, 25, 4.2)], WHITE)
+        stroke(c, circle(x, 25, 4.2, 24), 1.2, ink, closed=True)
+        c.fill([circle(x, 25, 1.4)], RED)
+    tag = [(11, 3), (28.5, 3), (28.5, 16), (11, 16), (7.5, 9.5)]    # address tag
+    c.fill([tag], BLUE)
+    c.fill([circle(10.6, 9.5, 1.1)], WHITE)
+    stroke(c, [(15.5, 6.5), (15.5, 12.5), (18.5, 12.5)], 1.5, WHITE)     # L
+    stroke(c, [(22.5, 7.6), (24.3, 6.3), (24.3, 12.7)], 1.5, WHITE)      # 1
+    stroke(c, [(22.3, 12.7), (26.3, 12.7)], 1.5, WHITE)
+    stroke(c, [(14, 16), (10.5, 20.8)], 1.1, ink)                # to its device
+
+
 def bell(c):
     c.fill([[(24, 18.3), (25.9, 19.1), (26.8, 21.2), (27.2, 24.3), (28.7, 26.2), (19.3, 26.2),
              (20.8, 24.3), (21.2, 21.2), (22.1, 19.1)]], WHITE)
@@ -291,6 +306,7 @@ ICONS = [
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
+    (TAB + "Fire Alarm.panel/Address Devices.pushbutton", address_devices),
     (TAB + "Fire Alarm.panel/FA Riser.pushbutton", fa_riser),
     (TAB + "Fire Alarm.panel/Settings.pushbutton", fa_settings),
     (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
