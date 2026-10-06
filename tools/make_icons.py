@@ -299,6 +299,21 @@ def dim_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def wall_fixtures(c, ink):
+    c.fill([rect(2, 2, 9, 30)], GRAY)                   # wall, in section
+    c.fill([rounded(9, 7, 14, 21, 1.2)], WHITE)         # socket on its face
+    stroke(c, rounded(9, 7, 14, 21, 1.2), 1.2, ink, closed=True)
+    c.fill([circle(11.8, 11.5, 0.9), circle(11.8, 16.5, 0.9)], ink)
+    stroke(c, [(16.5, 23), (21, 27.5), (29.5, 17)], 2.8, GREEN)   # check mark
+
+
+def check_settings(c, ink):
+    def glyph(c):
+        c.fill([rect(19.5, 19.5, 22.5, 28.5)], WHITE)   # wall
+        c.fill([rect(22.5, 21.5, 25.5, 26.5)], WHITE)   # fixture on it
+    settings_gear(c, ink, GREEN, glyph)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -314,6 +329,8 @@ ICONS = [
     (TAB + "Voltage Drop.panel/Settings.pushbutton", vd_settings),
     (TAB + "Dimensions.panel/Dimension Devices.pushbutton", dimension_devices),
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
+    (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
+    (TAB + "Model Check.panel/Settings.pushbutton", check_settings),
 ]
 
 
