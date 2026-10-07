@@ -9,7 +9,7 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with four panels:
+Everything is on one **Electrical** ribbon tab, with five panels:
 
 | Panel | Buttons |
 | --- | --- |
@@ -17,6 +17,7 @@ Everything is on one **Electrical** ribbon tab, with four panels:
 | **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops, addresses them and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops), [Addresses](#addresses) and [Fire alarm riser](#fire-alarm-riser) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
+| **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
 
 ## What gets drawn
 
@@ -505,6 +506,43 @@ left of vertical ones), so the text stays clear of the devices.
 Mounting heights of devices on walls are not dimensioned (they are for
 elevations or tags).
 
+## Wall fixtures
+
+The **Model Check** panel of the **Electrical** tab:
+
+- **Wall Fixtures** – checks in 3D that the fixtures on walls (sockets,
+  switches, wall lights, panels, fire alarm, data and security
+  devices...) sit on their wall face. Select the fixtures first, or after
+  clicking take *All fixtures in the model*, *Fixtures shown in this
+  view*, or *Pick fixtures*. The fixtures that need a look are selected
+  in Revit, and pyRevit's output window lists them by problem, with what
+  to do about it; click an element id to select it and zoom to it, or
+  *Select all*. Nothing in the model is changed.
+- **Check Settings** – the tolerance: how near its wall face a fixture
+  must be to count as on the wall (10 mm).
+
+### What is checked
+
+| Problem | When |
+| --- | --- |
+| Lost their wall | A face-based or wall-hosted family with no host any more (the wall was deleted). |
+| On a wall in a link that is not loaded, or no longer in it | Hosted by a face in a linked model, and that wall cannot be found: the link is unloaded, or the wall was deleted from it. |
+| Off the end or the top of their wall, or in an opening | The insertion point is not over a side face of its wall: the wall was shortened, lowered, or a door or window was put where the fixture is. |
+| Floating off the wall face | The whole fixture is more than the tolerance in front of the wall face (typically a fixture on a linked wall that moved, or a wall that got thinner). |
+| Set into the wall | The insertion point of a face-based fixture is more than the tolerance behind the wall face. |
+| Inside the wall | The whole fixture is more than the tolerance behind the wall face. |
+| Facing into the wall / Not square to the wall | A face-based fixture turned away from its wall face by more than 2° (a linked wall that was turned). |
+| On a work plane, not on a wall | A face-based fixture placed on a level or reference plane: it does not move with the wall. |
+
+### In Revit
+
+| Item | How |
+| --- | --- |
+| Fixtures | Family instances of electrical fixtures, lighting devices and fixtures, electrical equipment, fire alarm, communication, data, security, nurse call and telephone devices for *All* and *this view*; selected or picked fixtures can be of any category. |
+| Checked | Face-based families on a wall face (in this model or a linked model) and wall-hosted families. Fixtures on ceilings, floors and roofs, on columns or other hosts, and families that are not hosted at all are counted under *Not checked*. |
+| Measured | Against both side faces of the wall, in 3D: the fixture's insertion point (face-based families have it on the face they are placed on) and the points of its 3D geometry. The fixture's side is the face its insertion point is nearest, or for wall-hosted families the face its body sticks out of most. A back box behind the face is fine as long as part of the fixture is in front of it, so flush fixtures pass. |
+| Not read | Curtain walls and walls whose faces Revit cannot give. |
+
 ## Install
 
 1. Install pyRevit.
@@ -575,6 +613,7 @@ Electrical.extension/
   FA shared parameters.txt   the FA Address shared parameter
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
+    Model Check.panel/    Wall Fixtures, Check Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -616,6 +655,12 @@ Electrical.extension/
     revit_dims.py  devices and their centre planes, walls found by ray, dimensions
     settings.py    per-user settings
     command.py     button entry points
+  lib/wallcheck/
+    check.py       is a fixture on its wall face: floating, set in, off the wall... (no Revit)
+    report.py      the problems by kind, what to do, not checked
+    revit_check.py fixtures, their host wall (here or in a link), faces and geometry measured
+    settings.py    per-user settings
+    command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
@@ -627,5 +672,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop` and `lib/dims` compatible with Python
+Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims` and `lib/wallcheck` compatible with Python
 2.7 (no f-strings, no type hints) so it runs in pyRevit's IronPython engine.
