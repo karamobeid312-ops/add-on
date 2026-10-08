@@ -9,7 +9,7 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with five panels:
+Everything is on one **Electrical** ribbon tab, with six panels:
 
 | Panel | Buttons |
 | --- | --- |
@@ -18,6 +18,7 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
+| **Cable Tray** | Route Tray, Fix Trays, Tray Settings: draws cable trays, or reroutes trays already drawn, over, under or round the pipes, ducts, beams and walls in their way, see [Cable tray routing](#cable-tray-routing) |
 
 ## What gets drawn
 
@@ -543,6 +544,49 @@ The **Model Check** panel of the **Electrical** tab:
 | Measured | Against both side faces of the wall, in 3D: the fixture's insertion point (face-based families have it on the face they are placed on) and the points of its 3D geometry. The fixture's side is the face its insertion point is nearest, or for wall-hosted families the face its body sticks out of most. A back box behind the face is fine as long as part of the fixture is in front of it, so flush fixtures pass. |
 | Not read | Curtain walls and walls whose faces Revit cannot give. |
 
+## Cable tray routing
+
+The **Cable Tray** panel of the **Electrical** tab:
+
+- **Route Tray** – in a floor or ceiling plan, pick the tray type, its
+  size and its middle elevation above the plan's level, click **Draw the
+  tray**, then click where it starts, each corner and its end, and press
+  Esc. The tray is drawn with its elbows, already clear of what is in
+  its way, and selected.
+- **Fix Trays** – reroutes cable trays already drawn. Select them first,
+  or after clicking take *Cable trays shown in this view* or *Pick cable
+  trays*. Each straight piece of tray is checked; one with a clash keeps
+  its two ends where they are and gets a dodge in its middle, and what
+  its end was joined to is joined to the new last piece.
+- **Tray Settings** – the clearance (50 mm), which way to dodge, 90 or
+  45 degree bends, the headroom (2400 mm), the gap kept under the level
+  above (300 mm), what counts as in the way, and whether linked models
+  count.
+
+Both buttons list in pyRevit's output window each clash dodged (which
+way, by how much, round what, and the tray added), each wall the tray
+goes through with the opening it needs, and the clashes left for you.
+
+### How a clash is dodged
+
+| Step | How |
+| --- | --- |
+| Finding clashes | The tray is a box along its centre line, its width and height plus the clearance all round. Pipes, ducts, conduits, other trays, beams and walls are read as boxes along their own line, cut into 1 m pieces so a sloping pipe keeps its slope; columns, fittings, equipment and ceilings as upright boxes. Elements in linked models count too. |
+| Ways round | Over it, under it, or round it to the left or right, with two bends out and two bends back a tray width plus the clearance before and after it. With 45 degree bends the slope starts earlier. |
+| Choosing | The way that adds the least tray, unless the settings say over, under, or left or right first (still the shortest when that way does not fit). Over may not take the top of the tray above the level above less the slab gap; under may not take its bottom below the headroom. |
+| Growing | If something else is in the way of the dodge (a beam above the pipe it goes over, a duct beside the column it goes round) the dodge goes past that too, or another way is tried. Clashes too close for two dodges take one. |
+| Walls | Never gone round. A low wall or a bulkhead is passed over or under like anything else. A wall the tray cannot pass over or under is crossed straight, and listed as an opening to make, with its size (the tray plus the clearance all round). |
+| Left for you | When no way fits, or the clash is so near a joined end that there is no room for the bends, the tray goes straight through and the clash is listed. Sloping and vertical trays are checked but not rerouted. |
+
+### In Revit
+
+| Item | How |
+| --- | --- |
+| New trays | `CableTray.Create` of the chosen type and size between the points, on the plan's level, joined by elbows. The type's fittings are used: a bend that cannot be added (pieces too short for the fitting) is counted in the report, join it by hand. |
+| Rerouted trays | The tray keeps its first piece (shortened), new trays of its type, size, service type and comments take the rest. |
+| Read | Elements near the path only (3 m beside it, between the headroom and the slab), in this model and in loaded links. The trays being rerouted and the fittings joined to them are left out. |
+| Levels | The headroom is above the highest level at or under the tray, the slab gap under the next level above it. |
+
 ## Install
 
 1. Install pyRevit.
@@ -614,6 +658,7 @@ Electrical.extension/
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
+    Cable Tray.panel/     Route Tray, Fix Trays, Tray Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -661,6 +706,12 @@ Electrical.extension/
     revit_check.py fixtures, their host wall (here or in a link), faces and geometry measured
     settings.py    per-user settings
     command.py     button entry points
+  lib/traycoord/
+    route.py       a tray run routed over, under or round what is in its way (no Revit)
+    report.py      dodges, wall openings and clashes left, as table rows
+    revit_tray.py  obstacles from the model and its links, trays drawn and rerouted
+    settings.py    per-user settings
+    command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
@@ -672,5 +723,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims` and `lib/wallcheck` compatible with Python
+Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims`, `lib/wallcheck` and `lib/traycoord` compatible with Python
 2.7 (no f-strings, no type hints) so it runs in pyRevit's IronPython engine.
