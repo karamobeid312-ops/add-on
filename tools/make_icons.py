@@ -314,6 +314,31 @@ def check_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def tray(c, ink, points, color):
+    """A cable tray along points: a thick band with rungs."""
+    stroke(c, points, 5.2, ink)
+    stroke(c, points, 3.0, color)
+
+
+def route_tray(c, ink):
+    c.fill([circle(16, 18.5, 3.6)], RED)                # a pipe in the way, in section
+    tray(c, ink, [(2, 25), (8, 25), (8, 9), (24, 9), (24, 25), (30, 25)], AMBER)
+
+
+def fix_trays(c, ink):
+    stroke(c, [(2, 23), (30, 23)], 1.6, GRAY)           # the old run, through the pipe
+    c.fill([circle(16, 23, 3.6)], RED)
+    tray(c, ink, [(2, 23), (8, 23), (8, 11), (24, 11), (24, 23), (30, 23)], AMBER)
+    stroke(c, [(12.5, 3.5), (16, 7), (19.5, 3.5)], 1.8, GREEN)
+
+
+def tray_settings(c, ink):
+    def glyph(c):
+        stroke(c, [(19, 27), (21.5, 27), (21.5, 21), (26.5, 21), (26.5, 27), (29, 27)],
+               1.8, WHITE)
+    settings_gear(c, ink, AMBER, glyph)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -331,6 +356,9 @@ ICONS = [
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
     (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
     (TAB + "Model Check.panel/Settings.pushbutton", check_settings),
+    (TAB + "Cable Tray.panel/Route Tray.pushbutton", route_tray),
+    (TAB + "Cable Tray.panel/Fix Trays.pushbutton", fix_trays),
+    (TAB + "Cable Tray.panel/Settings.pushbutton", tray_settings),
 ]
 
 
