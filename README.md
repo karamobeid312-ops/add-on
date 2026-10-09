@@ -567,7 +567,8 @@ The **Circuits** panel of the **Electrical** tab:
 
 | Item | How |
 | --- | --- |
-| Copies | An element on the copied floor of the same family type, at the same spot in plan (X, Y) within the tolerance: what *Paste > Aligned to Selected Levels* gives. Each source element has at most one copy, the nearest. |
+| Copies | An element on the copied floor of the same family type (or, failing that, another type of the same family), at the same spot in plan (X, Y) within the tolerance and at the same height above its floor within 500 mm: what *Paste > Aligned to Selected Levels* gives. Each source element has at most one copy, the nearest. |
+| Floors | An element is on a floor when its Level is that level, or when it sits in that storey (from 300 mm below the level to 300 mm below the next level at least 2 m above), whatever Level it was given: floor boxes hosted on a slab of another level are found too. |
 | Panels | A panel on the source floor feeds the circuits through its copy on each floor: the same family type at the same spot, or else the panel named like it with the floor number swapped (`DB-F4-01` on `L4` → `DB-F3-01` on `L3`; the floor number is the last number in the level name). A panel found neither way is listed with the name looked for and how far the nearest panel of its type is, and its circuits are not made. A panel on another floor (a riser board feeding every floor) feeds the copies too. |
 | Semi-typical floors | Elements with no copy are left out of their circuit and listed, with a link to select them on the source floor. Elements of the same family types that are only on the copied floor are left without a circuit and listed, to circuit by hand. Copies already on a circuit of that kind are left as they are. |
 | Circuit numbers | Revit numbers new circuits in the first free slots, so they match the source panel's when its circuits had no gaps (spares and spaces are not copied). Check them in the panel schedules. |

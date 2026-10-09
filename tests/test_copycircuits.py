@@ -185,3 +185,33 @@ def test_wire_lines_say_why():
         "2 wires not drawn: an element they connect has no copy here.",
         "1 wire not drawn: Revit refused them (The points are not in the view's plane).",
     ]
+
+
+def test_match_same_height_above_the_floor():
+    source = [Item(1, "fb", 0, 0, z=40.0), Item(2, "fb", 5, 0, z=40.0)]
+    target = [Item(11, "fb", 0, 0, z=27.0), Item(12, "fb", 5, 0, z=40.0)]   # 12: still on L4
+    assert match(source, target, TOL, dz=-13.0, z_tolerance=1.6) == {1: 11}
+
+
+def test_match_falls_back_to_the_same_family():
+    found = set()
+    source = [Item(1, "fb-a", 0, 0, family_key="FB"), Item(2, "fb-a", 5, 0, family_key="FB")]
+    target = [Item(11, "fb-a", 0, 0, family_key="FB"), Item(12, "fb-b", 5, 0, family_key="FB"),
+              Item(13, "light", 5, 0, family_key="L")]
+    assert match(source, target, TOL, by_family=found) == {1: 11, 2: 12}
+    assert found == {2}
+
+
+def test_match_prefers_the_same_type_over_the_family():
+    source = [Item(1, "fb-a", 0, 0, family_key="FB")]
+    target = [Item(11, "fb-b", 0, 0, family_key="FB"), Item(12, "fb-a", 0.1, 0, family_key="FB")]
+    assert match(source, target, TOL) == {1: 12}
+
+
+def test_found_line_by_family():
+    from copycircuits.report import found_line
+    result = LevelResult("L3")
+    result.found, result.total, result.by_family = 300, 320, 12
+    assert found_line(result, "L4") == "300 of 320 elements on L4 found on L3 (same family " \
+                                       "type, same spot; 12 of them of another type of the " \
+                                       "same family)."

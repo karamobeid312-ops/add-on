@@ -3,9 +3,10 @@
 
 Revit does not copy circuits: fixtures and panels pasted on another floor
 come without them. The copies are found by where they are: an element on
-the target floor of the same family type, at the same spot in plan (X, Y)
-as the source element, within a tolerance. That is what Paste > Aligned
-to Selected Levels gives.
+the target floor of the same family type (or, failing that, of the same
+family), at the same spot in plan (X, Y) as the source element within a
+tolerance, and at the same height above its floor. That is what Paste >
+Aligned to Selected Levels gives.
 
 Each circuit with elements on the source floor is planned on the target
 floor:
@@ -36,38 +37,60 @@ NOT_FOUND = "not_found"
 
 
 class Item(object):
-    """An element on a floor: its id, family type and plan position."""
+    """An element on a floor: its id, family type, family and position."""
 
-    def __init__(self, key, type_key, x, y):
+    def __init__(self, key, type_key, x, y, z=0.0, family_key=None):
         self.key = key
         self.type_key = type_key
         self.x = x
         self.y = y
+        self.z = z
+        self.family_key = family_key
 
 
-def match(source, target, tolerance):
-    """{source key: target key}: each source item paired with the nearest
-    target item of its type within `tolerance`, one to one."""
-    tolerance = max(tolerance, 1e-9)
+def _pairs(source, target, tolerance, dz, z_tolerance, kind):
     cells = {}
     for t in target:
-        cell = (t.type_key, int(math.floor(t.x / tolerance)), int(math.floor(t.y / tolerance)))
+        group = getattr(t, kind)
+        if group is None:
+            continue
+        cell = (group, int(math.floor(t.x / tolerance)), int(math.floor(t.y / tolerance)))
         cells.setdefault(cell, []).append(t)
     pairs = []
     for s in source:
+        group = getattr(s, kind)
+        if group is None:
+            continue
         cx, cy = int(math.floor(s.x / tolerance)), int(math.floor(s.y / tolerance))
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
-                for t in cells.get((s.type_key, cx + dx, cy + dy), ()):
+                for t in cells.get((group, cx + dx, cy + dy), ()):
+                    if z_tolerance is not None and abs(t.z - s.z - dz) > z_tolerance:
+                        continue
                     d = math.hypot(t.x - s.x, t.y - s.y)
                     if d <= tolerance:
                         pairs.append((d, s.key, t.key))
     pairs.sort(key=lambda p: p[0])
+    return pairs
+
+
+def match(source, target, tolerance, dz=0.0, z_tolerance=None, by_family=None):
+    """{source key: target key}: each source item paired with the nearest
+    target item of its type within `tolerance` in plan, one to one; then the
+    ones left with the nearest of their family. With z_tolerance, the target
+    item must also be dz higher than the source one, within z_tolerance.
+    by_family: a set the source keys matched by family only are added to."""
+    tolerance = max(tolerance, 1e-9)
     found, taken = {}, set()
-    for _, s, t in pairs:
-        if s not in found and t not in taken:
-            found[s] = t
-            taken.add(t)
+    for kind in ("type_key", "family_key"):
+        left = [s for s in source if s.key not in found]
+        free = [t for t in target if t.key not in taken]
+        for _, s, t in _pairs(left, free, tolerance, dz, z_tolerance, kind):
+            if s not in found and t not in taken:
+                found[s] = t
+                taken.add(t)
+                if kind == "family_key" and by_family is not None:
+                    by_family.add(s)
     return found
 
 

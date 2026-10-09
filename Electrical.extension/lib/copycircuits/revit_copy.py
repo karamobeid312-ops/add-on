@@ -83,11 +83,47 @@ def _type_key(element):
         return None
 
 
+def _family_key(element):
+    try:
+        return id_int(element.Symbol.Family.Id)
+    except Exception:
+        return None
+
+
 def _item(element):
     p = _point(element)
     if p is None:
         return None
-    return plan.Item(id_int(element.Id), _type_key(element), p.X, p.Y)
+    return plan.Item(id_int(element.Id), _type_key(element), p.X, p.Y, p.Z,
+                     _family_key(element))
+
+
+STOREY = 2.0 / 0.3048      # ft: levels nearer than this above a floor are not floors
+                           # (SSL, ceiling levels)
+BELOW = 0.3 / 0.3048       # ft: floor boxes and the like may sit this much below their floor
+
+
+class Floor(object):
+    """A level and the height of its storey. An element is on the floor when
+    its Level is that level, or when it is in the storey: from just below
+    the level up to just below the next floor (whatever level it was given)."""
+
+    def __init__(self, level, all_levels):
+        self.level = level
+        self.key = id_int(level.Id)
+        self.low = level.Elevation - BELOW
+        above = [l.Elevation for l in all_levels if l.Elevation > level.Elevation + STOREY]
+        self.high = (min(above) - BELOW) if above else None
+
+    def has(self, element):
+        """(on the floor, by height only)."""
+        if level_key(element) == self.key:
+            return True, False
+        p = _point(element)
+        if p is None:
+            return False, False
+        inside = p.Z >= self.low and (self.high is None or p.Z < self.high)
+        return inside, inside
 
 
 def _systems_of(element):
@@ -130,14 +166,15 @@ class Source(object):
         self.systems = {}           # circuit key -> ElectricalSystem
         self.elements = {}          # element key -> element (circuits' elements and panels)
         self.items = []             # [plan.Item] of those on the source floor
+        self.by_height = 0          # of those, on the floor by height, not by their Level
 
 
 def read_source(doc, level, only=None):
     """Circuits with elements on `level`. only: element ids (ints) chosen in
     Revit: then just the circuits that are, or have, or are fed by one of them."""
-    here = id_int(level.Id)
+    floor = Floor(level, levels(doc))
     source = Source(level)
-    seen = set()
+    seen, odd = set(), set()
     for system in FilteredElementCollector(doc).OfClass(ElectricalSystem):
         try:
             elements = list(system.Elements)
@@ -150,11 +187,17 @@ def read_source(doc, level, only=None):
                 keys.add(id_int(panel.Id))
             if not keys & only:
                 continue
-        on_floor = [e for e in elements if level_key(e) == here]
+        on_floor = []
+        for e in elements:
+            inside, by_height = floor.has(e)
+            if inside:
+                on_floor.append(e)
+                if by_height:
+                    odd.add(id_int(e.Id))
         if not on_floor:
             continue
         key = id_int(system.Id)
-        panel_here = panel is not None and level_key(panel) == here
+        panel_here = panel is not None and floor.has(panel)[0]
         try:
             slot = system.StartSlot
         except Exception:
@@ -172,6 +215,7 @@ def read_source(doc, level, only=None):
                 item = _item(e)
                 if item is not None:
                     source.items.append(item)
+    source.by_height = len(odd)
     return source
 
 
@@ -185,11 +229,13 @@ class Target(object):
         self.circuited = set()      # (key, kind) already on a circuit
 
 
-def read_target(doc, level, type_keys):
-    here = id_int(level.Id)
+def read_target(doc, level, type_keys, family_keys):
+    floor = Floor(level, levels(doc))
     target = Target(level)
     for e in FilteredElementCollector(doc).OfClass(FamilyInstance):
-        if _type_key(e) not in type_keys or level_key(e) != here:
+        if _type_key(e) not in type_keys and _family_key(e) not in family_keys:
+            continue
+        if not floor.has(e)[0]:
             continue
         item = _item(e)
         if item is None:
@@ -528,6 +574,7 @@ def _message(error):
 
 
 MM_PER_FOOT = 304.8
+Z_TOLERANCE = 0.5 / 0.3048      # ft: a copy is at the same height above its floor, within this
 
 
 def panel_name(element):
@@ -599,8 +646,13 @@ def copy_to(doc, source, level, tolerance, wires=None):
     """Make the source circuits on `level`. Returns its LevelResult."""
     result = LevelResult(level.Name)
     type_keys = set(i.type_key for i in source.items)
-    target = read_target(doc, level, type_keys)
-    copies = plan.match(source.items, target.items, tolerance)
+    family_keys = set(i.family_key for i in source.items if i.family_key is not None)
+    target = read_target(doc, level, type_keys, family_keys)
+    by_family = set()
+    copies = plan.match(source.items, target.items, tolerance,
+                        dz=level.Elevation - source.level.Elevation,
+                        z_tolerance=Z_TOLERANCE, by_family=by_family)
+    result.by_family = len(by_family)
     panels = set(c.panel for c in source.circuits if c.panel_here)
     result.found = len([k for k in copies if k not in panels])
     result.total = len([i for i in source.items if i.key not in panels])

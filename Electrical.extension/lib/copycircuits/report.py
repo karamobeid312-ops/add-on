@@ -28,6 +28,7 @@ class LevelResult(object):
         self.left = []                  # target keys of the circuits' family types left
                                         # with no circuit and no source (new on this floor)
         self.panels = []                # [plan.PanelMatch] of the source floor's panels
+        self.by_family = 0              # of the copies, found by family only (other type)
         self.found = 0                  # source elements (not panels) with a copy here
         self.total = 0                  # source elements (not panels)
 
@@ -80,8 +81,12 @@ def headline(result):
 def found_line(result, source_level):
     if not result.total:
         return ""
-    return "%d of %s on %s found on %s (same family type, same spot)." % (
+    text = "%d of %s on %s found on %s (same family type, same spot)." % (
         result.found, _count(result.total, "element"), source_level, result.level)
+    if result.by_family:
+        text = text[:-2] + "; %d of them of another type of the same family)." % \
+            result.by_family
+    return text
 
 
 def _mm(value):

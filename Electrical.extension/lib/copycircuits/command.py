@@ -125,6 +125,9 @@ def run():
                         len(source.circuits), "" if len(source.circuits) == 1 else "s",
                         source_level.Name, " (from the selection)" if chosen else "",
                         _number(values["tolerance"])))
+    if source.by_height:
+        output.print_md("%d of their elements have another Level than %s but are in its "
+                        "storey, and are copied too." % (source.by_height, source_level.Name))
     for result in results:
         _show(output, result, source)
     output.print_md("*The new circuits are selected in Revit. Undo once to take them all "
