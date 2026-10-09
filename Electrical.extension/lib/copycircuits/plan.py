@@ -10,9 +10,10 @@ to Selected Levels gives.
 Each circuit with elements on the source floor is planned on the target
 floor:
 
-- its panel, when it is on the source floor, is the panel's copy; a
-  circuit whose panel is on another floor (a riser board feeding every
-  floor) is fed from that same panel;
+- its panel, when it is on the source floor, is the panel's copy, or else
+  the target floor's panel named like it with the floor number swapped
+  (DB-F4-01 on L4 -> DB-F3-01 on L3); a circuit whose panel is on another
+  floor (a riser board feeding every floor) is fed from that same panel;
 - its elements are their copies; elements with no copy (semi-typical
   floors) are left out and listed, and copies already on a circuit of
   that kind are left as they are.
@@ -20,11 +21,18 @@ floor:
 from __future__ import division
 
 import math
+import re
 
 # why a circuit is not made (Skipped.reason)
 NO_PANEL = "no_panel"           # its panel is on the source floor and has no copy
 NONE_FOUND = "none_found"       # none of its elements has a copy
 ALREADY = "already"             # every copy is already on a circuit of this kind
+
+
+# how a source panel's copy was found (PanelMatch.how)
+BY_SPOT = "spot"                # same family type at the same spot
+BY_NAME = "name"                # named like it, with the floor number swapped
+NOT_FOUND = "not_found"
 
 
 class Item(object):
@@ -139,6 +147,56 @@ def plan(circuits, copies, circuited=()):
             used.add((t, c.kind))
         jobs.append(Job(c, panel, elements, missing, already))
     return jobs, skipped
+
+
+# ---------------------------------------------------------------- panels by name
+
+def floor_number(level_name):
+    """The last number in a level's name (L4, Level 04, 4th Floor -> 4), or None."""
+    found = re.findall(r"\d+", level_name or "")
+    return int(found[-1]) if found else None
+
+
+_TOKEN = re.compile(r"^([A-Za-z]*)(\d+)([A-Za-z]*)$")
+
+
+def floor_name(name, source_level, target_level):
+    """The source panel's name with its floor number swapped for the
+    target floor's: DB-F4-01 on L4 -> DB-F3-01 on L3, PP-4F-2 -> PP-3F-2.
+    The floor number is a part of the name between - _ . or spaces that
+    is the source floor's number, with letters stuck to it (F4, L4, 4F)
+    or alone (DB-4-01); None when there is no such part, or more than one
+    and none of them has letters."""
+    a, b = floor_number(source_level), floor_number(target_level)
+    if a is None or b is None or a == b or not name:
+        return None
+    parts = re.split(r"([-_. ]+)", name)
+    lettered, bare = [], []
+    for i, part in enumerate(parts):
+        m = _TOKEN.match(part)
+        if m and int(m.group(2)) == a:
+            (lettered if m.group(1) or m.group(3) else bare).append(i)
+    found = lettered if lettered else bare
+    if len(found) != 1:
+        return None
+    i = found[0]
+    m = _TOKEN.match(parts[i])
+    digits = m.group(2)
+    number = str(b).zfill(len(digits)) if digits.startswith("0") else str(b)
+    parts[i] = m.group(1) + number + m.group(3)
+    return "".join(parts)
+
+
+class PanelMatch(object):
+    """How a source panel was found on the target floor."""
+
+    def __init__(self, name, how, found=None, looked_for=None, nearest=None, circuits=0):
+        self.name = name                # source panel name
+        self.how = how                  # BY_SPOT, BY_NAME or NOT_FOUND
+        self.found = found              # name of the target floor's panel
+        self.looked_for = looked_for    # the name looked for, None: no floor number
+        self.nearest = nearest          # distance to the nearest panel of its type, None: none
+        self.circuits = circuits        # its circuits with elements on the source floor
 
 
 # ---------------------------------------------------------------- views

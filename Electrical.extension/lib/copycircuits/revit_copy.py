@@ -15,7 +15,7 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 from __future__ import division
 
 from Autodesk.Revit.DB import (
-    BuiltInParameter, ElementId, FailureProcessingResult, FailureSeverity, FamilyInstance,
+    BuiltInCategory, BuiltInParameter, ElementId, FailureProcessingResult, FailureSeverity, FamilyInstance,
     FilteredElementCollector, IFailuresPreprocessor, Level, StorageType, Transaction,
     ViewPlan, XYZ,
 )
@@ -471,12 +471,84 @@ def _message(error):
     return text.splitlines()[0] if text else u"refused by Revit"
 
 
+MM_PER_FOOT = 304.8
+
+
+def panel_name(element):
+    try:
+        name = element.get_Parameter(BuiltInParameter.RBS_ELEC_PANEL_NAME).AsString()
+        if name:
+            return name
+    except Exception:
+        pass
+    try:
+        return element.Name or ""
+    except Exception:
+        return ""
+
+
+def _panels_by_name(doc):
+    found = {}
+    collector = FilteredElementCollector(doc).OfCategory(
+        BuiltInCategory.OST_ElectricalEquipment).WhereElementIsNotElementType()
+    for e in collector:
+        name = panel_name(e).strip().upper()
+        if name and name not in found:
+            found[name] = e
+    return found
+
+
+def match_panels(doc, source, target, copies, level):
+    """[plan.PanelMatch] of the source floor's panels. Panels with no copy at
+    the same spot are looked for by name (floor number swapped), anywhere in
+    the model; those found are added to copies and target.elements."""
+    counts = {}
+    for c in source.circuits:
+        if c.panel_here:
+            counts[c.panel] = counts.get(c.panel, 0) + 1
+    items = dict((i.key, i) for i in source.items)
+    by_name = None
+    found = []
+    for key in sorted(counts, key=lambda k: panel_name(source.elements[k])):
+        name = panel_name(source.elements[key])
+        if key in copies:
+            found.append(plan.PanelMatch(name, plan.BY_SPOT,
+                                         panel_name(target.elements[copies[key]]),
+                                         circuits=counts[key]))
+            continue
+        want = plan.floor_name(name, source.level.Name, level.Name)
+        if want is not None:
+            if by_name is None:
+                by_name = _panels_by_name(doc)
+            other = by_name.get(want.strip().upper())
+            if other is not None and id_int(other.Id) not in copies.values():
+                copies[key] = id_int(other.Id)
+                target.elements[copies[key]] = other
+                found.append(plan.PanelMatch(name, plan.BY_NAME, panel_name(other), want,
+                                             circuits=counts[key]))
+                continue
+        nearest = None
+        mine = items.get(key)
+        if mine is not None:
+            for i in target.items:
+                if i.type_key == mine.type_key:
+                    d = ((i.x - mine.x) ** 2 + (i.y - mine.y) ** 2) ** 0.5 * MM_PER_FOOT
+                    nearest = d if nearest is None else min(nearest, d)
+        found.append(plan.PanelMatch(name, plan.NOT_FOUND, looked_for=want, nearest=nearest,
+                                     circuits=counts[key]))
+    return found
+
+
 def copy_to(doc, source, level, tolerance, wires=None):
     """Make the source circuits on `level`. Returns its LevelResult."""
     result = LevelResult(level.Name)
     type_keys = set(i.type_key for i in source.items)
     target = read_target(doc, level, type_keys)
     copies = plan.match(source.items, target.items, tolerance)
+    panels = set(c.panel for c in source.circuits if c.panel_here)
+    result.found = len([k for k in copies if k not in panels])
+    result.total = len([i for i in source.items if i.key not in panels])
+    result.panels = match_panels(doc, source, target, copies, level)
     jobs, result.skipped = plan.plan(source.circuits, copies, target.circuited)
 
     t = Transaction(doc, "Copy circuits to %s" % level.Name)

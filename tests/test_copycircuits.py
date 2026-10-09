@@ -138,3 +138,39 @@ def test_report():
     assert result.missing() == [2]
     result.wires.update(drawn=3, removed=2)
     assert wire_lines(result)[0] == "3 wires drawn."
+
+
+def test_floor_name_swaps_the_floor_number():
+    from copycircuits.plan import floor_name
+    assert floor_name("DB-F4-01", "L4", "L3") == "DB-F3-01"
+    assert floor_name("PP-4F-2", "Level 4", "Level 3") == "PP-3F-2"
+    assert floor_name("DB-4-01", "L4", "L3") == "DB-3-01"
+    assert floor_name("DB-F1-01", "L1", "L2") == "DB-F2-01"      # F1, not 01
+    assert floor_name("DB-F09-01", "L9", "L10") == "DB-F10-01"
+    assert floor_name("LP 04", "Level 04", "Level 03") == "LP 03"
+
+
+def test_floor_name_none_when_unsure():
+    from copycircuits.plan import floor_name
+    assert floor_name("MDB", "L4", "L3") is None                # no floor number
+    assert floor_name("DB-1-01", "L1", "L2") is None            # 1 or 01?
+    assert floor_name("DB-F4-01", "GF", "L3") is None           # no number in the level
+    assert floor_name("DB-F4-01", "L4", "L4") is None
+
+
+def test_panel_rows():
+    from copycircuits.plan import BY_NAME, BY_SPOT, NOT_FOUND, PanelMatch
+    from copycircuits.report import panel_row, found_line
+    assert panel_row(PanelMatch("DB-F4-01", BY_SPOT, "DB-F4-01(1)", circuits=12)) == \
+        ["DB-F4-01", 12, "DB-F4-01(1)"]
+    assert panel_row(PanelMatch("DB-F4-01", BY_NAME, "DB-F3-01", "DB-F3-01"))[2] == \
+        "DB-F3-01 (by name)"
+    row = panel_row(PanelMatch("DB-F4-01", NOT_FOUND, looked_for="DB-F3-01", nearest=2350.4))
+    assert row[2] == "NOT FOUND: no panel named DB-F3-01, the nearest panel of its family " \
+                     "type is 2350 mm away. Its circuits are not made."
+    row = panel_row(PanelMatch("MDB", NOT_FOUND))
+    assert "no floor number" in row[2] and "no panel of its family type" in row[2]
+    result = LevelResult("L3")
+    result.found, result.total = 310, 320
+    assert found_line(result, "L4") == "310 of 320 elements on L4 found on L3 (same family " \
+                                       "type, same spot)."

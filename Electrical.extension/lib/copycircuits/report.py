@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """What Copy Circuits shows (no Revit needed)."""
-from copycircuits.plan import ALREADY, NO_PANEL, NONE_FOUND
+from copycircuits.plan import ALREADY, BY_NAME, BY_SPOT, NO_PANEL, NONE_FOUND
 
 
 class Made(object):
@@ -23,6 +23,9 @@ class LevelResult(object):
         self.wires = {"drawn": 0, "kept": 0, "removed": 0, "no_view": 0, "not_copied": 0}
         self.left = []                  # target keys of the circuits' family types left
                                         # with no circuit and no source (new on this floor)
+        self.panels = []                # [plan.PanelMatch] of the source floor's panels
+        self.found = 0                  # source elements (not panels) with a copy here
+        self.total = 0                  # source elements (not panels)
 
     def missing(self):
         """Source element keys with no copy on this floor."""
@@ -32,6 +35,10 @@ class LevelResult(object):
                 if k not in keys:
                     keys.append(k)
         return keys
+
+    def not_copied(self):
+        """Skipped circuits but those of a panel not found (shown with the panels)."""
+        return [s for s in self.skipped if s.reason != NO_PANEL]
 
     def on_panel(self):
         return [m for m in self.made if m.panel_error is None]
@@ -47,6 +54,7 @@ REASONS = {
 }
 
 MADE_COLUMNS = ["Circuit", "Source", "Elements", "Note"]
+PANEL_COLUMNS = ["Panel", "Circuits", "On this floor"]
 SKIPPED_COLUMNS = ["Source", "Why not copied"]
 
 
@@ -63,6 +71,35 @@ def headline(result):
     if off:
         text += ", %d of them not on a panel" % off
     return text + "."
+
+
+def found_line(result, source_level):
+    if not result.total:
+        return ""
+    return "%d of %s on %s found on %s (same family type, same spot)." % (
+        result.found, _count(result.total, "element"), source_level, result.level)
+
+
+def _mm(value):
+    return "%d mm" % int(round(value))
+
+
+def panel_found(match):
+    if match.how == BY_SPOT:
+        return match.found
+    if match.how == BY_NAME:
+        return u"%s (by name)" % match.found
+    looked = (u"no panel named %s, " % match.looked_for) if match.looked_for \
+        else u"no floor number in its name to look for it by, "
+    if match.nearest is None:
+        where = u"no panel of its family type on this floor"
+    else:
+        where = u"the nearest panel of its family type is %s away" % _mm(match.nearest)
+    return u"NOT FOUND: %s%s. Its circuits are not made." % (looked, where)
+
+
+def panel_row(match):
+    return [match.name, match.circuits, panel_found(match)]
 
 
 def made_note(made):

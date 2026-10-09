@@ -40,6 +40,12 @@ def _show(output, result, source):
     source_name = source.level.Name
     output.print_md("## " + result.level)
     output.print_md(report.headline(result))
+    line = report.found_line(result, source_name)
+    if line:
+        output.print_md(line)
+    if result.panels:
+        output.print_table(table_data=[report.panel_row(m) for m in result.panels],
+                           columns=report.PANEL_COLUMNS)
     if result.made:
         ids = [m.key for m in result.made]
         output.print_md(output.linkify(ids, "Select the %d new circuits" % len(ids)))
@@ -51,9 +57,9 @@ def _show(output, result, source):
         output.print_table(
             table_data=[[j.circuit.label, msg] for j, msg in result.failed],
             columns=report.SKIPPED_COLUMNS)
-    if result.skipped:
+    if result.not_copied():
         output.print_md("### Not copied")
-        output.print_table(table_data=[report.skipped_row(s) for s in result.skipped],
+        output.print_table(table_data=[report.skipped_row(s) for s in result.not_copied()],
                            columns=report.SKIPPED_COLUMNS)
     missing = result.missing()
     if missing:
