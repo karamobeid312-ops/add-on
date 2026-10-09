@@ -164,6 +164,15 @@ def test_supply_text():
     assert e.incomer_lines() == ["125AT", "160AF", "MCCB"]
 
 
+def test_main_incomer_is_mccb_below_800a():
+    e = EquipmentInfo("x", "SMDB-01", incomer_rating=160.0)
+    assert e.main_incomer_lines() == ["160AT", "160AF", "MCCB"]
+    e.incomer_rating = 1600.0
+    assert e.main_incomer_lines() == ["1600AT", "1600AF", "ACB"]
+    e.incomer_rating = None
+    assert e.main_incomer_lines() == ["ACB"]
+
+
 def test_sample_drawing_structure():
     import sample_al_yasat
     s = build_schematic(*sample_al_yasat.build())

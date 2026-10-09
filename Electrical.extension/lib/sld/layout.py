@@ -507,7 +507,7 @@ def _draw_board(d, g, settings):
     _draw_load_table(d, g)
 
     if b.is_main:
-        device = "\n".join(b.equipment.incomer_lines(style.MAIN_INCOMER_DEVICE, style.ACB_FRAMES))
+        device = "\n".join(b.equipment.main_incomer_lines())
         symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right, device)
         d.text(g.left + 2.0, g.bottom + 2.0, g.name_text, style.TEXT_MAIN_NAME,
                align=LEFT, valign=BOTTOM)

@@ -134,6 +134,14 @@ class EquipmentInfo(object):
     def incomer_lines(self, device=None, frames=None):
         return breaker_lines(self.incomer_rating, self.incomer_frame, device, frames)
 
+    def main_incomer_lines(self):
+        """Main board incomer: an ACB from style.ACB_FROM amps up, an MCCB
+        below (160AT / 160AF / MCCB, not an 800AF ACB)."""
+        trip = parse_amps(self.incomer_rating)
+        if trip is not None and trip < style.ACB_FROM:
+            return self.incomer_lines(style.WAY_DEVICE, style.MCCB_FRAMES)
+        return self.incomer_lines(style.MAIN_INCOMER_DEVICE, style.ACB_FRAMES)
+
 
 class CircuitInfo(object):
     """A power circuit fed from `source_id`."""
