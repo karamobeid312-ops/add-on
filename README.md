@@ -9,7 +9,7 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with five panels:
+Everything is on one **Electrical** ribbon tab, with six panels:
 
 | Panel | Buttons |
 | --- | --- |
@@ -18,6 +18,7 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
+| **Circuits** | Copy Circuits, Circuit Settings: makes the circuits of a floor again on the floors copied from it, with their wires, see [Copy circuits](#copy-circuits) |
 
 ## What gets drawn
 
@@ -543,6 +544,35 @@ The **Model Check** panel of the **Electrical** tab:
 | Measured | Against both side faces of the wall, in 3D: the fixture's insertion point (face-based families have it on the face they are placed on) and the points of its 3D geometry. The fixture's side is the face its insertion point is nearest, or for wall-hosted families the face its body sticks out of most. A back box behind the face is fine as long as part of the fixture is in front of it, so flush fixtures pass. |
 | Not read | Curtain walls and walls whose faces Revit cannot give. |
 
+## Copy circuits
+
+Revit does not copy circuits: fixtures and panels copied to other floors
+come without them, and the wires pasted with them are left unconnected.
+The **Circuits** panel of the **Electrical** tab:
+
+- **Copy Circuits** – pick the floor that is circuited, then the floors
+  copied from it. Every circuit with elements on that floor is made again
+  on each copied floor, on the copy of its panel, with the source
+  circuit's load name, rating, wire type and sizes, notes and other
+  writable parameters, in the source panel's slot order. The wires drawn
+  in the source floor's plans are drawn again in the copied floor's plan
+  of the same kind. Select fixtures, circuits or panels first to copy
+  only their circuits. The new circuits are selected in Revit, and
+  pyRevit's output window lists, per floor, what was made and what was
+  not, and why. One Undo takes it all back.
+- **Circuit Settings** – the tolerance: how near the source spot in plan
+  a copy must be (50 mm), and whether wires are drawn again.
+
+### How the copies are found
+
+| Item | How |
+| --- | --- |
+| Copies | An element on the copied floor of the same family type, at the same spot in plan (X, Y) within the tolerance: what *Paste > Aligned to Selected Levels* gives. Each source element has at most one copy, the nearest. |
+| Panels | A panel on the source floor feeds the circuits through its copy on each floor; when it has no copy there, its circuits are not made and are listed. A panel on another floor (a riser board feeding every floor) feeds the copies too. |
+| Semi-typical floors | Elements with no copy are left out of their circuit and listed, with a link to select them on the source floor. Elements of the same family types that are only on the copied floor are left without a circuit and listed, to circuit by hand. Copies already on a circuit of that kind are left as they are. |
+| Circuit numbers | Revit numbers new circuits in the first free slots, so they match the source panel's when its circuits had no gaps (spares and spaces are not copied). Check them in the panel schedules. |
+| Wires | Wires connected to the circuits' elements, in plans of the source floor, are drawn in the copied floor's plan of the same view type, best the one named like it (its level name swapped, e.g. `POWER - L1` → `POWER - L2`), then the one with the same view template. A pasted wire at the same spot that is connected the right way is kept; one that is not connected is replaced. |
+
 ## Install
 
 1. Install pyRevit.
@@ -614,6 +644,7 @@ Electrical.extension/
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
+    Circuits.panel/       Copy Circuits, Circuit Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -661,6 +692,12 @@ Electrical.extension/
     revit_check.py fixtures, their host wall (here or in a link), faces and geometry measured
     settings.py    per-user settings
     command.py     button entry points
+  lib/copycircuits/
+    plan.py        copies matched by type and spot, circuits to make, target plans (no Revit)
+    report.py      what was made per floor, what was not and why
+    revit_copy.py  circuits and wires read, made again on the copied floors
+    settings.py    per-user settings
+    command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
@@ -672,5 +709,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims` and `lib/wallcheck` compatible with Python
+Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims`, `lib/wallcheck` and `lib/copycircuits` compatible with Python
 2.7 (no f-strings, no type hints) so it runs in pyRevit's IronPython engine.
