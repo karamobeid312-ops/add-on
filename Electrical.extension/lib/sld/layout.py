@@ -497,7 +497,7 @@ def _draw_board(d, g, settings):
         top_arc = symbols.breaker(d, x, y_arc)
         d.line(x, top_arc, x, g.top)
         d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
-        lines = w.circuit.breaker_lines() if w.circuit is not None else [style.WAY_DEVICE]
+        lines = w.breaker_lines()
         d.text(x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS, "\n".join(lines),
                style.TEXT_WAY, align=LEFT, valign=MIDDLE)
         _draw_way_end(d, g, w, x, settings)

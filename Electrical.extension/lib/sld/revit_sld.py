@@ -21,17 +21,29 @@ Optional parameters (project or shared, type Text) refine the drawing:
     SLD Symbol          ISOLATOR / DB / SPARE / PFC (force the way symbol)
     SLD Frame           breaker frame in A, e.g. "250"
 
-Breakers are printed as trip / frame / MCCB (40AT / 100AF / MCCB): trip from
-the circuit Rating (or the panel's MCB Rating for its incomer), frame the
-smallest standard size that takes it. The board text starts with the busbar
-(panel Mains), the system (3PH+N+E) and the fault level.
+Office panel family parameters are read first:
+
+  SC_Rating_kA                  fault level in the board text (10kA FOR 1 SEC)
+  Incomer_Rating_A / _Type      incoming breaker (100A,3P + MCCB -> 100AT/100AF
+                                MCCB; a switch such as MCS prints 100A / MCS)
+  Upstream_Protection_Rating_A  the breaker on the way feeding the panel, e.g.
+  / Upstream_Protection_Type    40AT/100AF + MCCB (else the circuit Rating)
+  Feeder_Length_m               length of the cable feeding the panel (when
+                                VD Length is empty)
+  No_Of_Ways                    number of ways in the board text
+
+Breakers are printed as trip / frame / device (40AT / 100AF / MCCB), the
+frame being the smallest standard size for the trip unless typed. The board
+text starts with the busbar (panel Mains), the system (3PH+N+E) and the fault
+level.
+
+CL / DL beside a DB and the board load table are the panel's Total Connected
+Apparent Power, Total Demand Apparent Power and Total Demand Factor (shown in
+kW as VA / 1000). A final circuit counts its load in both.
 
 The cable comes from the circuit's Wire Size; when Revit has none, from the
-VD Cable typed for the Voltage Drop tool.
-
-Loads (CL / DL), cable lengths and voltage drops come from the Voltage Drop
-tool, with its VD Settings: the same TCL, MDL, VD Length and cumulative V.D %
-as its report. A way without a VD Length shows no L / V.D.
+VD Cable typed for the Voltage Drop tool. Lengths and the cumulative V.D %
+come from the Voltage Drop tool with its VD Settings, as in its report.
 """
 from __future__ import division
 
@@ -201,23 +213,75 @@ def _amps(element, bip_name):
         return None
 
 
+# Office panel family parameters (DM_EL_EQ_Panel...), used first.
+P_SC_RATING = "SC_Rating_kA"                          # 10kA
+P_INCOMER = "Incomer_Rating_A"                        # 100A,3P
+P_INCOMER_TYPE = "Incomer_Type"                       # MCCB / MCS / ACB
+P_UPSTREAM = ("Upstream_Protection_Rating_A",         # 40AT/100AF
+              "Upstream_Protection_Type")             # MCCB
+P_WAYS = "No_Of_Ways"
+# Revit panel loads, by name (newer Revit), else the built-in totals.
+P_CONNECTED = "Total Connected Apparent Power"
+P_DEMAND = "Total Demand Apparent Power"
+P_DEMAND_FACTOR = "Total Demand Factor"
+INTERNAL_POWER = 0.3048 ** 2     # Revit power unit in W (VA)
+
+
 def _incomer_rating(element):
-    """Incoming breaker trip: MCB Rating, else Mains."""
-    return _amps(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM") or _amps(element, "RBS_ELEC_MAINS")
+    """Incoming breaker: Incomer_Rating_A, else MCB Rating, else Mains."""
+    return (_lookup(element, P_INCOMER) or _amps(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM") or
+            _amps(element, "RBS_ELEC_MAINS"))
 
 
 def _fault_level(element):
-    typed = _lookup(element, "SLD Fault Level")
+    typed = _lookup(element, "SLD Fault Level") or _lookup(element, P_SC_RATING)
     if typed:
         return typed
     bip = getattr(BuiltInParameter, "RBS_ELEC_SHORT_CIRCUIT_RATING", None)
     return _param_text(element, bip) if bip is not None else ""
 
 
+def _upstream(element):
+    return " ".join(t for t in (_lookup(element, n) for n in P_UPSTREAM) if t)
+
+
+def _double(element, name=None, bip_name=None):
+    """A Number parameter by name (or built-in), None when missing or 0."""
+    try:
+        if name is not None:
+            p = element.LookupParameter(name)
+        else:
+            p = element.get_Parameter(getattr(BuiltInParameter, bip_name))
+        if p is None or not p.HasValue or p.StorageType != StorageType.Double:
+            return None
+        value = p.AsDouble()
+        return value if value > 0 else None
+    except Exception:
+        return None
+
+
+def _kw(element, name, bip_name):
+    """A panel load in kW as Revit shows it (VA / 1000)."""
+    value = _double(element, name) or _double(element, bip_name=bip_name)
+    return value * INTERNAL_POWER / 1000.0 if value else None
+
+
+def _panel_loads(element):
+    """(connected kW, demand kW, demand factor) of a panel: Total Connected /
+    Total Demand Apparent Power and Total Demand Factor."""
+    connected = _kw(element, P_CONNECTED, "RBS_ELEC_PANEL_TOTALLOAD_PARAM")
+    demand = _kw(element, P_DEMAND, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM")
+    factor = _double(element, P_DEMAND_FACTOR)
+    return connected, demand, factor
+
+
 def _ways(element, phases):
     declared = _lookup(element, "SLD Ways")
     if declared:
         return declared
+    typed = _lookup(element, P_WAYS)
+    if typed and typed.replace(".", "").strip("0"):
+        return typed.split(".")[0]
     try:
         poles = element.get_Parameter(BuiltInParameter.RBS_ELEC_MAX_POLE_BREAKERS).AsInteger()
         if poles:
@@ -321,12 +385,12 @@ def _start_slot(system):
 
 
 def _vd_results(doc):
-    """Loads and voltage drops as the Voltage Drop tool works them out.
+    """Lengths and voltage drops as the Voltage Drop tool works them out.
 
-    Returns ({panel id: (CL kW, DL kW)}, {panel or circuit id: (length m,
-    cumulative V.D %)}, {circuit id: load kW}, {panel or circuit id: cable},
-    warning or None). A panel's row is its incoming cable, so its id gives
-    the V.D (and the VD Cable) of the way feeding it.
+    Returns ({panel or circuit id: (length m, cumulative V.D %)}, {circuit
+    id: load kW}, {panel or circuit id: cable}, warning or None). A panel's
+    row is its incoming cable, so its id gives the V.D (and the VD Cable)
+    of the way feeding it.
     """
     try:
         from vdrop import calc, revit_vd
@@ -335,22 +399,12 @@ def _vd_results(doc):
         model = revit_vd.collect(doc, values)
         result = calc.calculate(model.feeders, vd_settings.calc_settings(values))
     except Exception as error:
-        return {}, {}, {}, {}, u"Loads and voltage drops not read: %s" % error
+        return {}, {}, {}, u"Lengths and voltage drops not read: %s" % error
 
-    loads = {}
-    for panel in model.equipment.values():
-        to_kw = panel.load_pf or 1.0
-        loads[panel.id] = (panel.connected_kva * to_kw if panel.connected_kva else None,
-                           panel.demand_kva * to_kw if panel.demand_kva else None)
     vd, cables = {}, {}
     for row in result.rows():
         f = row.feeder
         cables[f.id] = f.cable
-        if f.target_id is not None:
-            # as the VD report: TCL, and MDL (demand or VD Load kW typed)
-            cl, dl = loads.get(f.target_id, (None, None))
-            loads[f.target_id] = (f.tcl_kw if f.tcl_kw is not None else cl,
-                                  f.mdl_kw if f.mdl_kw is not None else dl)
         vd[f.id] = (f.length, row.total_percent)
 
     circuit_kw = {}
@@ -359,13 +413,13 @@ def _vd_results(doc):
             circuit_kw[system.UniqueId] = revit_vd._circuit_values(system)[1]
         except Exception:
             pass
-    return loads, vd, circuit_kw, cables, None
+    return vd, circuit_kw, cables, None
 
 
 def extract(doc):
     """Collect EquipmentInfo/CircuitInfo lists (and phase counts) from the
     model, and warnings about what could not be read."""
-    loads, vd, circuit_kw, vd_cables, warning = _vd_results(doc)
+    vd, circuit_kw, vd_cables, warning = _vd_results(doc)
     warnings = [warning] if warning else []
     equipment, ids, phases_of = [], set(), {}
     collector = (FilteredElementCollector(doc)
@@ -375,8 +429,7 @@ def extract(doc):
         level_name, elevation = _level(doc, el)
         part_type = _part_type(el)
         phases = _phases(doc, el)
-        if el.UniqueId not in loads:
-            loads[el.UniqueId] = (None, None)
+        connected, demand, factor = _panel_loads(el)
         equipment.append(EquipmentInfo(
             id=el.UniqueId,
             name=_equipment_name(el),
@@ -390,11 +443,14 @@ def extract(doc):
             symbol=_lookup(el, "SLD Symbol"),
             description=_description(el, part_type),
             incoming_cable=_lookup(el, "SLD Incoming Cable"),
-            connected_kw=loads[el.UniqueId][0],
-            demand_kw=loads[el.UniqueId][1],
+            connected_kw=connected,
+            demand_kw=demand,
+            demand_factor=factor,
             mains_rating=_amps(el, "RBS_ELEC_MAINS"),
             incomer_rating=_incomer_rating(el),
             incomer_frame=_lookup(el, "SLD Frame"),
+            incomer_device=_lookup(el, P_INCOMER_TYPE),
+            upstream_protection=_upstream(el),
             phases=phases,
             neutral=_has_neutral(doc, el, phases),
             fault_level=_fault_level(el),

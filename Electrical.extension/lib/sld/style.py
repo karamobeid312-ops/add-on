@@ -62,6 +62,11 @@ WAY_DEVICE = "MCCB"
 MCCB_FRAMES = (100, 160, 250, 400, 630, 800, 1000, 1250, 1600)
 ACB_FRAMES = (800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6300)
 ACB_FROM = 800              # main incomer below this (A) is an MCCB, not an ACB
+# Device names read from Incomer_Type / Upstream_Protection_Type; switches
+# have no trip rating and print as '100A / MCS'.
+BREAKER_DEVICES = ("MCCB", "MCB", "ACB", "MCS", "RCBO", "RCCB", "ELCB", "FUSE",
+                   "ISOLATOR", "SWITCH")
+SWITCH_DEVICES = ("MCS", "ISOLATOR", "SWITCH")
 
 # ---------------------------------------------------------------- main board
 MAIN_MIN_WIDTH = 115.0

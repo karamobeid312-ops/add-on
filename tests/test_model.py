@@ -236,3 +236,42 @@ def test_load_totals_count_each_equipment_once():
 def test_no_load_totals_without_loads():
     s = build_schematic([eq("SMDB-1"), eq("LDB-1")], [ckt("SMDB-1", 1, ["LDB-1"])])
     assert boards(s)["SMDB-1"].load_totals() is None
+
+
+def test_parse_protection_reads_the_fields_together():
+    from sld.model import parse_protection
+    assert parse_protection("40AT/100AF", "MCCB") == (40.0, 100.0, "MCCB")
+    assert parse_protection("AT/AF", "40A") == (40.0, None, None)   # values swapped
+    assert parse_protection("100A,3P", "MCS") == (100.0, None, "MCS")
+    assert parse_protection("", "") == (None, None, None)
+
+
+def test_way_breaker_from_upstream_protection_of_the_fed_panel():
+    equipment = [eq("SMDB-01"), eq("DB-01", upstream_protection="AT/AF 40A"),
+                 eq("DB-02", upstream_protection="63AT/250AF MCCB")]
+    circuits = [ckt("SMDB-01", 1, ["DB-01"], rating="20 A"),
+                ckt("SMDB-01", 4, ["DB-02"], rating="20 A"),
+                ckt("SMDB-01", 7, load_name="MISC", branch_load_count=1, rating="20 A")]
+    ways = boards(build_schematic(equipment, circuits))["SMDB-01"].ways
+    assert ways[0].breaker_lines() == ["40AT", "100AF", "MCCB"]
+    assert ways[1].breaker_lines() == ["63AT", "250AF", "MCCB"]
+    assert ways[2].breaker_lines() == ["20AT", "100AF", "MCCB"]   # circuit Rating
+
+
+def test_incomer_from_office_parameters():
+    e = EquipmentInfo("x", "DB", incomer_rating="100A,3P", incomer_device="MCCB")
+    assert e.incomer_lines() == ["100AT", "100AF", "MCCB"]
+    e.incomer_device = "MCS"
+    assert e.incomer_lines() == ["100A", "MCS"]                  # a switch has no trip
+    assert e.main_incomer_lines() == ["100A", "MCS"]
+
+
+def test_board_load_table_uses_its_own_revit_totals():
+    equipment = [eq("SMDB-01", connected_kw=4.8, demand_kw=3.36, demand_factor=0.7),
+                 eq("DB-01", connected_kw=0.8, demand_kw=0.6)]
+    circuits = [ckt("SMDB-01", 1, ["DB-01"]),
+                ckt("SMDB-01", 4, load_name="MISC", branch_load_count=1, connected_kw=4.0)]
+    smdb = boards(build_schematic(equipment, circuits))["SMDB-01"]
+    assert smdb.load_totals() == (4.8, 0.7, 3.36)
+    smdb.equipment.demand_factor = None                          # factor from the loads
+    assert abs(smdb.load_totals()[1] - 0.7) < 1e-9

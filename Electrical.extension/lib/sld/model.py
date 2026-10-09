@@ -75,13 +75,39 @@ def frame_rating(trip, frames=None):
 
 def breaker_lines(rating, frame=None, device=None, frames=None):
     """['40AT', '100AF', 'MCCB'] printed beside a breaker; just the device
-    when the rating is unknown. frame: typed frame (else the standard one)."""
-    device = device or style.WAY_DEVICE
+    when the rating is unknown. frame: typed frame (else the standard one).
+    A switch (MCS, isolator) has no trip: ['100A', 'MCS']."""
+    device = (device or style.WAY_DEVICE).strip().upper()
     trip = parse_amps(rating)
     if trip is None:
         return [device]
+    if device in style.SWITCH_DEVICES:
+        return ["%sA" % trim_number(trip, 1), device]
     af = parse_amps(frame) or frame_rating(trip, frames)
     return ["%sAT" % trim_number(trip, 1), "%sAF" % trim_number(af, 1), device]
+
+
+_AT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*AT\b")
+_AF_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*AF\b")
+_A_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*A\b")
+_BARE_RE = re.compile(r"(?<![\d.,])(\d+(?:[.,]\d+)?)(?![\d.,]*\s*[A-Z])")
+
+
+def _number(match):
+    return float(match.group(1).replace(",", ".")) if match else None
+
+
+def parse_protection(*texts):
+    """(trip A, frame A, device) from what is typed for a breaker, e.g.
+    '40AT/100AF' + 'MCCB', '100A,3P' + 'MCS', or '40A' alone; None for the
+    parts not given. The texts are read together, in any field order."""
+    joined = " ".join(u"%s" % t for t in texts if t).upper()
+    trip = _number(_AT_RE.search(joined)) or _number(_A_RE.search(joined)) or \
+        _number(_BARE_RE.search(joined))
+    frame = _number(_AF_RE.search(joined))
+    words = re.findall(r"[A-Z]+", joined)
+    device = next((w for w in words if w in style.BREAKER_DEVICES), None)
+    return trip, frame, device
 
 
 class EquipmentInfo(object):
@@ -92,7 +118,8 @@ class EquipmentInfo(object):
                  part_type="", symbol="", description=None,
                  incoming_cable="", details=None, connected_kw=None, demand_kw=None,
                  mains_rating=None, incomer_rating=None, incomer_frame="",
-                 phases=3, neutral=True, fault_level=""):
+                 phases=3, neutral=True, fault_level="", incomer_device="",
+                 upstream_protection="", demand_factor=None):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -114,6 +141,10 @@ class EquipmentInfo(object):
         self.phases = phases
         self.neutral = neutral
         self.fault_level = fault_level or ""  # e.g. '35 kA'
+        self.incomer_device = incomer_device or ""   # MCCB / MCS / ACB...
+        # breaker on the way feeding it, e.g. '40AT/100AF MCCB'
+        self.upstream_protection = upstream_protection or ""
+        self.demand_factor = demand_factor    # its own diversity factor
 
     def supply_text(self):
         """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
@@ -131,16 +162,25 @@ class EquipmentInfo(object):
             parts.append("%s FOR 1 SEC" % text)
         return ",".join(parts)
 
+    def _incomer(self):
+        trip, frame, device = parse_protection(self.incomer_rating, self.incomer_device)
+        return trip, parse_amps(self.incomer_frame) or frame, device
+
     def incomer_lines(self, device=None, frames=None):
-        return breaker_lines(self.incomer_rating, self.incomer_frame, device, frames)
+        trip, frame, typed = self._incomer()
+        return breaker_lines(trip, frame, typed or device, frames)
 
     def main_incomer_lines(self):
         """Main board incomer: an ACB from style.ACB_FROM amps up, an MCCB
-        below (160AT / 160AF / MCCB, not an 800AF ACB)."""
-        trip = parse_amps(self.incomer_rating)
+        below (160AT / 160AF / MCCB, not an 800AF ACB), unless typed."""
+        trip, frame, typed = self._incomer()
         if trip is not None and trip < style.ACB_FROM:
-            return self.incomer_lines(style.WAY_DEVICE, style.MCCB_FRAMES)
-        return self.incomer_lines(style.MAIN_INCOMER_DEVICE, style.ACB_FRAMES)
+            device, frames = style.WAY_DEVICE, style.MCCB_FRAMES
+        else:
+            device, frames = style.MAIN_INCOMER_DEVICE, style.ACB_FRAMES
+        if typed:
+            frames = style.ACB_FRAMES if typed == "ACB" else style.MCCB_FRAMES
+        return breaker_lines(trip, frame, typed or device, frames)
 
 
 class CircuitInfo(object):
@@ -205,6 +245,18 @@ class Way(object):
     @property
     def target_id(self):
         return self.target.id if self.target is not None else None
+
+    def breaker_lines(self):
+        """Beside the way's breaker: the upstream protection typed on the
+        panel it feeds, else the circuit's rating."""
+        if self.target is not None and self.target.upstream_protection:
+            trip, frame, device = parse_protection(self.target.upstream_protection)
+            if trip is not None:
+                frame = frame or (parse_amps(self.circuit.frame) if self.circuit else None)
+                return breaker_lines(trip, frame, device)
+        if self.circuit is None:
+            return [style.WAY_DEVICE]
+        return self.circuit.breaker_lines()
 
     def rating_lines(self):
         """Cable, length and voltage drop, printed along the way (the
@@ -278,8 +330,17 @@ class Board(object):
         return self.role == MAIN_BOARD
 
     def load_totals(self):
-        """(connected kW, diversity factor, demand kW) summed over the ways,
-        each piece of equipment counted once; None when no way has a load."""
+        """(connected kW, diversity factor, demand kW): the board's own
+        totals from the model, else summed over the ways (each piece of
+        equipment counted once); None when no load is known."""
+        e = self.equipment
+        if e.connected_kw:
+            df, dl = e.demand_factor, e.demand_kw
+            if df is None and dl is not None:
+                df = dl / e.connected_kw
+            if dl is None and df is not None:
+                dl = e.connected_kw * df
+            return e.connected_kw, df, dl if dl is not None else e.connected_kw
         seen, cl, dl, any_load = set(), 0.0, 0.0, False
         for w in self.ways:
             if w.target_id is not None:

@@ -49,6 +49,8 @@ P_LOAD = "VD Load kW"
 P_PF = "VD PF"
 P_VD = "VD Percent"
 P_TOTAL = "VD Total Percent"
+# Office panel family parameter, read when VD Length is empty.
+P_FEEDER_LENGTH = "Feeder_Length_m"
 # Where each parameter goes. Lengths can also be typed on the loads of final
 # circuits (fixtures, mechanical equipment).
 _ON_PANELS = ("OST_ElectricalEquipment", "OST_ElectricalCircuit")
@@ -103,8 +105,17 @@ def _is_length(p):
 
 
 def _length(element, notes):
-    """VD Length in metres, from a Text, Number or Length parameter."""
-    p = _parameter(element, P_LENGTH)
+    """VD Length in metres, from a Text, Number or Length parameter; else
+    the panel family's Feeder_Length_m."""
+    for name in (P_LENGTH, P_FEEDER_LENGTH):
+        value = _length_of(element, name, notes)
+        if value is not None or notes:
+            return value
+    return None
+
+
+def _length_of(element, name, notes):
+    p = _parameter(element, name)
     if p is None:
         return None
     try:
@@ -113,10 +124,10 @@ def _length(element, notes):
             return value if value > 0 else None
     except Exception:
         return None
-    text = _text(element, P_LENGTH)
+    text = _text(element, name)
     value = parse.length_m(text)
     if value is None and text:
-        notes.append(u"VD Length '%s' not understood" % text)
+        notes.append(u"%s '%s' not understood" % (name, text))
     return value
 
 
@@ -175,6 +186,21 @@ def _id_int(element_id):
 
 # ---------------------------------------------------------------- panels
 
+DEMAND_POWER = "Total Demand Apparent Power"
+CONNECTED_POWER = "Total Connected Apparent Power"
+
+
+def panel_kva(element, name, bip_name):
+    """A panel load in kVA: the named parameter, else the built-in one."""
+    kilo = INTERNAL_POWER / 1000.0
+    p = _parameter(element, name)
+    try:
+        value = _positive(p.AsDouble(), kilo) if p is not None else None
+    except Exception:
+        value = None
+    return value if value is not None else _positive(_bip_double(element, bip_name), kilo)
+
+
 class _Equipment(object):
     """A panel (or transformer / UPS): its own values and what is typed on it."""
 
@@ -183,10 +209,10 @@ class _Equipment(object):
         self.id = element.UniqueId
         self.name = (_bip_text(element, "RBS_ELEC_PANEL_NAME") or element.Name or "").strip()
         self.kind = _kind(element)
-        self.demand_kva = _positive(_bip_double(element, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM"),
-                                    INTERNAL_POWER / 1000.0)
-        self.connected_kva = _positive(_bip_double(element, "RBS_ELEC_PANEL_TOTALLOAD_PARAM"),
-                                       INTERNAL_POWER / 1000.0)
+        # Newer Revit fills Total Demand / Connected Apparent Power and can
+        # leave Total Estimated Demand at 0.
+        self.demand_kva = panel_kva(element, DEMAND_POWER, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM")
+        self.connected_kva = panel_kva(element, CONNECTED_POWER, "RBS_ELEC_PANEL_TOTALLOAD_PARAM")
         # the breaker of the incoming cable: MCB Rating, else Mains (A)
         self.breaker = (_positive(_bip_double(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM")) or
                         _positive(_bip_double(element, "RBS_ELEC_MAINS")))
