@@ -231,6 +231,10 @@ def test_panel_rows_for_the_other_tower():
     row = panel_row(PanelMatch("DB-T1", NOT_FOUND, nearest=812.0, where="mirrored"))
     assert row[2] == "NOT FOUND where the mirrored copy puts it: the nearest panel of its " \
                      "family type is 812 mm away. Its circuits are not made."
+    row = panel_row(PanelMatch("SMDB-T1", NOT_FOUND, nearest=300.0, where="mirrored",
+                               level="GF"))
+    assert row[2] == "NOT FOUND where the mirrored copy puts it on GF: the nearest panel of " \
+                     "its family type is 300 mm away. Its circuits are not made."
 
 
 def test_report_of_a_copy_elsewhere():

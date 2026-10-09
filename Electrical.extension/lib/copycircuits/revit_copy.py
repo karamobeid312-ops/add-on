@@ -457,7 +457,7 @@ class Wires(object):
         found = {}
         for w, key in self.all:
             height = self.elevations.get(self.view_level[key])
-            if height is None or abs(height - level.Elevation) > 0.01:
+            if height is None or abs(height - level.Elevation) > Z_TOLERANCE:
                 continue
             if not w.IsValidObject or id_int(w.Id) in mine:
                 continue
@@ -524,8 +524,48 @@ def _unwired(result, targets, wanted):
             result.unwired.append(targets[k].Id)
 
 
+def _link(ends):
+    """The wire's two ends, as a set of (element key, connector id), or None."""
+    if any(e is None for e in ends):
+        return None
+    return frozenset(ends)
+
+
+def _home(targets, keys, level, wires):
+    """The level the copies are on, by their Level: the other tower's own
+    level at this height, or `level`."""
+    count = {}
+    for k in keys:
+        if k in targets:
+            home = level_key(targets[k])
+            if home is not None:
+                count[home] = count.get(home, 0) + 1
+    here = id_int(level.Id)
+    if not count:
+        return here
+    best = max(count, key=lambda k: (count[k], k == here))
+    height = wires.elevations.get(best)
+    if height is None or abs(height - level.Elevation) > Z_TOLERANCE:
+        return here
+    return best
+
+
+def _home_view(info, wires, home, level):
+    """The plan for the copies of wires drawn in `info`: on the copies' own
+    level (the other tower's) when it has a plan named like it or with its
+    view template, else on `level` (plan.target_view)."""
+    other = wires.level_names.get(home) if home != id_int(level.Id) else None
+    if other:
+        found = plan.target_view(info, wires.infos, other)
+        if found is not None and (
+                (info.level and found.name == info.name.replace(info.level, other)) or
+                (info.template is not None and found.template == info.template)):
+            return found
+    return plan.target_view(info, wires.infos, level.Name)
+
+
 def copy_wires(wires, copies, targets, level, tolerance, result, source, circuited,
-               where=placing.SAME_SPOT):
+               where=placing.SAME_SPOT, skip=()):
     """Draw the source wires again on `level`, between the copies, put where
     the copy is (`where`: mirrored for the other tower...). They go in the
     level's plan where the wires pasted with the fixtures are, or else in
@@ -533,18 +573,24 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
     source plan itself). Wires touching none of the source's elements are
     not the source's (the other tower's, on the same floor). circuited: the
     target keys on a circuit now; a wire is drawn only when the elements it
-    connects (panels aside) are on one."""
+    connects (panels aside) are on one. skip: source keys of the other
+    tower's elements on the source floor, whose wires are not copied. A
+    wire is not drawn again between connectors a wire already joins."""
     dz = level.Elevation - wires.elevation
-    source_keys = set(source.elements)
+    source_keys = set(source.elements) - set(skip)
     ours = []
     for wire, info in wires.source:
         ends = _end_links(wire)
+        if any(e is not None and e[0] in skip for e in ends):
+            continue                # the other tower's own
         if any(e is not None and e[0] in source_keys for e in ends):
             ours.append((wire, info, ends))
         # else not connected to anything (a drafting wire, or one pasted for
         # the other tower), or of circuits not copied
     existing = wires.on_level(level, set(id_int(w.Id) for w, _, _ in ours))
-    same_floor = id_int(level.Id) == wires.source_level
+    home = _home(targets, set(copies.values()), level, wires)
+    same_floor = home == wires.source_level
+    linked = None                   # _link of the wires already there
     claimed = set()
     todo = []
     votes = {}                      # source view key -> {target view key: wires there}
@@ -554,6 +600,9 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             _unwired(result, targets, [copies.get(e[0]) for e in ends if e is not None])
             continue
         wanted = [copies[e[0]] if e is not None else None for e in ends]
+        if all(e is None or w == e[0] for e, w in zip(ends, wanted)):
+            result.wires["kept"] += 1   # it joins panels the copy shares: it is itself
+            continue
         if any(e is not None and e[0] not in source.panels and w not in circuited
                for e, w in zip(ends, wanted)):
             result.wires["no_circuit"] += 1
@@ -575,10 +624,11 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
         if key is not None:
             tally = votes.setdefault(info.key, {})
             tally[key] = tally.get(key, 0) + 1
-        todo.append((wire, info, wanted, conns, points, there, key))
+        link = _link([(w, e[1]) if e is not None else None for w, e in zip(wanted, ends)])
+        todo.append((wire, info, wanted, conns, points, there, key, link))
 
     chosen = {}
-    for wire, info, wanted, conns, points, there, key in todo:
+    for wire, info, wanted, conns, points, there, key, link in todo:
         if info.key not in chosen:
             tally = votes.get(info.key)
             if tally:
@@ -586,7 +636,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             elif same_floor:
                 chosen[info.key] = info.key
             else:
-                found = plan.target_view(info, wires.infos, level.Name)
+                found = _home_view(info, wires, home, level)
                 chosen[info.key] = found.key if found is not None else None
         view_key = key if key is not None else chosen[info.key]
         if view_key is None:
@@ -597,6 +647,17 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             if _connected_as(there, wanted):
                 result.wires["kept"] += 1
                 continue
+        if link is not None:
+            if linked is None:
+                linked = set()
+                for others in existing.values():
+                    for other in others:
+                        if other.IsValidObject:
+                            linked.add(_link(_end_links(other)))
+            if link in linked:
+                result.wires["kept"] += 1
+                continue
+        if there is not None and there.IsValidObject:
             if there in existing.get(key, ()):
                 existing[key].remove(there)
             wires.doc.Delete(there.Id)
@@ -618,6 +679,8 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             continue
         copy_parameters(wire, new)
         wires.add(new, view_key)
+        if linked is not None and link is not None:
+            linked.add(link)
         result.wires["drawn"] += 1
         result.wire_views[view.Name] = result.wire_views.get(view.Name, 0) + 1
 
@@ -730,7 +793,8 @@ def _nearest(candidates, mine, x, y):
     return found
 
 
-def match_panels(doc, source, target, copies, level, where, tolerance, dz=0.0):
+def match_panels(doc, source, target, copies, level, where, tolerance, dz=0.0,
+                 circuits=None):
     """[plan.PanelMatch] of the source circuits' panels, and {source panel
     key: target key} of those on other floors (None when the copy is at the
     same spot: they feed the copies too).
@@ -744,12 +808,12 @@ def match_panels(doc, source, target, copies, level, where, tolerance, dz=0.0):
     floor: the other tower's riser board, or itself when on the axis; with
     none there, the same panel feeds the copy (the row says to check it).
     Panels found are added to copies or the remote map, and to
-    target.elements."""
+    target.elements. circuits: those to make (default: the source's)."""
     same_spot = where.is_same_spot(tolerance) and \
         id_int(level.Id) != id_int(source.level.Id)
     copy_name = None if same_spot else where.describe(tolerance, M_PER_FOOT)
     here, away = {}, {}
-    for c in source.circuits:
+    for c in (source.circuits if circuits is None else circuits):
         if c.panel is None:
             continue
         counts = here if c.panel_here else away
@@ -817,7 +881,17 @@ def match_panels(doc, source, target, copies, level, where, tolerance, dz=0.0):
             x, y = where.apply(mine.x, mine.y)
             best = _at([i for i, _ in candidates], mine, x, y, tolerance, mine.z, STOREY / 2)
         if best is None:
-            remote[key] = key
+            alike = [] if mine is None else [
+                i for i, _ in candidates if i.key != key and abs(i.z - mine.z) <= STOREY / 2
+                and (i.type_key == mine.type_key or
+                     (mine.family_key is not None and i.family_key == mine.family_key))]
+            if alike:               # the other tower's is there, not where expected
+                remote[key] = None
+                found.append(plan.PanelMatch(
+                    name, plan.NOT_FOUND, circuits=away[key], where=copy_name, level=on,
+                    nearest=_nearest(alike, mine, *where.apply(mine.x, mine.y))))
+                continue
+            remote[key] = key       # one board for both towers
             target.elements[key] = panels[key]
             found.append(plan.PanelMatch(name, plan.FALLBACK, name, circuits=away[key],
                                          where=copy_name, level=on))
@@ -853,6 +927,24 @@ def _make(doc, source, target, jobs, result):
         result.made.append(Made(job, system.Id, panel_error))
 
 
+def _other_tower(source, copies, where, tolerance):
+    """On the source floor, the other tower's elements already on a circuit
+    are source elements too. Returns {source key: source key} of the source
+    elements whose copy is such an element (its twin, where `where` puts
+    it), and the keys of the source circuits whose elements all have a twin
+    (the other tower's own, or ones it has already)."""
+    rest = [i for i in source.items if i.key not in copies]
+    twins = plan.match(placing.moved(rest, where), source.items, tolerance, 0.0, Z_TOLERANCE)
+    twins = dict((k, t) for k, t in twins.items() if k != t)
+    located = set(i.key for i in source.items)
+    theirs = set()
+    for c in source.circuits:
+        keys = [k for k in c.elements if k in located]
+        if keys and all(k in twins for k in keys):
+            theirs.add(c.key)
+    return twins, theirs
+
+
 def copy_to(doc, source, level, tolerance, wires=None):
     """Make the source circuits on `level`, on each copy of the source found
     there (placement.find: the same spot, or the other tower mirrored...).
@@ -874,8 +966,9 @@ def copy_to(doc, source, level, tolerance, wires=None):
     if not found:
         if same_floor:
             result = LevelResult(level.Name)
-            result.note = "No other copy of the circuits of %s found on %s (mirrored, " \
-                          "turned or moved, like the other tower)." % (level.Name, level.Name)
+            result.note = "No other copy of the circuits of %s found on %s among the " \
+                          "elements not on a circuit yet (mirrored, turned or moved, like " \
+                          "the other tower)." % (level.Name, level.Name)
             return [result]
         found = [placing.Copy(placing.SAME_SPOT, {}, set())]
     results = []
@@ -893,20 +986,30 @@ def copy_to(doc, source, level, tolerance, wires=None):
             result = LevelResult(level.Name, None if same_spot else
                                  where.describe(tolerance, M_PER_FOOT))
             copies = dict(copy.copies)
+            circuits, other = source.circuits, set()
+            if same_floor:
+                twins, theirs = _other_tower(source, copies, where, tolerance)
+                copies.update(twins)
+                for twin in twins.values():
+                    target.elements[twin] = source.elements[twin]
+                circuits = [c for c in source.circuits if c.key not in theirs]
+                kept = set(k for c in circuits for k in c.elements)
+                other = set(k for c in source.circuits if c.key in theirs
+                            for k in c.elements) - kept - panels
             result.by_family = len(copy.by_family)
-            result.found = len([k for k in copies if k not in panels])
-            result.total = len([i for i in source.items if i.key not in panels])
+            result.found = len([k for k in copies if k not in panels and k not in other])
+            result.total = len([i for i in source.items
+                                if i.key not in panels and i.key not in other])
             result.panels, remote = match_panels(doc, source, target, copies, level, where,
-                                                 tolerance, dz)
-            jobs, result.skipped = plan.plan(source.circuits, copies, target.circuited,
-                                             remote)
+                                                 tolerance, dz, circuits)
+            jobs, result.skipped = plan.plan(circuits, copies, target.circuited, remote)
             _make(doc, source, target, jobs, result)
             for made in result.made:        # the next copy leaves them alone
                 for k in made.job.elements:
                     target.circuited.add((k, made.job.circuit.kind))
             if wires is not None:
                 copy_wires(wires, copies, target.elements, level, tolerance, result, source,
-                           set(k for k, _ in target.circuited), where)
+                           set(k for k, _ in target.circuited), where, other)
             matched |= set(copies.values())
             results.append(result)
         t.Commit()
