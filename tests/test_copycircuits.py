@@ -215,3 +215,35 @@ def test_found_line_by_family():
     assert found_line(result, "L4") == "300 of 320 elements on L4 found on L3 (same family " \
                                        "type, same spot; 12 of them of another type of the " \
                                        "same family)."
+
+
+def test_panel_rows_for_the_other_tower():
+    from copycircuits.plan import BY_SPOT, FALLBACK, ITSELF, NOT_FOUND, PanelMatch
+    from copycircuits.report import panel_row
+    assert panel_row(PanelMatch("DB-T1", BY_SPOT, "DB-T2", where="mirrored"))[2] == "DB-T2"
+    assert panel_row(PanelMatch("FACP", ITSELF, "FACP", where="mirrored"))[2] == \
+        "FACP itself (the mirrored copy puts it where it is)"
+    assert panel_row(PanelMatch("MDB-1", BY_SPOT, "MDB-2", where="mirrored", level="GF"))[2] \
+        == "MDB-2 on GF"
+    assert panel_row(PanelMatch("MDB", FALLBACK, "MDB", where="mirrored", level="GF"))[2] == \
+        "MDB itself: no panel of its family type where the mirrored copy puts it on GF. " \
+        "Check the feeders."
+    row = panel_row(PanelMatch("DB-T1", NOT_FOUND, nearest=812.0, where="mirrored"))
+    assert row[2] == "NOT FOUND where the mirrored copy puts it: the nearest panel of its " \
+                     "family type is 812 mm away. Its circuits are not made."
+
+
+def test_report_of_a_copy_elsewhere():
+    from copycircuits.report import found_line
+    result = LevelResult("L4", "mirrored")
+    assert result.level == "L4, mirrored copy" and result.floor == "L4"
+    result.found, result.total = 52, 52
+    assert found_line(result, "L4") == "52 of 52 elements on L4 found on L4 (same family " \
+                                       "type, mirrored)."
+    result.wires.update(no_view=2, no_circuit=1)
+    assert wire_lines(result) == [
+        "2 wires not drawn: L4 has no plan like the one they are in (same view type).",
+        "1 wire not drawn: the circuit they are on was not made here.",
+    ]
+    result.note = "No other copy of the circuits of L4 found on L4."
+    assert headline(result) == result.note

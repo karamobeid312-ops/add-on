@@ -33,13 +33,15 @@ ALREADY = "already"             # every copy is already on a circuit of this kin
 # how a source panel's copy was found (PanelMatch.how)
 BY_SPOT = "spot"                # same family type at the same spot
 BY_NAME = "name"                # named like it, with the floor number swapped
+ITSELF = "itself"               # the same panel: the copy puts it where it is (on the axis)
+FALLBACK = "fallback"           # none where the copy puts it: the same panel feeds the copy
 NOT_FOUND = "not_found"
 
 
 class Item(object):
     """An element on a floor: its id, family type, family and position."""
 
-    def __init__(self, key, type_key, x, y, z=0.0, family_key=None, flip=False):
+    def __init__(self, key, type_key, x, y, z=0.0, family_key=None, flip=False, facing=None):
         self.key = key
         self.type_key = type_key
         self.x = x
@@ -47,6 +49,7 @@ class Item(object):
         self.z = z
         self.family_key = family_key
         self.flip = flip                # Revit's Mirrored: the family instance is mirrored
+        self.facing = facing            # (x, y) the way it faces in plan, None: not known
 
 
 def _pairs(source, target, tolerance, dz, z_tolerance, kind):
@@ -222,9 +225,12 @@ def floor_name(name, source_level, target_level):
 class PanelMatch(object):
     """How a source panel was found on the target floor."""
 
-    def __init__(self, name, how, found=None, looked_for=None, nearest=None, circuits=0):
+    def __init__(self, name, how, found=None, looked_for=None, nearest=None, circuits=0,
+                 where=None, level=None):
         self.name = name                # source panel name
-        self.how = how                  # BY_SPOT, BY_NAME or NOT_FOUND
+        self.how = how                  # BY_SPOT, BY_NAME, ITSELF, FALLBACK or NOT_FOUND
+        self.where = where              # the copy: "mirrored"..., None: at the same spot
+        self.level = level              # a panel on another floor: that floor's name
         self.found = found              # name of the target floor's panel
         self.looked_for = looked_for    # the name looked for, None: no floor number
         self.nearest = nearest          # distance to the nearest panel of its type, None: none

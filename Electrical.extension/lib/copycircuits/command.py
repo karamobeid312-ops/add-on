@@ -42,6 +42,8 @@ def _show(output, result, source):
     source_name = source.level.Name
     output.print_md("## " + result.level)
     output.print_md(report.headline(result))
+    if result.note:
+        return
     line = report.found_line(result, source_name)
     if line:
         output.print_md(line)

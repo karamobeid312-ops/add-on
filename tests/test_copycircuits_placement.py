@@ -31,7 +31,8 @@ def placed(items, placement, start, dz=0.0, flip=False):
     found = []
     for n, i in enumerate(items):
         x, y = placement.apply(i.x, i.y)
-        found.append(Item(start + n, i.type_key, x, y, i.z + dz, i.family_key, flip))
+        facing = placement.turn(*i.facing) if i.facing is not None else None
+        found.append(Item(start + n, i.type_key, x, y, i.z + dz, i.family_key, flip, facing))
     return found
 
 
@@ -116,15 +117,62 @@ def test_semi_typical_mirrored_copy():
     assert len(copies[0].copies) == len(target) - 1
 
 
-def test_symmetric_floor_mirror_told_by_revit_mirrored():
-    # a symmetric grid: its mirror image is also a shifted copy of it
-    source = [Item(k, "FB1", (k % 6) * 7.0, (k // 6) * 5.0, 0.0, "FB") for k in range(24)]
+def test_symmetric_floor_told_by_the_way_the_fixtures_face():
+    # a symmetric grid: its mirror image is also a shifted copy of it, and a
+    # copy mirrored about the other axis; the fixtures facing +X tell which
+    source = [Item(k, "FB1", (k % 6) * 7.0, (k // 6) * 5.0, 0.0, "FB", False, (1.0, 0.0))
+              for k in range(24)]
     mirror = Placement(math.pi, True, 200.0, 0)
     target = placed(source, mirror, 1000, flip=True)
     copies = find(source, target, TOL)
     assert len(copies) == 1
     assert copies[0].placement.mirrored
-    assert len(copies[0].copies) == 24
+    assert copies[0].copies == dict((s.key, 1000 + n) for n, s in enumerate(source))
+
+
+def test_other_tower_on_the_source_floor_itself():
+    source = tower()
+    mirror = Placement(math.pi, True, 160.0, 0)
+    spare = [Item(900, "FB1", 5.0, 10.0, 0.0, "FB")]           # at a source spot: not a copy
+    target = placed(source, mirror, 1000, flip=True) + spare
+    copies = find(source, target, TOL, same_floor=True)
+    assert len(copies) == 1 and copies[0].placement.mirrored
+    assert 900 not in copies[0].copies.values()
+    assert find(source, spare, TOL, same_floor=True) == []
+
+
+def test_panel_on_the_axis_feeds_both_towers():
+    source = tower()
+    axis = Item(99, "DB-X", 80.0, 20.0, 0.0, "DB")              # on x = 80, the mirror axis
+    source.append(axis)
+    panels = set([1, 2, 3, 99])
+    mirror = Placement(math.pi, True, 160.0, 0)
+    target = placed([s for s in source if s.key != 99], mirror, 1000, flip=True)
+    copies = find(source, target, TOL, panels=panels, panel_targets=target + [axis],
+                  same_floor=True)
+    assert len(copies) == 1 and copies[0].placement.mirrored
+
+
+def test_a_few_elements_alike_are_not_a_copy():
+    source = tower()
+    mirror = Placement(math.pi, True, 160.0, 0)
+    target = placed(source, mirror, 1000, flip=True)[3:8]       # 5 floor boxes of 52
+    assert find(source, target, TOL, same_floor=True) == []
+
+
+def test_copies_leave_the_panels_to_the_next_copy():
+    # the riser between the towers, on the mirror axis, feeds both copies
+    source = [i for i in tower() if i.key > 3]
+    source += [Item(k, "DB-%d" % k, 80.0, 6.0 * k, 0.0, "DB") for k in (1, 2, 3)]
+    mirror = Placement(math.pi, True, 160.0, 0)
+    below = placed(source, SAME_SPOT, 1000, dz=-13.0)
+    risers = [t for t in below if t.type_key.startswith("DB")]
+    other = [t for t in placed(source, mirror, 2000, dz=-13.0, flip=True)
+             if not t.type_key.startswith("DB")]
+    copies = find(source, below + other, TOL, dz=-13.0, z_tolerance=1.6, panels=[1, 2, 3])
+    assert len(copies) == 2 and copies[1].placement.mirrored
+    for copy in copies:
+        assert set(copy.copies[k] for k in (1, 2, 3)) == set(t.key for t in risers)
 
 
 def test_nothing_alike():

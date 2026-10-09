@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """What Copy Circuits shows (no Revit needed)."""
-from copycircuits.plan import ALREADY, BY_NAME, BY_SPOT, NO_PANEL, NONE_FOUND
+from copycircuits.plan import ALREADY, BY_NAME, BY_SPOT, FALLBACK, ITSELF, NO_PANEL, NONE_FOUND
 
 
 class Made(object):
@@ -23,7 +23,8 @@ class LevelResult(object):
         self.failed = []                # [(Job, message)]: Revit refused the circuit
         self.skipped = []               # [Skipped]
         self.wires = {"drawn": 0, "kept": 0, "removed": 0, "no_view": 0, "no_copy": 0,
-                      "refused": 0}
+                      "no_circuit": 0, "refused": 0}
+        self.note = None                # said instead of the rest: nothing was found
         self.wire_views = {}            # plan name -> wires drawn in it
         self.wire_errors = []           # what Revit said when it refused a wire
         self.unwired = []               # target element ids at the ends of wires not drawn
@@ -61,7 +62,7 @@ REASONS = {
 }
 
 MADE_COLUMNS = ["Circuit", "Source", "Elements", "Note"]
-PANEL_COLUMNS = ["Panel", "Circuits", "On this floor"]
+PANEL_COLUMNS = ["Panel", "Circuits", "Its copy here"]
 SKIPPED_COLUMNS = ["Source", "Why not copied"]
 
 
@@ -70,6 +71,8 @@ def _count(n, word, plural=None):
 
 
 def headline(result):
+    if result.note:
+        return result.note
     made = len(result.made)
     if not made:
         return "No circuits made on %s." % result.level
@@ -97,17 +100,27 @@ def _mm(value):
 
 
 def panel_found(match):
+    on = (u" on %s" % match.level) if match.level else u""
     if match.how == BY_SPOT:
-        return match.found
+        return match.found + on
     if match.how == BY_NAME:
         return u"%s (by name)" % match.found
+    if match.how == ITSELF:
+        return u"%s itself%s (the %s copy puts it where it is)" % (match.found, on,
+                                                                   match.where)
+    if match.how == FALLBACK:
+        return u"%s itself: no panel of its family type where the %s copy puts it%s. " \
+               u"Check the feeders." % (match.found, match.where, on)
+    if match.nearest is None:
+        near = u"no panel of its family type%s" % (on or u" on this floor")
+    else:
+        near = u"the nearest panel of its family type is %s away" % _mm(match.nearest)
+    if match.where:
+        return u"NOT FOUND where the %s copy puts it%s: %s. Its circuits are not made." % (
+            match.where, on, near)
     looked = (u"no panel named %s, " % match.looked_for) if match.looked_for \
         else u"no floor number in its name to look for it by, "
-    if match.nearest is None:
-        where = u"no panel of its family type on this floor"
-    else:
-        where = u"the nearest panel of its family type is %s away" % _mm(match.nearest)
-    return u"NOT FOUND: %s%s. Its circuits are not made." % (looked, where)
+    return u"NOT FOUND: %s%s. Its circuits are not made." % (looked, near)
 
 
 def panel_row(match):
@@ -147,7 +160,10 @@ def wire_lines(result):
         lines.append("%s already there and connected, kept." % _count(w["kept"], "wire"))
     if w["no_view"]:
         lines.append("%s not drawn: %s has no plan like the one they are in "
-                     "(same view type)." % (_count(w["no_view"], "wire"), result.level))
+                     "(same view type)." % (_count(w["no_view"], "wire"), result.floor))
+    if w["no_circuit"]:
+        lines.append("%s not drawn: the circuit they are on was not made here."
+                     % _count(w["no_circuit"], "wire"))
     if w["no_copy"]:
         lines.append("%s not drawn: an element they connect has no copy here."
                      % _count(w["no_copy"], "wire"))
