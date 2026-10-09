@@ -13,9 +13,21 @@ Optional parameters (project or shared, type Text) refine the drawing:
     SLD Description     transformer text, one item per line
                         (e.g. "11/0.4kV", "1000KVA", "OIL TYPE", "TRANSFORMER")
     SLD Incoming Cable  main board incoming cable, e.g. "7 SC 630mm² Cu/XLPE/AWA/PVC"
+    SLD Frame           incoming breaker frame in A, e.g. "250" (default: the
+                        smallest standard frame for its MCB Rating)
+    SLD Fault Level     e.g. "35kA" (default: the panel's Short Circuit Rating)
   Electrical Circuits
     SLD Cable           cable text printed exactly as typed
     SLD Symbol          ISOLATOR / DB / SPARE / PFC (force the way symbol)
+    SLD Frame           breaker frame in A, e.g. "250"
+
+Breakers are printed as trip / frame / MCCB (40AT / 100AF / MCCB): trip from
+the circuit Rating (or the panel's MCB Rating for its incomer), frame the
+smallest standard size that takes it. The board text starts with the busbar
+(panel Mains), the system (3PH+N+E) and the fault level.
+
+The cable comes from the circuit's Wire Size; when Revit has none, from the
+VD Cable typed for the Voltage Drop tool.
 
 Loads (CL / DL), cable lengths and voltage drops come from the Voltage Drop
 tool, with its VD Settings: the same TCL, MDL, VD Length and cumulative V.D %
@@ -35,7 +47,7 @@ from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
 from sld import style
 from sld.cables import (cable_from_revit_values, conductor_code, construction,
-                        insulation_code)
+                        format_cable, insulation_code)
 from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, line_length
 from sld.layout import LayoutSettings, layout_schematic
 from sld.model import CircuitInfo, EquipmentInfo, build_schematic
@@ -146,17 +158,60 @@ def _part_type(element):
     return ""
 
 
+def _distribution(doc, element):
+    try:
+        dist_id = element.get_Parameter(
+            BuiltInParameter.RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM).AsElementId()
+        return doc.GetElement(dist_id)
+    except Exception:
+        return None
+
+
 def _phases(doc, element):
     try:
         from Autodesk.Revit.DB.Electrical import ElectricalPhase
-        dist_id = element.get_Parameter(
-            BuiltInParameter.RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM).AsElementId()
-        dist = doc.GetElement(dist_id)
+        dist = _distribution(doc, element)
         if dist is not None and dist.ElectricalPhase == ElectricalPhase.SinglePhase:
             return 1
     except Exception:
         pass
     return 3
+
+
+def _has_neutral(doc, element, phases):
+    """False only for a three-wire three-phase (or two-wire) system."""
+    try:
+        wires = int(_distribution(doc, element).NumWires)
+        return wires > phases
+    except Exception:
+        return True
+
+
+def _amps(element, bip_name):
+    """A current parameter in amperes, or None."""
+    try:
+        p = element.get_Parameter(getattr(BuiltInParameter, bip_name))
+        if p is None or not p.HasValue:
+            return None
+        if p.StorageType == StorageType.Double:
+            value = p.AsDouble()
+            return value if value > 0 else None
+        return p.AsValueString() or p.AsString() or None
+    except Exception:
+        return None
+
+
+def _incomer_rating(element):
+    """Incoming breaker trip: MCB Rating, else Mains."""
+    return _amps(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM") or _amps(element, "RBS_ELEC_MAINS")
+
+
+def _fault_level(element):
+    typed = _lookup(element, "SLD Fault Level")
+    if typed:
+        return typed
+    bip = getattr(BuiltInParameter, "RBS_ELEC_SHORT_CIRCUIT_RATING", None)
+    return _param_text(element, bip) if bip is not None else ""
 
 
 def _ways(element, phases):
@@ -203,6 +258,31 @@ def _cable_build(system):
     return construction(conductor_code(material), insulation_code(insulation), CABLE_SHEATH)
 
 
+def _wire_size(system):
+    text = _param_text(system, BuiltInParameter.RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM)
+    if not text:
+        try:
+            text = (system.WireSizeString or "").strip()
+        except Exception:
+            text = ""
+    return text
+
+
+def _vd_cable_text(cable, system):
+    """Cable text from the VD Cable the Voltage Drop tool read for this way
+    (or typed on the circuit), e.g. 4Cx10mm² Cu/XLPE/SWA/PVC, or ''."""
+    if cable is None:
+        try:
+            from vdrop import parse
+            cable = parse.cable(_lookup(system, "VD Cable"))
+        except Exception:
+            cable = None
+    if cable is None or not cable.size:
+        return ""
+    build = "Cu/%s" % cable.insulation if cable.insulation else construction()
+    return format_cable(cable.cores or 4, cable.size, build=build, runs=cable.runs or 1)
+
+
 def _cable_text(system, wire_size):
     """BS/IEC cable text, e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC."""
     override = _lookup(system, "SLD Cable")
@@ -244,8 +324,9 @@ def _vd_results(doc):
     """Loads and voltage drops as the Voltage Drop tool works them out.
 
     Returns ({panel id: (CL kW, DL kW)}, {panel or circuit id: (length m,
-    cumulative V.D %)}, {circuit id: load kW}, warning or None). A panel's
-    row is its incoming cable, so its id gives the V.D of the way feeding it.
+    cumulative V.D %)}, {circuit id: load kW}, {panel or circuit id: cable},
+    warning or None). A panel's row is its incoming cable, so its id gives
+    the V.D (and the VD Cable) of the way feeding it.
     """
     try:
         from vdrop import calc, revit_vd
@@ -254,16 +335,17 @@ def _vd_results(doc):
         model = revit_vd.collect(doc, values)
         result = calc.calculate(model.feeders, vd_settings.calc_settings(values))
     except Exception as error:
-        return {}, {}, {}, u"Loads and voltage drops not read: %s" % error
+        return {}, {}, {}, {}, u"Loads and voltage drops not read: %s" % error
 
     loads = {}
     for panel in model.equipment.values():
         to_kw = panel.load_pf or 1.0
         loads[panel.id] = (panel.connected_kva * to_kw if panel.connected_kva else None,
                            panel.demand_kva * to_kw if panel.demand_kva else None)
-    vd = {}
+    vd, cables = {}, {}
     for row in result.rows():
         f = row.feeder
+        cables[f.id] = f.cable
         if f.target_id is not None:
             # as the VD report: TCL, and MDL (demand or VD Load kW typed)
             cl, dl = loads.get(f.target_id, (None, None))
@@ -277,13 +359,13 @@ def _vd_results(doc):
             circuit_kw[system.UniqueId] = revit_vd._circuit_values(system)[1]
         except Exception:
             pass
-    return loads, vd, circuit_kw, None
+    return loads, vd, circuit_kw, cables, None
 
 
 def extract(doc):
     """Collect EquipmentInfo/CircuitInfo lists (and phase counts) from the
     model, and warnings about what could not be read."""
-    loads, vd, circuit_kw, warning = _vd_results(doc)
+    loads, vd, circuit_kw, vd_cables, warning = _vd_results(doc)
     warnings = [warning] if warning else []
     equipment, ids, phases_of = [], set(), {}
     collector = (FilteredElementCollector(doc)
@@ -293,6 +375,8 @@ def extract(doc):
         level_name, elevation = _level(doc, el)
         part_type = _part_type(el)
         phases = _phases(doc, el)
+        if el.UniqueId not in loads:
+            loads[el.UniqueId] = (None, None)
         equipment.append(EquipmentInfo(
             id=el.UniqueId,
             name=_equipment_name(el),
@@ -306,8 +390,14 @@ def extract(doc):
             symbol=_lookup(el, "SLD Symbol"),
             description=_description(el, part_type),
             incoming_cable=_lookup(el, "SLD Incoming Cable"),
-            connected_kw=loads.get(el.UniqueId, (None, None))[0],
-            demand_kw=loads.get(el.UniqueId, (None, None))[1],
+            connected_kw=loads[el.UniqueId][0],
+            demand_kw=loads[el.UniqueId][1],
+            mains_rating=_amps(el, "RBS_ELEC_MAINS"),
+            incomer_rating=_incomer_rating(el),
+            incomer_frame=_lookup(el, "SLD Frame"),
+            phases=phases,
+            neutral=_has_neutral(doc, el, phases),
+            fault_level=_fault_level(el),
         ))
         ids.add(el.UniqueId)
         phases_of[el.UniqueId] = phases
@@ -332,10 +422,12 @@ def extract(doc):
                 fed.append(el.UniqueId)
             else:
                 branch_count += 1
-        wire_size = _param_text(system, BuiltInParameter.RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM)
+        wire_size = _wire_size(system)
         # a circuit to a panel: the panel's row is its cable
-        length, vd_percent = next((vd[i] for i in fed if i in vd),
-                                  vd.get(system.UniqueId, (None, None)))
+        row_id = next((i for i in fed if i in vd), system.UniqueId)
+        length, vd_percent = vd.get(row_id, (None, None))
+        cable = "" if kind == "spare" else (_cable_text(system, wire_size) or
+                                            _vd_cable_text(vd_cables.get(row_id), system))
         circuits.append(CircuitInfo(
             id=system.UniqueId,
             source_id=source.UniqueId,
@@ -346,7 +438,7 @@ def extract(doc):
             voltage=_param_text(system, BuiltInParameter.RBS_ELEC_VOLTAGE),
             load=_param_text(system, BuiltInParameter.RBS_ELEC_APPARENT_LOAD),
             wire_size=wire_size,
-            cable="" if kind == "spare" else _cable_text(system, wire_size),
+            cable=cable,
             fed_equipment_ids=fed,
             branch_load_count=branch_count,
             start_slot=_start_slot(system),
@@ -355,6 +447,7 @@ def extract(doc):
             connected_kw=None if kind == "spare" else circuit_kw.get(system.UniqueId),
             length_m=length,
             vd_percent=vd_percent,
+            frame=_lookup(system, "SLD Frame"),
         ))
     return equipment, circuits, phases_of, warnings
 

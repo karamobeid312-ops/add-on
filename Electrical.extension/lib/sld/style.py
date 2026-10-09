@@ -13,7 +13,7 @@ TEXT_BOARD_NAME = 2.5       # SMDB-RF-01
 TEXT_BOARD_INFO = 1.5       # FORM 2b, 18 WAYS / LOCATION / @ FLOOR
 TEXT_MAIN_NAME = 5.0        # MDB-1
 TEXT_MAIN_INFO = 2.5        # FORM4-TYPE6 / LOCATION:LV ROOM
-TEXT_WAY = 1.2              # way numbers and "MCCB"
+TEXT_WAY = 1.2              # way numbers and breaker ratings (40AT/100AF/MCCB)
 TEXT_LOAD = 1.8             # load / DB names, SPARE
 TEXT_RATING = 1.2           # breaker rating and cable along a way
 TEXT_DB_LOAD = 1.2          # CL / DL beside a DB box
@@ -56,6 +56,11 @@ BOARD_NAME_PATTERN = r"^[A-Z]{0,2}(MDB|MSB)"   # MDB, SMDB, USMDB, ESMDB, MSB...
 DEFAULT_FORM = "FORM 2b"
 DEFAULT_MAIN_FORM = "FORM4-TYPE6"
 WAY_DEVICE = "MCCB"
+# Standard frame sizes (AF): a breaker is shown on the smallest frame that
+# takes its trip rating (AT), e.g. 40AT -> 100AF, 125AT -> 160AF. 'SLD Frame'
+# typed on a circuit or panel overrides it.
+MCCB_FRAMES = (100, 160, 250, 400, 630, 800, 1000, 1250, 1600)
+ACB_FRAMES = (800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6300)
 
 # ---------------------------------------------------------------- main board
 MAIN_MIN_WIDTH = 115.0

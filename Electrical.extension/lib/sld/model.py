@@ -48,6 +48,40 @@ _SYMBOL_WAYS = {
 }
 _PFC_RE = re.compile(r"\bPFC\b|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
 _POLES = {1: "SP", 2: "DP", 3: "TP", 4: "TPN"}
+_AMPS_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+def parse_amps(text):
+    """First number in '63 A', '63', '1600A'... or None."""
+    if isinstance(text, (int, float)):
+        return float(text) if text > 0 else None
+    match = _AMPS_RE.search(u"%s" % (text or ""))
+    if not match:
+        return None
+    value = float(match.group(0).replace(",", "."))
+    return value if value > 0 else None
+
+
+def frame_rating(trip, frames=None):
+    """Smallest standard frame (AF) that takes the trip rating (AT)."""
+    if trip is None:
+        return None
+    frames = frames or style.MCCB_FRAMES
+    for f in frames:
+        if f >= trip - 1e-6:
+            return f
+    return trip
+
+
+def breaker_lines(rating, frame=None, device=None, frames=None):
+    """['40AT', '100AF', 'MCCB'] printed beside a breaker; just the device
+    when the rating is unknown. frame: typed frame (else the standard one)."""
+    device = device or style.WAY_DEVICE
+    trip = parse_amps(rating)
+    if trip is None:
+        return [device]
+    af = parse_amps(frame) or frame_rating(trip, frames)
+    return ["%sAT" % trim_number(trip, 1), "%sAF" % trim_number(af, 1), device]
 
 
 class EquipmentInfo(object):
@@ -56,7 +90,9 @@ class EquipmentInfo(object):
     def __init__(self, id, name, level_name="", level_elevation=0.0,
                  location="", form="", ways=None, family_name="",
                  part_type="", symbol="", description=None,
-                 incoming_cable="", details=None, connected_kw=None, demand_kw=None):
+                 incoming_cable="", details=None, connected_kw=None, demand_kw=None,
+                 mains_rating=None, incomer_rating=None, incomer_frame="",
+                 phases=3, neutral=True, fault_level=""):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -72,6 +108,31 @@ class EquipmentInfo(object):
         self.details = [d for d in (details or []) if d]
         self.connected_kw = connected_kw      # CL of everything it feeds
         self.demand_kw = demand_kw            # DL (after demand factors)
+        self.mains_rating = mains_rating      # busbar rating, A
+        self.incomer_rating = incomer_rating  # incoming breaker trip, A
+        self.incomer_frame = incomer_frame    # 'SLD Frame' typed on it
+        self.phases = phases
+        self.neutral = neutral
+        self.fault_level = fault_level or ""  # e.g. '35 kA'
+
+    def supply_text(self):
+        """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
+        the parts that are known."""
+        parts = []
+        if parse_amps(self.mains_rating):
+            parts.append("%sA" % trim_number(parse_amps(self.mains_rating), 1))
+        parts.append("%dPH%s+E" % (3 if self.phases != 1 else 1, "+N" if self.neutral else ""))
+        fault = (self.fault_level or "").strip()
+        if fault:
+            ka = parse_amps(fault)
+            if ka is not None and ka >= 1000 and "K" not in fault.upper():
+                ka /= 1000.0                  # typed in amps
+            text = "%skA" % trim_number(ka, 1) if ka is not None else fault.upper()
+            parts.append("%s FOR 1 SEC" % text)
+        return ",".join(parts)
+
+    def incomer_lines(self, device=None, frames=None):
+        return breaker_lines(self.incomer_rating, self.incomer_frame, device, frames)
 
 
 class CircuitInfo(object):
@@ -81,7 +142,7 @@ class CircuitInfo(object):
                  rating="", poles="", voltage="", load="", wire_size="",
                  fed_equipment_ids=None, branch_load_count=0, cable="",
                  start_slot=None, is_spare=False, symbol="", connected_kw=None,
-                 length_m=None, vd_percent=None):
+                 length_m=None, vd_percent=None, frame=""):
         self.id = id
         self.source_id = source_id
         self.circuit_number = circuit_number or ""
@@ -100,6 +161,7 @@ class CircuitInfo(object):
         self.connected_kw = connected_kw  # load of a final circuit
         self.length_m = length_m          # cable length (VD Length)
         self.vd_percent = vd_percent      # cumulative voltage drop at its end
+        self.frame = frame or ""          # 'SLD Frame' typed on it, e.g. 250
 
     def cable_text(self):
         """BS/IEC cable description, or Revit's raw wire size as fallback."""
@@ -119,6 +181,10 @@ class CircuitInfo(object):
             poles = ""
         return " ".join(p for p in (rating, poles) if p)
 
+    def breaker_lines(self):
+        """['40AT', '100AF', 'MCCB'], printed beside its breaker."""
+        return breaker_lines(self.rating, self.frame)
+
 
 class Way(object):
     def __init__(self, circuit, kind, label, name, target=None):
@@ -133,13 +199,11 @@ class Way(object):
         return self.target.id if self.target is not None else None
 
     def rating_lines(self):
-        """Breaker rating and cable, printed along the way."""
-        if self.circuit is None or self.kind == SPARE:
+        """Cable, length and voltage drop, printed along the way (the
+        breaker rating is printed beside the breaker)."""
+        if self.circuit is None or self.kind in (SPARE, PFC):
             return []
-        lines = []
-        if self.circuit.breaker_text():
-            lines.append(self.circuit.breaker_text())
-        lines.extend(self.circuit.cable_lines())
+        lines = list(self.circuit.cable_lines())
         vd = self.vd_text()
         if vd:
             lines.append(vd)

@@ -81,6 +81,9 @@ def build():
         e.location, e.form, e.ways = location, form, str(ways)
         if name.startswith("MDB"):
             e.incoming_cable = MAIN_CABLE
+            e.mains_rating, e.incomer_rating, e.fault_level = 1600.0, 1600.0, "50 kA"
+        else:
+            e.mains_rating, e.incomer_rating, e.fault_level = 250.0, "200 A", "35 kA"
 
     circuits = []
 

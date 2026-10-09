@@ -16,7 +16,7 @@ from __future__ import division
 
 from sld import style, symbols
 from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing,
-                          text_width, wrap)
+                          text_height, text_width, wrap)
 from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS,
                        TRANSFORMER)
 
@@ -60,6 +60,10 @@ class BoardGeom(object):
             self.bus_below_top = style.BUS_BELOW_TOP
             span = first + max(n - 1, 0) * style.WAY_PITCH + style.BOARD_MARGIN
             self.info_text = wrap(self.info_text, style.TEXT_BOARD_INFO, 50.0)
+            # Taller box when the name + info block would reach the busbar.
+            below_bus = (1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING +
+                         text_height(self.info_text, style.TEXT_BOARD_INFO) + 1.5)
+            self.height = max(style.BOARD_HEIGHT, below_bus + self.bus_below_top)
             # Incomer to the right of the name/info block in the corner.
             block = max(text_width(self.name_text, style.TEXT_BOARD_NAME),
                         text_width(self.info_text, style.TEXT_BOARD_INFO)) + 1.5
@@ -442,11 +446,12 @@ def _board_labels(board):
     """(name, info block) printed in the board's bottom-left corner."""
     e = board.equipment
     if board.is_main:
-        info = [e.form or style.DEFAULT_MAIN_FORM]
+        info = [e.supply_text(), e.form or style.DEFAULT_MAIN_FORM]
         if e.location:
             info.append("LOCATION: %s" % e.location)
     else:
-        info = ["%s, %s WAYS" % (e.form or style.DEFAULT_FORM, e.ways or len(board.ways))]
+        info = [e.supply_text(),
+                "%s, %s WAYS" % (e.form or style.DEFAULT_FORM, e.ways or len(board.ways))]
         if e.location:
             info.append("LOCATION: %s" % e.location)
         if e.level_name:
@@ -492,7 +497,9 @@ def _draw_board(d, g, settings):
         top_arc = symbols.breaker(d, x, y_arc)
         d.line(x, top_arc, x, g.top)
         d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
-        d.text(x + 0.5, g.bus_y + 0.4, style.WAY_DEVICE, style.TEXT_WAY, align=LEFT, valign=BOTTOM)
+        lines = w.circuit.breaker_lines() if w.circuit is not None else [style.WAY_DEVICE]
+        d.text(x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS, "\n".join(lines),
+               style.TEXT_WAY, align=LEFT, valign=MIDDLE)
         _draw_way_end(d, g, w, x, settings)
 
     for pt in b.pass_throughs:
@@ -500,7 +507,8 @@ def _draw_board(d, g, settings):
     _draw_load_table(d, g)
 
     if b.is_main:
-        symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right)
+        device = "\n".join(b.equipment.incomer_lines(style.MAIN_INCOMER_DEVICE, style.ACB_FRAMES))
+        symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right, device)
         d.text(g.left + 2.0, g.bottom + 2.0, g.name_text, style.TEXT_MAIN_NAME,
                align=LEFT, valign=BOTTOM)
         d.text(g.left + 2.0, g.bottom + 2.0 + style.TEXT_MAIN_NAME * style.LINE_SPACING,
@@ -511,8 +519,8 @@ def _draw_board(d, g, settings):
         d.line(xi, g.bus_y, xi, y_arc + 2 * style.BREAKER_RADIUS)
         symbols.breaker(d, xi, y_arc)
         d.line(xi, y_arc, xi, g.bottom)
-        d.text(xi + 2.0, y_arc + style.BREAKER_RADIUS, style.WAY_DEVICE, style.TEXT_WAY,
-               align=LEFT, valign=MIDDLE)
+        d.text(xi + 2.0, y_arc + style.BREAKER_RADIUS, "\n".join(b.equipment.incomer_lines()),
+               style.TEXT_WAY, align=LEFT, valign=MIDDLE)
         d.text(g.left + 1.0, g.bottom + 1.0, g.name_text, style.TEXT_BOARD_NAME,
                align=LEFT, valign=BOTTOM)
         d.text(g.left + 1.5, g.bottom + 1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING,
@@ -570,8 +578,6 @@ def _draw_way_end(d, g, w, x, settings):
 
     if settings.show_ratings:
         lines = w.rating_lines()
-        if w.kind == PFC:
-            lines = lines[:1]
         if lines:
             room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
             text = wrap("\n".join(lines), style.TEXT_RATING, room)

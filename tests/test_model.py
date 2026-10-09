@@ -137,8 +137,31 @@ def test_rating_lines():
                     cable=u"4Cx16mm² Cu/XLPE/PVC + 1Cx16mm² Cu/XLPE/PVC")
     from sld.model import Way
     assert Way(c, FEEDER, "1", "X").rating_lines() == [
-        "63A TP", u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
+        u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
     assert Way(c, SPARE, "1", "SPARE").rating_lines() == []
+    assert Way(c, PFC, "1", "PFC").rating_lines() == []
+
+
+def test_breaker_lines_trip_and_frame():
+    from sld.model import breaker_lines, frame_rating
+    assert breaker_lines("40 A") == ["40AT", "100AF", "MCCB"]
+    assert breaker_lines("125 A") == ["125AT", "160AF", "MCCB"]
+    assert breaker_lines("125 A", frame="250") == ["125AT", "250AF", "MCCB"]
+    assert breaker_lines(20.0) == ["20AT", "100AF", "MCCB"]
+    assert breaker_lines("") == ["MCCB"]
+    assert frame_rating(5000, (100, 160)) == 5000      # beyond the largest frame
+    spare = CircuitInfo("s", "x", "9", rating="40 A", is_spare=True)
+    assert spare.breaker_lines() == ["40AT", "100AF", "MCCB"]
+
+
+def test_supply_text():
+    e = EquipmentInfo("x", "SMDB-2F", mains_rating=160.0, fault_level="35 kA")
+    assert e.supply_text() == "160A,3PH+N+E,35kA FOR 1 SEC"
+    assert EquipmentInfo("y", "DB", phases=1).supply_text() == "1PH+N+E"
+    assert EquipmentInfo("z", "DB", neutral=False, fault_level="50000").supply_text() == \
+        "3PH+E,50kA FOR 1 SEC"
+    e.incomer_rating = "125 A"
+    assert e.incomer_lines() == ["125AT", "160AF", "MCCB"]
 
 
 def test_sample_drawing_structure():
