@@ -20,7 +20,11 @@ class LevelResult(object):
         self.made = []                  # [Made]
         self.failed = []                # [(Job, message)]: Revit refused the circuit
         self.skipped = []               # [Skipped]
-        self.wires = {"drawn": 0, "kept": 0, "removed": 0, "no_view": 0, "not_copied": 0}
+        self.wires = {"drawn": 0, "kept": 0, "removed": 0, "no_view": 0, "no_copy": 0,
+                      "refused": 0}
+        self.wire_views = {}            # plan name -> wires drawn in it
+        self.wire_errors = []           # what Revit said when it refused a wire
+        self.unwired = []               # target element ids at the ends of wires not drawn
         self.left = []                  # target keys of the circuits' family types left
                                         # with no circuit and no source (new on this floor)
         self.panels = []                # [plan.PanelMatch] of the source floor's panels
@@ -126,7 +130,8 @@ def wire_lines(result):
     w = result.wires
     lines = []
     if w["drawn"]:
-        lines.append("%s drawn." % _count(w["drawn"], "wire"))
+        lines.append("%s drawn, in %s." % (_count(w["drawn"], "wire"), ", ".join(
+            "%s (%d)" % (name, n) for name, n in sorted(result.wire_views.items()))))
     if w["removed"]:
         lines.append("%s pasted with the fixtures but not connected, replaced."
                      % _count(w["removed"], "wire"))
@@ -135,7 +140,10 @@ def wire_lines(result):
     if w["no_view"]:
         lines.append("%s not drawn: %s has no plan like the one they are in "
                      "(same view type)." % (_count(w["no_view"], "wire"), result.level))
-    if w["not_copied"]:
-        lines.append("%s not drawn: an element they connect has no copy here, "
-                     "or Revit refused the wire." % _count(w["not_copied"], "wire"))
+    if w["no_copy"]:
+        lines.append("%s not drawn: an element they connect has no copy here."
+                     % _count(w["no_copy"], "wire"))
+    if w["refused"]:
+        lines.append("%s not drawn: Revit refused them (%s)." % (
+            _count(w["refused"], "wire"), "; ".join(result.wire_errors) or "no reason given"))
     return lines

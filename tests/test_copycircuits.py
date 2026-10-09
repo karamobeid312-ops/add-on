@@ -137,7 +137,8 @@ def test_report():
                                         "copy left out"
     assert result.missing() == [2]
     result.wires.update(drawn=3, removed=2)
-    assert wire_lines(result)[0] == "3 wires drawn."
+    result.wire_views["POWER - L3"] = 3
+    assert wire_lines(result)[0] == "3 wires drawn, in POWER - L3 (3)."
 
 
 def test_floor_name_swaps_the_floor_number():
@@ -174,3 +175,13 @@ def test_panel_rows():
     result.found, result.total = 310, 320
     assert found_line(result, "L4") == "310 of 320 elements on L4 found on L3 (same family " \
                                        "type, same spot)."
+
+
+def test_wire_lines_say_why():
+    result = LevelResult("L3")
+    result.wires.update(no_copy=2, refused=1)
+    result.wire_errors.append("The points are not in the view's plane")
+    assert wire_lines(result) == [
+        "2 wires not drawn: an element they connect has no copy here.",
+        "1 wire not drawn: Revit refused them (The points are not in the view's plane).",
+    ]

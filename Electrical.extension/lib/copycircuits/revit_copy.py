@@ -297,8 +297,8 @@ def _end_links(wire):
     if len(points) < 2:
         return ends
     for c in _connectors(wire):
-        try:
-            refs = [r for r in c.AllRefs if id_int(r.Owner.Id) != id_int(wire.Id)]
+        try:                        # the device it is on, not the circuit or another wire
+            refs = [r for r in c.AllRefs if isinstance(r.Owner, FamilyInstance)]
         except Exception:
             refs = []
         if not refs:
@@ -344,19 +344,29 @@ class Wires(object):
                 continue
             self.views[id_int(v.Id)] = v
             self.infos.append(_view_info(v, self.level_names))
+        self.view_level = {}        # view key -> level key
+        for key, v in self.views.items():
+            self.view_level[key] = id_int(v.GenLevel.Id)
+        self.infos_by_key = dict((i.key, i) for i in self.infos)
         here = id_int(source_level.Id)
         self.source = []            # [(wire, source view info)]
+        self.all = []               # [(wire, view key)] of every wire in a plan
         for w in FilteredElementCollector(doc).OfClass(Wire):
-            view = self.views.get(id_int(w.OwnerViewId))
-            try:
-                if view is None or id_int(view.GenLevel.Id) != here:
-                    continue
-            except Exception:
+            key = id_int(w.OwnerViewId)
+            if key not in self.views:
                 continue
-            self.source.append((w, _view_info(view, self.level_names)))
+            self.all.append((w, key))
+            if self.view_level[key] == here:
+                self.source.append((w, self.infos_by_key[key]))
 
-    def _existing(self, view):
-        return list(FilteredElementCollector(self.doc, view.Id).OfClass(Wire))
+    def on_level(self, level):
+        """{view key: [wire]} of the wires already in the level's plans."""
+        here = id_int(level.Id)
+        found = {}
+        for w, key in self.all:
+            if self.view_level[key] == here:
+                found.setdefault(key, []).append(w)
+        return found
 
 
 def _connector_of(element, connector_id):
@@ -387,55 +397,101 @@ def _connected_as(wire, wanted):
     return True
 
 
+def _find_there(existing, view_keys, points, tolerance):
+    """(wire, view key) of a wire already at the spot in one of the views."""
+    for key in view_keys:
+        for other in existing.get(key, ()):
+            if other.IsValidObject and _same_spot(points, _vertices(other), tolerance):
+                return other, key
+    return None, None
+
+
+def _snapped(points, conns):
+    """The points with the wire's ends on its connectors."""
+    points = list(points)
+    for i, c in ((0, conns[0]), (-1, conns[1])):
+        if c is not None:
+            o = c.Origin
+            points[i] = XYZ(o.X, o.Y, points[i].Z)
+    return points
+
+
+def _unwired(result, targets, wanted):
+    for k in wanted:
+        if k is not None and k in targets and targets[k].Id not in result.unwired:
+            result.unwired.append(targets[k].Id)
+
+
 def copy_wires(wires, copies, targets, level, tolerance, result):
-    """Draw the source wires again on `level`, between the copies."""
+    """Draw the source wires again on `level`, between the copies. They go in
+    the level's plan where the wires pasted with the fixtures are, or else
+    in its plan like the source one (plan.target_view)."""
     dz = level.Elevation - wires.elevation
-    existing = {}
+    existing = wires.on_level(level)
+    todo = []
+    votes = {}                      # source view key -> {target view key: wires there}
     for wire, info in wires.source:
         ends = _end_links(wire)
         if all(e is None for e in ends):
             continue                # not connected to anything: a drafting wire
         if any(e is not None and e[0] not in copies for e in ends):
-            result.wires["not_copied"] += 1
+            result.wires["no_copy"] += 1
+            _unwired(result, targets, [copies.get(e[0]) for e in ends if e is not None])
             continue
-        view_info = plan.target_view(info, wires.infos, level.Name)
-        if view_info is None:
-            result.wires["no_view"] += 1
-            continue
-        view = wires.views[view_info.key]
-        conns = [None, None]
-        wanted = [None, None]
-        for i, e in enumerate(ends):
-            if e is None:
-                continue
-            wanted[i] = copies[e[0]]
-            conns[i] = _connector_of(targets[wanted[i]], e[1])
+        wanted = [copies[e[0]] if e is not None else None for e in ends]
+        conns = [_connector_of(targets[w], e[1]) if e is not None else None
+                 for w, e in zip(wanted, ends)]
         if any(e is not None and c is None for e, c in zip(ends, conns)):
-            result.wires["not_copied"] += 1
+            result.wires["no_copy"] += 1
+            _unwired(result, targets, wanted)
             continue
         points = [XYZ(p.X, p.Y, p.Z + dz) for p in _vertices(wire)]
-        if view_info.key not in existing:
-            existing[view_info.key] = wires._existing(view)
-        there = None
-        for other in existing[view_info.key]:
-            if other.IsValidObject and _same_spot(points, _vertices(other), tolerance):
-                there = other
-                break
+        same_kind = [k for k in existing if wires.infos_by_key[k].view_type == info.view_type]
+        there, key = _find_there(existing, same_kind, points, tolerance)
+        if key is not None:
+            tally = votes.setdefault(info.key, {})
+            tally[key] = tally.get(key, 0) + 1
+        todo.append((wire, info, wanted, conns, points, there, key))
+
+    chosen = {}
+    for wire, info, wanted, conns, points, there, key in todo:
+        if info.key not in chosen:
+            tally = votes.get(info.key)
+            if tally:
+                chosen[info.key] = sorted(tally, key=lambda k: (-tally[k], k))[0]
+            else:
+                found = plan.target_view(info, wires.infos, level.Name)
+                chosen[info.key] = found.key if found is not None else None
+        view_key = key if key is not None else chosen[info.key]
+        if view_key is None:
+            result.wires["no_view"] += 1
+            _unwired(result, targets, wanted)
+            continue
         if there is not None:
             if _connected_as(there, wanted):
                 result.wires["kept"] += 1
                 continue
-            existing[view_info.key].remove(there)
+            existing[key].remove(there)
             wires.doc.Delete(there.Id)
             result.wires["removed"] += 1
-        try:
-            new = Wire.Create(wires.doc, wire.GetTypeId(), view.Id, wire.WiringType,
-                              List[XYZ](points), conns[0], conns[1])
-        except Exception:
-            result.wires["not_copied"] += 1
+        view = wires.views[view_key]
+        new, error = None, None
+        for attempt in (points, _snapped(points, conns)):
+            try:
+                new = Wire.Create(wires.doc, wire.GetTypeId(), view.Id, wire.WiringType,
+                                  List[XYZ](attempt), conns[0], conns[1])
+                break
+            except Exception as e:
+                error = _message(e)
+        if new is None:
+            result.wires["refused"] += 1
+            if error and error not in result.wire_errors and len(result.wire_errors) < 3:
+                result.wire_errors.append(error)
+            _unwired(result, targets, wanted)
             continue
         copy_parameters(wire, new)
         result.wires["drawn"] += 1
+        result.wire_views[view.Name] = result.wire_views.get(view.Name, 0) + 1
 
 
 # ---------------------------------------------------------------- making

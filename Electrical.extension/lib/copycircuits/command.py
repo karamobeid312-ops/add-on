@@ -72,8 +72,15 @@ def _show(output, result, source):
                              len(result.left), "" if len(result.left) == 1 else "s",
                              result.level, source_name,
                              output.linkify(result.left, "select them")))
-    for line in report.wire_lines(result):
+    lines = report.wire_lines(result)
+    if lines:
+        output.print_md("### Wires")
+    for line in lines:
         output.print_md("- " + line)
+    if result.unwired:
+        output.print_md("%d element%s here missing a wire they have on %s: %s" % (
+            len(result.unwired), "" if len(result.unwired) == 1 else "s", source_name,
+            output.linkify(result.unwired, "select them")))
 
 
 def run():
