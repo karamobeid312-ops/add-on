@@ -551,7 +551,8 @@ come without them, and the wires pasted with them are left unconnected.
 The **Circuits** panel of the **Electrical** tab:
 
 - **Copy Circuits** – pick the floor that is circuited, then the floors
-  copied from it. Every circuit with elements on that floor is made again
+  copied from it (pick the same floor too when the other tower, mirrored
+  or moved, is on it). Every circuit with elements on that floor is made again
   on each copied floor, on the copy of its panel, with the source
   circuit's load name, rating, wire type and sizes, notes and other
   writable parameters, in the source panel's slot order. The wires drawn
@@ -568,6 +569,8 @@ The **Circuits** panel of the **Electrical** tab:
 | Item | How |
 | --- | --- |
 | Copies | An element on the copied floor of the same family type (or, failing that, another type of the same family), at the same spot in plan (X, Y) within the tolerance and at the same height above its floor within 500 mm: what *Paste > Aligned to Selected Levels* gives. Each source element has at most one copy, the nearest. |
+| Mirrored or moved copies | A second tower built as a mirror of the first (or turned, or moved) is found by itself: pairs of elements of rare family types are paired with elements of the copied floor the same distance apart, each pairing proposes a placement (as it is, or mirrored), and the one matching the most elements wins. A floor can hold more than one copy (both towers on L3): after the best copy, the next is looked for among the elements left, and needs 30% of the source matched. The same spot is kept when it matches 90% as many as the best. Between placements matching about as many, the one Revit's *Mirrored* flag agrees with wins (a symmetric floor). Each copy is listed on its own (`L3, mirrored copy`). |
+| Panels of a copy elsewhere | For a mirrored or moved copy, a panel on another floor (the tower's riser board) is the one where the placement puts it on its own floor, not the source tower's: when it is not found, its circuits are not made. Panels are not looked for by name for these copies. |
 | Floors | An element is on a floor when its Level is that level, or when it sits in that storey (from 300 mm below the level to 300 mm below the next level at least 2 m above), whatever Level it was given: floor boxes hosted on a slab of another level are found too. |
 | Panels | A panel on the source floor feeds the circuits through its copy on each floor: the same family type at the same spot, or else the panel named like it with the floor number swapped (`DB-F4-01` on `L4` → `DB-F3-01` on `L3`; the floor number is the last number in the level name). A panel found neither way is listed with the name looked for and how far the nearest panel of its type is, and its circuits are not made. A panel on another floor (a riser board feeding every floor) feeds the copies too. |
 | Semi-typical floors | Elements with no copy are left out of their circuit and listed, with a link to select them on the source floor. Elements of the same family types that are only on the copied floor are left without a circuit and listed, to circuit by hand. Copies already on a circuit of that kind are left as they are. |
@@ -695,6 +698,7 @@ Electrical.extension/
     command.py     button entry points
   lib/copycircuits/
     plan.py        copies matched by type and spot, circuits to make, target plans (no Revit)
+    placement.py   where the copies are: same spot, mirrored, turned or moved (no Revit)
     report.py      what was made per floor, what was not and why
     revit_copy.py  circuits and wires read, made again on the copied floors
     settings.py    per-user settings

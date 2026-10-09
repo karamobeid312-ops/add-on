@@ -39,13 +39,14 @@ NOT_FOUND = "not_found"
 class Item(object):
     """An element on a floor: its id, family type, family and position."""
 
-    def __init__(self, key, type_key, x, y, z=0.0, family_key=None):
+    def __init__(self, key, type_key, x, y, z=0.0, family_key=None, flip=False):
         self.key = key
         self.type_key = type_key
         self.x = x
         self.y = y
         self.z = z
         self.family_key = family_key
+        self.flip = flip                # Revit's Mirrored: the family instance is mirrored
 
 
 def _pairs(source, target, tolerance, dz, z_tolerance, kind):
@@ -133,11 +134,14 @@ class Skipped(object):
         self.missing = missing or []
 
 
-def plan(circuits, copies, circuited=()):
+def plan(circuits, copies, circuited=(), remote=None):
     """([Job], [Skipped]) for one target floor.
 
     copies: {source element key: target element key} (panels included).
     circuited: (target key, kind) pairs already on a circuit of that kind.
+    remote: for a copy somewhere else (the other tower), {source panel key:
+    its copy's key or None} of the panels on other floors; None: those
+    panels feed the copies too.
     Jobs come in panel then slot order, so circuit numbers follow the
     source panel's where its slots had no gaps.
     """
@@ -151,8 +155,13 @@ def plan(circuits, copies, circuited=()):
             if panel is None:
                 skipped.append(Skipped(c, NO_PANEL))
                 continue
-        else:
+        elif remote is None:
             panel = c.panel
+        else:
+            panel = remote.get(c.panel)
+            if panel is None:
+                skipped.append(Skipped(c, NO_PANEL))
+                continue
         elements, missing, already = [], [], []
         for e in c.elements:
             t = copies.get(e)

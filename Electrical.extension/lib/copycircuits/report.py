@@ -15,8 +15,10 @@ class Made(object):
 class LevelResult(object):
     """What was done on one target floor."""
 
-    def __init__(self, level):
-        self.level = level
+    def __init__(self, level, placement=None):
+        self.floor = level              # the level's name
+        self.placement = placement      # "mirrored", "moved 42 m"... None: same spot
+        self.level = level if placement is None else u"%s, %s copy" % (level, placement)
         self.made = []                  # [Made]
         self.failed = []                # [(Job, message)]: Revit refused the circuit
         self.skipped = []               # [Skipped]
@@ -53,7 +55,7 @@ class LevelResult(object):
 
 
 REASONS = {
-    NO_PANEL: "its panel has no copy on this floor (same family type, same spot)",
+    NO_PANEL: "its panel has no copy here (same family type, same spot)",
     NONE_FOUND: "none of its elements has a copy on this floor",
     ALREADY: "its elements here are already on a circuit",
 }
@@ -81,8 +83,9 @@ def headline(result):
 def found_line(result, source_level):
     if not result.total:
         return ""
-    text = "%d of %s on %s found on %s (same family type, same spot)." % (
-        result.found, _count(result.total, "element"), source_level, result.level)
+    text = "%d of %s on %s found on %s (same family type, %s)." % (
+        result.found, _count(result.total, "element"), source_level, result.floor,
+        result.placement or "same spot")
     if result.by_family:
         text = text[:-2] + "; %d of them of another type of the same family)." % \
             result.by_family

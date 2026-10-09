@@ -28,8 +28,10 @@ def _pick_levels(doc, view):
     if not source:
         return None, None
     targets = forms.SelectFromList.show(
-        [n for n in names if n != source],
-        title="%s: make them on which floors? (the copies of %s)" % (TITLE, source),
+        names,
+        title="%s: make them on which floors? (the copies of %s; pick %s too for a "
+              "mirrored or moved copy on the same floor, like the other tower)"
+              % (TITLE, source, source),
         button_name="Copy circuits", multiselect=True)
     if not targets:
         return None, None
@@ -70,7 +72,7 @@ def _show(output, result, source):
         output.print_md("%d element%s of the same family types on %s matched nothing on %s "
                          "(new on this floor) and have no circuit: %s" % (
                              len(result.left), "" if len(result.left) == 1 else "s",
-                             result.level, source_name,
+                             result.floor, source_name,
                              output.linkify(result.left, "select them")))
     lines = report.wire_lines(result)
     if lines:
@@ -107,7 +109,7 @@ def run():
     group.Start()
     try:
         for level in targets:
-            results.append(revit_copy.copy_to(doc, source, level, tolerance, wires))
+            results.extend(revit_copy.copy_to(doc, source, level, tolerance, wires))
         group.Assimilate()
     except Exception:
         if group.HasStarted() and not group.HasEnded():
@@ -121,7 +123,8 @@ def run():
     output.set_title(TITLE)
     output.print_md("# Circuits of %s copied" % source_level.Name)
     output.print_md("%d circuit%s read on %s%s; copies matched by family type and plan "
-                    "position within %s mm." % (
+                    "position within %s mm, at the same spot or mirrored, turned or moved "
+                    "as a whole (another tower)." % (
                         len(source.circuits), "" if len(source.circuits) == 1 else "s",
                         source_level.Name, " (from the selection)" if chosen else "",
                         _number(values["tolerance"])))
