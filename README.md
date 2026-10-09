@@ -404,7 +404,7 @@ For a panel's incoming cable:
 | MDL (kW) | `VD Load kW`, or Total Estimated Demand the same way (with MDL in VD Settings), else TCL |
 | MDL (kVA) | MDL (kW) / PF, with the PF below |
 | PF | 0.85 from VD Settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (VD Settings) the panel's own loads: true load / apparent load of its circuits |
-| Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
+| Breaker rating | the panel's MCB Rating only (the feeding circuit's Rating and Mains are not used) |
 | Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
 | Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
 
@@ -413,8 +413,8 @@ voltage, wire size), with the length from its loads.
 
 The cable tables are metric: with imperial wire sizes (`3-#4/0, 1-#4/0`)
 use a metric wire size table in Revit or type each cable in `VD Cable`.
-Set the **MCB Rating** (or Mains) of every panel: without it the breaker
-is the feeding circuit's Rating, which Revit sets to 20 A for new circuits.
+Set the **MCB Rating** of every panel: without it the cable has no breaker
+and its breaker check is left out.
 
 ### How it is calculated
 

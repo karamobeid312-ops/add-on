@@ -6,7 +6,7 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
 For each panel (board, DB, transformer, UPS) the row of its incoming cable
 comes from the panel: FROM = the board supplying it, breaker = MCB Rating
-(else Mains), loads = Total Estimated Demand / Total Connected, power factor
+(only: empty when not set), loads = Total Estimated Demand / Total Connected, power factor
 = VD PF typed on it, else VD Settings (0.85; or, if VD Settings says so,
 true / apparent load of its circuits), phases =
 its distribution system (and its voltage, if VD Settings says to use the
@@ -213,9 +213,8 @@ class _Equipment(object):
         # leave Total Estimated Demand at 0.
         self.demand_kva = panel_kva(element, DEMAND_POWER, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM")
         self.connected_kva = panel_kva(element, CONNECTED_POWER, "RBS_ELEC_PANEL_TOTALLOAD_PARAM")
-        # the breaker of the incoming cable: MCB Rating, else Mains (A)
-        self.breaker = (_positive(_bip_double(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM")) or
-                        _positive(_bip_double(element, "RBS_ELEC_MAINS")))
+        # the breaker of the incoming cable: the panel's MCB Rating only (A)
+        self.breaker = _positive(_bip_double(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM"))
         dist = _distribution(element)
         self.phases = _phases(dist)
         self.voltage = _voltage(dist, self.phases)
@@ -441,7 +440,7 @@ def _panel_feeder(panel, system, source, values, model):
     typed = [el, system]          # typed on the panel, else on the circuit
     notes = []
     length = _first(typed, _length, notes)
-    circuit_pf, circuit_tcl, circuit_voltage, rating = (
+    circuit_pf, circuit_tcl, circuit_voltage, _ = (
         _circuit_values(system) if system is not None else (None, None, None, None))
     # typed on the panel (or its circuit), else VD Settings (or the model)
     pf = _first(typed, _typed_pf, notes) or _pf(values, panel.load_pf or circuit_pf)
@@ -467,7 +466,7 @@ def _panel_feeder(panel, system, source, values, model):
         target_id=panel.id, length=length, phases=panel.phases,
         voltage=_model_voltage(values, panel.voltage or circuit_voltage),
         tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
-        breaker=panel.breaker or rating, installation=_first(typed, _installation, notes),
+        breaker=panel.breaker, installation=_first(typed, _installation, notes),
         cable=cable, source_kind=kind, order=_order(system), ref=el.Id, notes=notes))
     model.elements[panel.id] = el
 
