@@ -5,8 +5,8 @@ the results back on it, and add the parameters used to type the lengths.
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
 For each panel (board, DB, transformer, UPS) the row of its incoming cable
-comes from the panel: FROM = the board supplying it, breaker = MCB Rating
-(only: empty when not set), loads = Total Estimated Demand / Total Connected, power factor
+comes from the panel: FROM = the board supplying it, breaker = the panel's
+Upstream_Protection_Rating_A / _Type (only: empty when not set), loads = Total Estimated Demand / Total Connected, power factor
 = VD PF typed on it, else VD Settings (0.85; or, if VD Settings says so,
 true / apparent load of its circuits), phases =
 its distribution system (and its voltage, if VD Settings says to use the
@@ -39,6 +39,7 @@ from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter, Category, Elem
                                FilteredElementCollector, StorageType, Transaction)
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
+from sld.model import parse_protection
 from vdrop import parse
 from vdrop.calc import BOARD, MDL, TRANSFORMER, UPS, Feeder, natural_key
 
@@ -49,8 +50,10 @@ P_LOAD = "VD Load kW"
 P_PF = "VD PF"
 P_VD = "VD Percent"
 P_TOTAL = "VD Total Percent"
-# Office panel family parameter, read when VD Length is empty.
+# Office panel family parameters: the length when VD Length is empty, and
+# the breaker feeding the panel.
 P_FEEDER_LENGTH = "Feeder_Length_m"
+P_UPSTREAM = ("Upstream_Protection_Rating_A", "Upstream_Protection_Type")
 # Where each parameter goes. Lengths can also be typed on the loads of final
 # circuits (fixtures, mechanical equipment).
 _ON_PANELS = ("OST_ElectricalEquipment", "OST_ElectricalCircuit")
@@ -213,8 +216,9 @@ class _Equipment(object):
         # leave Total Estimated Demand at 0.
         self.demand_kva = panel_kva(element, DEMAND_POWER, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM")
         self.connected_kva = panel_kva(element, CONNECTED_POWER, "RBS_ELEC_PANEL_TOTALLOAD_PARAM")
-        # the breaker of the incoming cable: the panel's MCB Rating only (A)
-        self.breaker = _positive(_bip_double(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM"))
+        # the breaker of the incoming cable: the panel's upstream protection
+        # only, e.g. '40AT/100AF' + 'MCCB' (A)
+        self.breaker = parse_protection(*[_text(element, n) for n in P_UPSTREAM])[0]
         dist = _distribution(element)
         self.phases = _phases(dist)
         self.voltage = _voltage(dist, self.phases)

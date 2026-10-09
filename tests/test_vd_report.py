@@ -247,7 +247,7 @@ def test_to_fix_names_the_missing_inputs():
                         "Settings is used: type VD PF on the panel, or give the loads a power "
                         "factor.")
     assert lines[4] == ("2 breakers are below 1.1 x Ib (all are 20 A, Revit's default circuit "
-                        "Rating: set the MCB Rating of the panel).")
+                        "Rating: set the circuit Rating).")
     assert len(lines) == 5
     assert to_fix(calculate(feeders_ok())) == []
 
