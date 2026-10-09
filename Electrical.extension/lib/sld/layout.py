@@ -37,6 +37,9 @@ class BoardGeom(object):
         self.board = board
         n = len(board.ways)
         self.name_text, self.info_text = _board_labels(board)
+        self.load_rows = _load_rows(board)
+        table_w = (symbols.load_table_size(self.load_rows)[0] + style.LOAD_TABLE_MARGIN
+                   if self.load_rows else 0.0)
         if board.is_main:
             first = style.BOARD_MARGIN + 10.0
             self.height = style.MAIN_HEIGHT
@@ -48,7 +51,9 @@ class BoardGeom(object):
                         text_width(self.info_text, style.TEXT_MAIN_INFO)) + 2.0
             self.incomer_offset = max(style.MAIN_INCOMER_FROM_LEFT,
                                       block + symbols.MAIN_LAMPS_LEFT + 3.0)
-            self.width = max(style.MAIN_MIN_WIDTH, span, self.incomer_offset + 45.0)
+            # The load table sits top right, clear of the meters and fuse text.
+            self.width = max(style.MAIN_MIN_WIDTH, span, self.incomer_offset + 45.0,
+                             self.incomer_offset + 32.0 + table_w)
         else:
             first = style.BOARD_MARGIN
             self.height = style.BOARD_HEIGHT
@@ -59,7 +64,9 @@ class BoardGeom(object):
             block = max(text_width(self.name_text, style.TEXT_BOARD_NAME),
                         text_width(self.info_text, style.TEXT_BOARD_INFO)) + 1.5
             self.incomer_offset = max(span / 2, block + 2.0)
-            self.width = max(style.BOARD_MIN_WIDTH, span, self.incomer_offset + 12.0)
+            # The load table sits bottom right, clear of the incomer label.
+            self.width = max(style.BOARD_MIN_WIDTH, span, self.incomer_offset + 12.0,
+                             self.incomer_offset + 9.0 + table_w)
         self.way_offsets = [first + i * style.WAY_PITCH for i in range(n)]
         self.left = 0.0
         self.bottom = 0.0
@@ -140,8 +147,7 @@ class BoardGeom(object):
         h = style.SPARE_HEIGHT + 8.0
         for w in self.board.ways:
             if w.kind == DB_BOX:
-                h = max(h, style.TERMINAL_BASE +
-                        max(style.DB_BOX_HEIGHT, symbols.vertical_length(w.name, style.TEXT_LOAD) + 4.0))
+                h = max(h, style.TERMINAL_BASE + symbols.db_box_height(w.name, w.loads()))
             elif w.kind == ISOLATOR:
                 h = max(h, style.TERMINAL_BASE + style.ISOLATOR_HEIGHT + style.ISOLATOR_HOOK +
                         0.8 + symbols.vertical_length(w.name, style.TEXT_LOAD))
@@ -200,8 +206,7 @@ class BoxGeom(object):
         return self.feed_y
 
     def content_height(self):
-        return max(style.DB_BOX_HEIGHT,
-                   symbols.vertical_length(self.name, style.TEXT_LOAD) + 4.0)
+        return symbols.db_box_height(self.name, self.way.loads())
 
 
 class Feed(object):
@@ -449,6 +454,30 @@ def _board_labels(board):
     return board.name, "\n".join(info)
 
 
+def _load_rows(board):
+    """Rows of the board's load table, [] when no way has a load."""
+    totals = board.load_totals()
+    if totals is None:
+        return []
+    cl, df, dl = totals
+    labels = style.LOAD_TABLE_ROWS
+    return [(labels[0], "%.2fkW" % cl),
+            (labels[1], "%.2f" % df if df is not None else "-"),
+            (labels[2], "%.2fkW" % dl)]
+
+
+def _draw_load_table(d, g):
+    if not g.load_rows:
+        return
+    margin = style.LOAD_TABLE_MARGIN
+    if g.board.is_main:
+        _, height = symbols.load_table_size(g.load_rows)
+        bottom = g.bus_y - 3.0 - height
+    else:
+        bottom = g.bottom + margin
+    symbols.load_table(d, g.right - margin, bottom, g.load_rows)
+
+
 def _draw_board(d, g, settings):
     b = g.board
     d.rect(g.left, g.bottom, g.right, g.top)
@@ -468,6 +497,7 @@ def _draw_board(d, g, settings):
 
     for pt in b.pass_throughs:
         _draw_pass_through(d, g, pt)
+    _draw_load_table(d, g)
 
     if b.is_main:
         symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right)
@@ -521,7 +551,7 @@ def _draw_way_end(d, g, w, x, settings):
         pass  # riser + box drawn by _draw_feed
     elif w.kind == DB_BOX:
         d.line(x, t, x, t + style.TERMINAL_BASE)
-        symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name)
+        symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name, w.loads())
     elif w.kind == ISOLATOR:
         d.line(x, t, x, t + style.TERMINAL_BASE)
         symbols.isolator(d, x, t + style.TERMINAL_BASE, w.name)
@@ -552,7 +582,7 @@ def _draw_way_end(d, g, w, x, settings):
 def _draw_feed(d, f, row_base):
     xt, yt = f.target.incomer_x, f.target.feed_y
     if isinstance(f.target, BoxGeom):
-        symbols.db_box(d, xt, yt, f.target.name)
+        symbols.db_box(d, xt, yt, f.target.name, f.target.way.loads())
     points = [(f.source_x(), f.source_y())]
     for row, x0, x1, track in f.jogs:
         y = row_base[row] - style.JOG_FIRST - track * style.JOG_TRACK

@@ -56,7 +56,7 @@ class EquipmentInfo(object):
     def __init__(self, id, name, level_name="", level_elevation=0.0,
                  location="", form="", ways=None, family_name="",
                  part_type="", symbol="", description=None,
-                 incoming_cable="", details=None):
+                 incoming_cable="", details=None, connected_kw=None, demand_kw=None):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -70,6 +70,8 @@ class EquipmentInfo(object):
         self.description = [d for d in (description or []) if d]
         self.incoming_cable = incoming_cable or ""
         self.details = [d for d in (details or []) if d]
+        self.connected_kw = connected_kw      # CL of everything it feeds
+        self.demand_kw = demand_kw            # DL (after demand factors)
 
 
 class CircuitInfo(object):
@@ -78,7 +80,8 @@ class CircuitInfo(object):
     def __init__(self, id, source_id, circuit_number="", load_name="",
                  rating="", poles="", voltage="", load="", wire_size="",
                  fed_equipment_ids=None, branch_load_count=0, cable="",
-                 start_slot=None, is_spare=False, symbol=""):
+                 start_slot=None, is_spare=False, symbol="", connected_kw=None,
+                 length_m=None, vd_percent=None):
         self.id = id
         self.source_id = source_id
         self.circuit_number = circuit_number or ""
@@ -94,6 +97,9 @@ class CircuitInfo(object):
         self.start_slot = start_slot
         self.is_spare = is_spare
         self.symbol = (symbol or "").strip().upper()
+        self.connected_kw = connected_kw  # load of a final circuit
+        self.length_m = length_m          # cable length (VD Length)
+        self.vd_percent = vd_percent      # cumulative voltage drop at its end
 
     def cable_text(self):
         """BS/IEC cable description, or Revit's raw wire size as fallback."""
@@ -134,7 +140,34 @@ class Way(object):
         if self.circuit.breaker_text():
             lines.append(self.circuit.breaker_text())
         lines.extend(self.circuit.cable_lines())
+        vd = self.vd_text()
+        if vd:
+            lines.append(vd)
         return lines
+
+    def vd_text(self):
+        """'L:100m  V.D:2.97%', or the part that is known."""
+        c = self.circuit
+        if c is None or self.kind == SPARE:
+            return ""
+        parts = []
+        if c.length_m is not None:
+            parts.append("L:%sm" % trim_number(c.length_m, 1))
+        if c.vd_percent is not None:
+            parts.append("V.D:%.2f%%" % c.vd_percent)
+        return "  ".join(parts)
+
+    def loads(self):
+        """(CL kW, DL kW) of what the way feeds; None when unknown.
+
+        Equipment uses its own totals; a final circuit has no demand
+        factor, so its DL is its CL.
+        """
+        if self.circuit is None or self.kind in (SPARE, PFC):
+            return None, None
+        if self.target is not None:
+            return self.target.connected_kw, self.target.demand_kw
+        return self.circuit.connected_kw, self.circuit.connected_kw
 
 
 class PassThrough(object):
@@ -172,6 +205,25 @@ class Board(object):
     def is_main(self):
         return self.role == MAIN_BOARD
 
+    def load_totals(self):
+        """(connected kW, diversity factor, demand kW) summed over the ways,
+        each piece of equipment counted once; None when no way has a load."""
+        seen, cl, dl, any_load = set(), 0.0, 0.0, False
+        for w in self.ways:
+            if w.target_id is not None:
+                if w.target_id in seen:
+                    continue
+                seen.add(w.target_id)
+            c, d = w.loads()
+            if c is None:
+                continue
+            any_load = True
+            cl += c
+            dl += d if d is not None else c
+        if not any_load:
+            return None
+        return cl, (dl / cl if cl > 0 else None), dl
+
     def iter_tree(self):
         yield self
         for child in self.children:
@@ -188,6 +240,14 @@ class Schematic(object):
         for root in self.roots:
             for b in root.iter_tree():
                 yield b
+
+
+def trim_number(value, decimals=1):
+    """'2.5', '100': no trailing zeros."""
+    text = ("%%.%df" % decimals) % value
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
 
 
 def natural_key(text):

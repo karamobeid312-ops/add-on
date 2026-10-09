@@ -35,14 +35,61 @@ def vertical_length(text, size):
     return text_width(text, size) - size
 
 
-def db_box(d, x, y0, name):
-    """Final distribution board: tall box with its name inside."""
-    h = max(style.DB_BOX_HEIGHT, vertical_length(name, style.TEXT_LOAD) + 4.0)
+def _db_load_texts(loads):
+    cl, dl = loads or (None, None)
+    return ("CL:%.1f kW" % cl if cl is not None else None,
+            "DL:%.1f kW" % dl if dl is not None else None)
+
+
+def db_box_height(name, loads=None):
+    """Tall enough for the name inside and CL + DL beside it."""
+    beside = [line_length(t, style.TEXT_DB_LOAD) for t in _db_load_texts(loads) if t]
+    return max(style.DB_BOX_HEIGHT, vertical_length(name, style.TEXT_LOAD) + 4.0,
+               sum(beside) + 1.0 * len(beside) + 1.0)
+
+
+def db_box(d, x, y0, name, loads=None):
+    """Final distribution board: tall box with its name inside, and its
+    connected (CL) and demand (DL) loads reading up on its right."""
+    h = db_box_height(name, loads)
     w = style.DB_BOX_WIDTH
     d.rect(x - w / 2, y0, x + w / 2, y0 + h)
     d.text(x, y0 + h / 2, name, style.TEXT_LOAD, align=CENTER, valign=MIDDLE,
            rotation=VERTICAL)
+    cl, dl = _db_load_texts(loads)
+    tx = x + w / 2 + 0.4
+    if cl:
+        d.text(tx, y0 + 0.5, cl, style.TEXT_DB_LOAD, align=LEFT, valign=TOP,
+               rotation=VERTICAL)
+    if dl:
+        d.text(tx, y0 + h - 0.5, dl, style.TEXT_DB_LOAD, align=RIGHT, valign=TOP,
+               rotation=VERTICAL)
     return y0 + h
+
+
+def load_table_size(values):
+    """(width, height) of the load table for (label, value) rows."""
+    size, pad = style.TEXT_LOAD_TABLE, style.LOAD_TABLE_PAD
+    label_w = max(line_length(l, size) for l, _ in values) + 2 * pad
+    value_w = max(line_length(v, size) for _, v in values) + 2 * pad
+    return label_w + value_w, len(values) * style.LOAD_TABLE_ROW
+
+
+def load_table(d, right, bottom, values):
+    """Two-column table (label | value) with its bottom-right corner at
+    (right, bottom), e.g. CONNECTED LOAD | 61.30kW."""
+    size, pad, row = style.TEXT_LOAD_TABLE, style.LOAD_TABLE_PAD, style.LOAD_TABLE_ROW
+    width, height = load_table_size(values)
+    value_w = max(line_length(v, size) for _, v in values) + 2 * pad
+    left, split, top = right - width, right - value_w, bottom + height
+    d.rect(left, bottom, right, top)
+    d.line(split, bottom, split, top)
+    for i, (label, value) in enumerate(values):
+        y = top - (i + 1) * row
+        if i < len(values) - 1:
+            d.line(left, y, right, y)
+        d.text(left + pad, y + row / 2, label, size, align=LEFT, valign=MIDDLE)
+        d.text(right - pad, y + row / 2, value, size, align=RIGHT, valign=MIDDLE)
 
 
 def isolator(d, x, y0, name):

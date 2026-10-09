@@ -16,6 +16,8 @@ TEXT_MAIN_INFO = 2.5        # FORM4-TYPE6 / LOCATION:LV ROOM
 TEXT_WAY = 1.2              # way numbers and "MCCB"
 TEXT_LOAD = 1.8             # load / DB names, SPARE
 TEXT_RATING = 1.2           # breaker rating and cable along a way
+TEXT_DB_LOAD = 1.2          # CL / DL beside a DB box
+TEXT_LOAD_TABLE = 1.5       # connected / demand load table in a board
 TEXT_SMALL = 1.5            # labels inside the main board (ACB, SPD...)
 TEXT_TRANSFORMER_NAME = 3.5
 TEXT_TRANSFORMER_INFO = 2.0
@@ -89,6 +91,12 @@ PFC_SIZE = 5.0
 PFC_ABOVE_BOARD = 22.0      # board top -> bottom vertex of the PFC symbol
 PFC_LABEL = "POWER FACTOR\nCORRECTION"
 RATING_START = 2.0          # board top -> start of rating/cable text
+
+# ---------------------------------------------------------------- load table
+LOAD_TABLE_ROWS = ("CONNECTED LOAD", "DIVERSITY FACTOR", "DEMAND LOAD")
+LOAD_TABLE_ROW = 2.6        # row height
+LOAD_TABLE_PAD = 0.6        # text inset from the cell edges
+LOAD_TABLE_MARGIN = 1.5     # table -> board edge
 
 # ---------------------------------------------------------------- rows / risers
 ROW_TOP_MARGIN = 8.0        # highest content -> next row

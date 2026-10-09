@@ -205,3 +205,38 @@ def test_no_overlaps_with_transformer_between_boards():
     for f in lay.feeds:
         for (x1, y1), (x2, y2) in zip(f.points, f.points[1:]):
             assert y2 >= y1 - 1e-6                # nothing runs downward
+
+
+def _texts(drawing):
+    return [t.text for t in drawing.texts]
+
+
+def test_db_boxes_show_connected_and_demand_load():
+    lay = sample_layout()
+    texts = _texts(lay.drawing)
+    g = dict((x.name, x) for x in lay.geoms.values())
+    way = next(w for w in g["SMDB-1ST-01"].board.ways if w.name == "LDB-FF-01")
+    cl, dl = way.loads()
+    assert "CL:%.1f kW" % cl in texts and "DL:%.1f kW" % dl in texts
+    box = g["UDB-FF-01"]                           # remote box on its own floor
+    assert "CL:%.1f kW" % box.way.loads()[0] in texts
+
+
+def test_board_has_load_table_with_its_totals():
+    lay = sample_layout()
+    g = dict((x.name, x) for x in lay.geoms.values())["SMDB-1ST-01"]
+    cl, df, dl = g.board.load_totals()
+    texts = dict((t.text, t) for t in lay.drawing.texts)
+    for label, value in (("CONNECTED LOAD", "%.2fkW" % cl), ("DIVERSITY FACTOR", "%.2f" % df),
+                         ("DEMAND LOAD", "%.2fkW" % dl)):
+        assert label in texts and value in texts
+    table = [texts[v] for v in ("%.2fkW" % cl, "%.2fkW" % dl)]
+    for t in table:                               # inside the board, right of the incomer
+        assert g.incomer_x < t.x <= g.right and g.bottom < t.y < g.bus_y
+
+
+def test_lengths_and_vd_along_the_ways():
+    lay = sample_layout()
+    assert any("V.D:" in t and "L:" in t for t in _texts(lay.drawing))
+    lay = sample_layout(show_ratings=False)
+    assert not any("V.D:" in t for t in _texts(lay.drawing))

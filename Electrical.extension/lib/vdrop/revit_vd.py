@@ -399,6 +399,7 @@ class Model(object):
 
     def __init__(self):
         self.feeders = []
+        self.equipment = {}       # panel id -> _Equipment (with its loads)
         self.elements = {}        # feeder id -> element holding its results
         self.skipped = 0          # final circuits without VD Length
         self.warnings = []
@@ -482,6 +483,7 @@ def collect(doc, values):
     panel) and for every final circuit with a length."""
     model = Model()
     equipment = _equipment(doc)
+    model.equipment = equipment
     feeding = {}      # panel id -> (circuit, source panel)
     finals = []
     for system in FilteredElementCollector(doc).OfClass(ElectricalSystem):

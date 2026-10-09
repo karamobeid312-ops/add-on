@@ -16,6 +16,10 @@ Optional parameters (project or shared, type Text) refine the drawing:
   Electrical Circuits
     SLD Cable           cable text printed exactly as typed
     SLD Symbol          ISOLATOR / DB / SPARE / PFC (force the way symbol)
+
+Loads (CL / DL), cable lengths and voltage drops come from the Voltage Drop
+tool, with its VD Settings: the same TCL, MDL, VD Length and cumulative V.D %
+as its report. A way without a VD Length shows no L / V.D.
 """
 from __future__ import division
 
@@ -236,8 +240,51 @@ def _start_slot(system):
         return None
 
 
+def _vd_results(doc):
+    """Loads and voltage drops as the Voltage Drop tool works them out.
+
+    Returns ({panel id: (CL kW, DL kW)}, {panel or circuit id: (length m,
+    cumulative V.D %)}, {circuit id: load kW}, warning or None). A panel's
+    row is its incoming cable, so its id gives the V.D of the way feeding it.
+    """
+    try:
+        from vdrop import calc, revit_vd
+        from vdrop import settings as vd_settings
+        values = vd_settings.load()
+        model = revit_vd.collect(doc, values)
+        result = calc.calculate(model.feeders, vd_settings.calc_settings(values))
+    except Exception as error:
+        return {}, {}, {}, u"Loads and voltage drops not read: %s" % error
+
+    loads = {}
+    for panel in model.equipment.values():
+        to_kw = panel.load_pf or 1.0
+        loads[panel.id] = (panel.connected_kva * to_kw if panel.connected_kva else None,
+                           panel.demand_kva * to_kw if panel.demand_kva else None)
+    vd = {}
+    for row in result.rows():
+        f = row.feeder
+        if f.target_id is not None:
+            # as the VD report: TCL, and MDL (demand or VD Load kW typed)
+            cl, dl = loads.get(f.target_id, (None, None))
+            loads[f.target_id] = (f.tcl_kw if f.tcl_kw is not None else cl,
+                                  f.mdl_kw if f.mdl_kw is not None else dl)
+        vd[f.id] = (f.length, row.total_percent)
+
+    circuit_kw = {}
+    for system in FilteredElementCollector(doc).OfClass(ElectricalSystem):
+        try:
+            circuit_kw[system.UniqueId] = revit_vd._circuit_values(system)[1]
+        except Exception:
+            pass
+    return loads, vd, circuit_kw, None
+
+
 def extract(doc):
-    """Collect EquipmentInfo/CircuitInfo lists (and phase counts) from the model."""
+    """Collect EquipmentInfo/CircuitInfo lists (and phase counts) from the
+    model, and warnings about what could not be read."""
+    loads, vd, circuit_kw, warning = _vd_results(doc)
+    warnings = [warning] if warning else []
     equipment, ids, phases_of = [], set(), {}
     collector = (FilteredElementCollector(doc)
                  .OfCategory(BuiltInCategory.OST_ElectricalEquipment)
@@ -259,6 +306,8 @@ def extract(doc):
             symbol=_lookup(el, "SLD Symbol"),
             description=_description(el, part_type),
             incoming_cable=_lookup(el, "SLD Incoming Cable"),
+            connected_kw=loads.get(el.UniqueId, (None, None))[0],
+            demand_kw=loads.get(el.UniqueId, (None, None))[1],
         ))
         ids.add(el.UniqueId)
         phases_of[el.UniqueId] = phases
@@ -284,6 +333,9 @@ def extract(doc):
             else:
                 branch_count += 1
         wire_size = _param_text(system, BuiltInParameter.RBS_ELEC_CIRCUIT_WIRE_SIZE_PARAM)
+        # a circuit to a panel: the panel's row is its cable
+        length, vd_percent = next((vd[i] for i in fed if i in vd),
+                                  vd.get(system.UniqueId, (None, None)))
         circuits.append(CircuitInfo(
             id=system.UniqueId,
             source_id=source.UniqueId,
@@ -300,8 +352,11 @@ def extract(doc):
             start_slot=_start_slot(system),
             is_spare=(kind == "spare"),
             symbol=_lookup(system, "SLD Symbol"),
+            connected_kw=None if kind == "spare" else circuit_kw.get(system.UniqueId),
+            length_m=length,
+            vd_percent=vd_percent,
         ))
-    return equipment, circuits, phases_of
+    return equipment, circuits, phases_of, warnings
 
 
 # ---------------------------------------------------------------- drawing
@@ -444,8 +499,9 @@ def render(doc, drawing, view_name=VIEW_NAME):
 
 def generate(doc, settings=None, numbering="slots"):
     """Build and draw the schematic. Returns (view or None, schematic)."""
-    equipment, circuits, phases_of = extract(doc)
+    equipment, circuits, phases_of, warnings = extract(doc)
     schematic = build_schematic(equipment, circuits, phases_of, numbering)
+    schematic.warnings = warnings + schematic.warnings
     if not schematic.roots:
         return None, schematic
 

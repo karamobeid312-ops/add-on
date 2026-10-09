@@ -159,3 +159,48 @@ def test_sample_drawing_structure():
 
 def test_natural_key():
     assert sorted(["10", "2", "1,3,5", "B", "a"], key=natural_key) == ["1,3,5", "2", "10", "a", "B"]
+
+
+def _smdb_with_loads():
+    equipment = [eq("SMDB-2F"),
+                 eq("ACB-Z1-2F", connected_kw=2.5, demand_kw=2.2),
+                 eq("LDB-Z1-2F", connected_kw=13.4, demand_kw=12.0),
+                 eq("UPS", family_name="UPS"), eq("USMDB")]
+    circuits = [ckt("SMDB-2F", 1, ["ACB-Z1-2F"], length_m=100.0, vd_percent=2.971),
+                ckt("SMDB-2F", 4, ["LDB-Z1-2F"], length_m=50.0),
+                ckt("SMDB-2F", 7, load_name="AHU-1", branch_load_count=1, connected_kw=4.0),
+                ckt("SMDB-2F", 10, ["UPS"]), ckt("SMDB-2F", 13, ["UPS"]),
+                ckt("SMDB-2F", 16, is_spare=True),
+                ckt("UPS", 1, ["USMDB"])]
+    return build_schematic(equipment, circuits)
+
+
+def test_way_loads_from_db_or_final_circuit():
+    ways = boards(_smdb_with_loads())["SMDB-2F"].ways
+    assert ways[0].loads() == (2.5, 2.2)
+    assert ways[2].loads() == (4.0, 4.0)          # final circuit: DL = CL
+    assert ways[5].loads() == (None, None)        # spare
+
+
+def test_length_and_vd_printed_along_the_way():
+    ways = boards(_smdb_with_loads())["SMDB-2F"].ways
+    assert ways[0].vd_text() == "L:100m  V.D:2.97%"
+    assert ways[0].rating_lines()[-1] == "L:100m  V.D:2.97%"
+    assert ways[1].vd_text() == "L:50m"           # no V.D worked out
+    assert ways[2].vd_text() == ""
+
+
+def test_load_totals_count_each_equipment_once():
+    smdb = boards(_smdb_with_loads())["SMDB-2F"]
+    cl, df, dl = smdb.load_totals()
+    assert abs(cl - (2.5 + 13.4 + 4.0)) < 1e-9    # UPS has no load: skipped
+    assert abs(dl - (2.2 + 12.0 + 4.0)) < 1e-9
+    assert abs(df - dl / cl) < 1e-9
+    ups = [w for w in smdb.ways if w.kind == TO_UPS]
+    ups[0].target.connected_kw = ups[0].target.demand_kw = 10.0
+    assert abs(smdb.load_totals()[0] - 29.9) < 1e-9   # two ways, one UPS
+
+
+def test_no_load_totals_without_loads():
+    s = build_schematic([eq("SMDB-1"), eq("LDB-1")], [ckt("SMDB-1", 1, ["LDB-1"])])
+    assert boards(s)["SMDB-1"].load_totals() is None

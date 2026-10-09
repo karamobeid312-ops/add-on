@@ -85,10 +85,15 @@ def build():
     circuits = []
 
     def circuit(src, slot, poles, rating, cable, load_name="", fed=(), spare=False, branch=0):
+        # made-up loads, lengths and voltage drops, varied by slot
+        live = not spare and src[:2] != "TR"
         circuits.append(CircuitInfo(
             "%s/%d" % (src, slot), src, str(slot), load_name, rating, poles,
             cable=cable, fed_equipment_ids=list(fed), start_slot=slot,
-            is_spare=spare, branch_load_count=branch))
+            is_spare=spare, branch_load_count=branch,
+            connected_kw=(2.0 + slot % 7) if live and not fed else None,
+            length_m=(10.0, 50.0, 100.0)[slot % 3] if live else None,
+            vd_percent=(1.5 + (slot % 9) * 0.27) if live else None))
 
     circuit("TR-01", 1, "3", "", "", fed=["MDB-1"])
     circuit("TR-02", 1, "3", "", "", fed=["MDB-2"])
@@ -103,7 +108,9 @@ def build():
             elif kind == "U":
                 circuit(name, slot, "3", u"160 A", FEEDER[2], fed=[spec[1]])
             elif kind == "D":
-                add(spec[1], spec[2])
+                db = add(spec[1], spec[2])
+                db.connected_kw = 2.0 + (slot % 11) * 1.3
+                db.demand_kw = round(db.connected_kw * 0.85, 1)
                 circuit(name, slot, "3", DB[0], DB[2], fed=[spec[1]])
             elif kind == "L":
                 circuit(name, slot, "3", LOAD[0], LOAD[2], load_name=spec[1], branch=1)
