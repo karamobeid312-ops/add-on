@@ -85,6 +85,11 @@ def is_space(element):
         return False
 
 
+def space_name(space):
+    """The name alone, without the number."""
+    return _param_text(space, BuiltInParameter.ROOM_NAME)
+
+
 def space_label(space):
     number = _param_text(space, BuiltInParameter.ROOM_NUMBER)
     name = _param_text(space, BuiltInParameter.ROOM_NAME)
@@ -116,6 +121,24 @@ class SpaceRef(object):
 
     def point(self, p):
         return self.transform.OfPoint(p)
+
+    def name(self):
+        return space_name(self.space)
+
+    def area(self):
+        """m2, None when not placed."""
+        try:
+            area = self.space.Area
+        except Exception:
+            return None
+        return area * M_PER_FOOT * M_PER_FOOT if area > 0 else None
+
+    def height(self):
+        """Floor to top of the room or space (m), None when not known."""
+        box = self.space.get_BoundingBox(None)
+        if box is None:
+            return None
+        return (box.Max.Z - box.Min.Z) * M_PER_FOOT
 
 
 def _unique(refs):

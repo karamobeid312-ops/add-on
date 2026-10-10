@@ -105,6 +105,18 @@ touch, send a screenshot.
 
 The **Fire Alarm** panel of the **Electrical** tab:
 
+- **Auto Detectors** – same as below, but each room gets smoke, heat or no
+  detector from its name, as UAE Fire Code (2018) Chapter 8, Table 8.14:
+  heat in kitchens, pantries, pump, garbage / refuse, generator and battery
+  rooms, and in toilets and bathrooms over 5 m²; none in smaller toilets,
+  shafts, (sprinklered) parking, balconies and voids; smoke everywhere
+  else. AHU and lift machine rooms (multi-sensors), atriums and rooms over
+  10 m high (beam / aspirating) are only listed, to do by hand. A room's
+  name is read from the room or space itself (linked rooms too); a word
+  also matches longer words (KITCHEN matches KITCHENETTE), words of 3
+  letters or less only whole words (WC, AHU, DG). The words are in
+  **FA Settings → Auto Detectors room rules**. The summary groups the rooms
+  by heat / smoke / by hand / none, each with the word that decided it.
 - **Smoke Detectors** / **Heat Detectors** – select the spaces (or click the
   button and pick them, in this model or in a linked model, or take all
   spaces on a level), and a detector is placed on the ceiling so that

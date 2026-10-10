@@ -20,6 +20,10 @@ Rooms whose walls are all square to the grid (L, T, U shapes, corridors)
 are also cut into rectangles, across and along, each with its own grid;
 the layout with the fewest detectors wins.
 
+When one detector covers the whole room it goes in the middle of the
+biggest rectangle that fits in the room (or of its area) if it still covers it all from
+there, so an L-shaped bedroom gets it over the bed, not at the entrance.
+
 Lengths are in any unit (the Revit side uses metres). Keep this module
 compatible with IronPython 2.7.
 """
@@ -419,6 +423,85 @@ def _pieces_layout(rects, spacing, clearance, swap):
     return _Result(points, grids, on_grid, uncovered)
 
 
+def _single_spot(loops, spacing, clearance, spot, tol):
+    """Where one detector covering the whole room goes: the middle of the
+    room's main rectangle (a bedroom, not the bedroom plus its entrance
+    passage), else the middle of its area, when it still reaches every
+    point from there; else `spot`."""
+    segs = segments(loops)
+    candidates = []
+    if _is_orthogonal(loops, tol):
+        rects = [r for r in [_biggest_rectangle(loops, tol)] if r is not None]
+        rects += list(_strips(loops, tol))
+        rects += [(y0, x0, y1, x1) for x0, y0, x1, y1 in
+                  _strips([[(y, x) for x, y in loop] for loop in loops], tol)]
+        rects[1:] = sorted(rects[1:], key=lambda r: -(r[2] - r[0]) * (r[3] - r[1]))
+        candidates += [((x0 + x1) / 2, (y0 + y1) / 2) for x0, y0, x1, y1 in rects]
+    candidates.append(_area_centroid(loops))
+    if not candidates or candidates[0] == spot:
+        return spot
+    xs = [p[0] for loop in loops for p in loop]
+    ys = [p[1] for loop in loops for p in loop]
+    box = (min(xs), min(ys), max(xs), max(ys))
+    step = min(spacing / CHECKS_PER_SPACING, min(box[2] - box[0], box[3] - box[1]) / 4.0)
+    for p in candidates:
+        if p is None or not point_inside(p[0], p[1], segs) or \
+                wall_distance(p[0], p[1], segs) < clearance - 1e-6:
+            continue
+        check = _Checker(segs, box, step, reach(spacing))
+        check.cover(p)
+        if not check.uncovered():
+            return p
+    return spot
+
+
+def _biggest_rectangle(loops, tol):
+    """The biggest rectangle (x0, y0, x1, y1) inside an outline with square
+    walls, holes left out; None if there is none."""
+    segs = segments(loops)
+    xs, ys = [], []
+    for values, k in ((xs, 0), (ys, 1)):
+        for v in sorted(p[k] for loop in loops for p in loop):
+            if not values or v - values[-1] > tol:
+                values.append(v)
+    nx, ny = len(xs) - 1, len(ys) - 1
+    if nx < 1 or ny < 1:
+        return None
+    inside = [[point_inside((xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2, segs)
+               for j in range(ny)] for i in range(nx)]
+    best, best_area = None, 0.0
+    for i0 in range(nx):
+        for j0 in range(ny):
+            if not inside[i0][j0]:
+                continue
+            top = ny                    # rows j0..top-1 open in every column so far
+            for i1 in range(i0, nx):
+                j = j0
+                while j < top and inside[i1][j]:
+                    j += 1
+                top = j
+                if top == j0:
+                    break
+                area = (xs[i1 + 1] - xs[i0]) * (ys[top] - ys[j0])
+                if area > best_area + EPS:
+                    best, best_area = (xs[i0], ys[j0], xs[i1 + 1], ys[top]), area
+    return best
+
+
+def _area_centroid(loops):
+    """Centre of area of the outline (its biggest loop), None if degenerate."""
+    loop = max(loops, key=lambda l: abs(loop_area(l)))
+    a = cx = cy = 0.0
+    for (x0, y0), (x1, y1) in zip(loop, loop[1:] + loop[:1]):
+        cross = x0 * y1 - x1 * y0
+        a += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(a) < EPS:
+        return None
+    return (cx / (3 * a), cy / (3 * a))
+
+
 def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE):
     """Detector points for a room.
 
@@ -449,6 +532,9 @@ def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE):
                     (len(other.points), len(other.points) - other.on_grid) < \
                     (len(best.points), len(best.points) - best.on_grid):
                 best = other
+
+    if len(best.points) == 1 and best.uncovered == 0:
+        best.points = [_single_spot(local, spacing, clearance, best.points[0], tol)]
 
     points = [_rotate(p, angle) for p in best.points]
     return DetectorLayout(points, spacing, angle, best.grids, best.on_grid, best.uncovered)

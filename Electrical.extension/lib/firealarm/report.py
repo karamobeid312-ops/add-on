@@ -138,3 +138,50 @@ def summarize_riser(run, describe):
         for name, code in sorted(run.symbols.items()):
             lines.append(u"    %s -> %s" % (name, describe(code)))
     return headline, "\n".join(lines)
+
+
+def summarize_auto(rooms, replaced=False):
+    """(headline, details) after Auto Detectors. rooms: [(label, Decision,
+    SpacePlan or None)] in the order the rooms were chosen."""
+    count = {"smoke": 0, "heat": 0}
+    kinds = {"smoke": [], "heat": [], "none": [], "flag": []}
+    for label, decision, plan in rooms:
+        kinds[decision.kind].append((label, decision, plan))
+        if plan is not None:
+            count[decision.kind] += len(plan.placed)
+    placed_in = sum(1 for _, _, plan in rooms if plan is not None and plan.placed)
+    headline = "%d smoke and %d heat detector%s placed in %d room%s." % (
+        count["smoke"], count["heat"], "" if count["heat"] == 1 else "s",
+        placed_in, "" if placed_in == 1 else "s")
+    if kinds["none"]:
+        headline += " %d room%s need%s none." % (
+            len(kinds["none"]), "" if len(kinds["none"]) == 1 else "s",
+            "s" if len(kinds["none"]) == 1 else "")
+    if kinds["flag"]:
+        headline += " %d room%s to do by hand." % (
+            len(kinds["flag"]), "" if len(kinds["flag"]) == 1 else "s")
+    problems = sum(1 for _, _, plan in rooms if plan is not None and (plan.problem or plan.failed))
+    if problems:
+        headline += " %d room%s need%s a look." % (
+            problems, "" if problems == 1 else "s", "s" if problems == 1 else "")
+    old = sum(len(plan.existing) for _, _, plan in rooms if plan is not None)
+    if old:
+        headline += " %d existing detector%s %s." % (old, "" if old == 1 else "s",
+                                                    "replaced" if replaced else "kept")
+    sections = []
+    titles = [("heat", "HEAT (UAE Fire Code Table 8.14)"), ("smoke", "SMOKE"),
+              ("flag", "TO DO BY HAND (not placed)"), ("none", "NO DETECTOR")]
+    for kind, title in titles:
+        if not kinds[kind]:
+            continue
+        lines = [title]
+        for label, decision, plan in kinds[kind]:
+            why = u" (%s)" % decision.reason if decision.reason else ""
+            if plan is None:
+                lines.append(u"%s%s" % (label, why))
+            else:
+                line = space_line(plan)
+                first, _, rest = line.partition("\n")
+                lines.append(first + why + ("\n" + rest if rest else ""))
+        sections.append("\n".join(lines))
+    return headline, "\n\n".join(sections)

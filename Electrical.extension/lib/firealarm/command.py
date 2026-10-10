@@ -7,7 +7,9 @@ from System.Collections.Generic import List
 from firealarm import revit_address, revit_loop, revit_riser, revit_routes, settings
 from firealarm.addresses import DETECTION, SOUNDER, on_loop
 from firealarm.loops import loop_count, loop_numbers
-from firealarm.report import summarize, summarize_addresses, summarize_loops, summarize_riser
+from firealarm.report import (summarize, summarize_addresses, summarize_auto, summarize_loops,
+                              summarize_riser)
+from firealarm.room_rules import HEAT, SMOKE, decide, rules_from
 from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
 from firealarm.revit_fa import (by_level, detector_types, linked_models,
                                 pick_linked_spaces, pick_spaces, place_detectors,
@@ -127,6 +129,65 @@ def run(kind):
     if placed:
         uidoc.Selection.SetElementIds(List[ElementId](placed))
     headline, details = summarize(plans, kind, replaced=bool(answers and answers[0]))
+    forms.alert(headline, expanded=details, title=TITLE)
+
+
+def run_auto():
+    """Smoke or heat detectors in each selected room, from its name (UAE
+    Fire Code Table 8.14, see room_rules)."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model to place detectors.", title=TITLE)
+        return
+    values = settings.load()
+
+    spaces = _choose_spaces(doc, uidoc)
+    if not spaces:
+        return
+    rules = rules_from(values)
+    decisions = [(ref, decide(ref.name(), ref.area(), ref.height(), rules,
+                              values["bath_heat_area"])) for ref in spaces]
+
+    symbols = {}
+    for kind in (SMOKE, HEAT):
+        if not any(d.kind == kind for _, d in decisions):
+            continue
+        symbol = _detector_type(doc, kind, values)
+        if symbol is None:
+            return
+        if placement_kind(symbol) is None:
+            forms.alert("'%s' cannot be placed on a ceiling.\n\nUse a face-based, "
+                        "ceiling-hosted or level-based family (change it in FA Settings)."
+                        % values[kind + "_type"], title=TITLE)
+            return
+        symbols[kind] = symbol
+
+    answers = []
+
+    def ask_replace(count, space_count):
+        answers.append(_ask_replace(count, space_count))
+        return answers[-1]
+
+    plans = {}
+    for kind in (SMOKE, HEAT):
+        refs = [ref for ref, d in decisions if d.kind == kind]
+        if not refs:
+            continue
+        done = place_detectors(doc, refs, symbols[kind], values[kind + "_spacing"],
+                               values["clearance"], "Place %s Detectors" % kind.title(),
+                               ask_replace)
+        if done is None:
+            if not plans:
+                return
+            break
+        for ref, plan in zip(refs, done):
+            plans[ref.key] = plan
+
+    placed = [i for p in plans.values() for i in p.placed]
+    if placed:
+        uidoc.Selection.SetElementIds(List[ElementId](placed))
+    rooms = [(ref.label, d, plans.get(ref.key)) for ref, d in decisions]
+    headline, details = summarize_auto(rooms, replaced=any(answers))
     forms.alert(headline, expanded=details, title=TITLE)
 
 
@@ -513,7 +574,65 @@ _SETTINGS = [
     ("loop_gap", "Loop line gap at devices", "mm"),
     ("riser_symbols", "Riser symbols", ""),
     ("address_tag", "Address tag", ""),
+    ("room_rules", "Auto Detectors room rules", ""),
 ]
+
+_RULES = [
+    ("rules_heat", "Heat detector rooms"),
+    ("rules_bath", "Toilets and bathrooms (heat when bigger, else none)"),
+    ("bath_heat_area", "Bathroom area for heat"),
+    ("rules_none", "No detector rooms"),
+    ("rules_flag", "Rooms to do by hand (multi-sensor, beam...)"),
+]
+
+_RULE_PROMPT = ("Words in the room name, comma separated. A word also matches longer words\n"
+                "(KITCHEN matches KITCHENETTE); words of 3 letters or less match whole words.\n"
+                "Rooms that match nothing get smoke detectors.")
+
+
+def _edit_room_rules(values):
+    from firealarm.room_rules import DEFAULT_RULES, keywords
+    while True:
+        options = []
+        for key, name in _RULES:
+            if key == "bath_heat_area":
+                value = "over %s m2" % _number(values[key])
+            else:
+                value = ", ".join(keywords(values[key])) or "(none)"
+            options.append(u"%s: %s" % (name, value))
+        options.append("Reset all to the UAE Fire Code defaults")
+        choice = forms.CommandSwitchWindow.show(options, message="Click a rule to change it:")
+        if not choice:
+            return
+        if choice == options[-1]:
+            values.update(DEFAULT_RULES)
+            values["bath_heat_area"] = settings.DEFAULTS["bath_heat_area"]
+            settings.save(values)
+            continue
+        key, name = _RULES[options.index(choice)]
+        if key == "bath_heat_area":
+            text = forms.ask_for_string(default=_number(values[key]),
+                                        prompt="Bathrooms bigger than this (m2) get a heat "
+                                               "detector, smaller ones none.",
+                                        title="%s Settings" % TITLE)
+            if text is None:
+                continue
+            try:
+                value = float(text.replace(",", ".").replace("m2", "").strip())
+            except ValueError:
+                forms.alert("'%s' is not a number." % text, title=TITLE)
+                continue
+            if value < 0:
+                forms.alert("Enter a positive number.", title=TITLE)
+                continue
+            values[key] = value
+        else:
+            text = forms.ask_for_string(default=", ".join(keywords(values[key])),
+                                        prompt=_RULE_PROMPT, title=name)
+            if text is None:
+                continue
+            values[key] = ", ".join(keywords(text))
+        settings.save(values)
 
 _PROMPTS = {
     "smoke_spacing": "Max distance between smoke detectors (m).\n"
@@ -539,11 +658,13 @@ def edit_settings():
         values = settings.load()
         options = []
         for key, name, unit in _SETTINGS:
-            value = values[key]
+            value = values.get(key)
             if key == "loop_square":
                 value = "square (right angles)" if value else "straight device to device"
             elif key == "address_tag":
                 value = value or "asked on first use"
+            elif key == "room_rules":
+                value = "heat, none and by-hand rooms by name"
             elif key == "riser_symbols":
                 count = len(settings.chosen_symbols(values))
                 value = "%d type%s set by you, the rest automatic" % (count, "" if count == 1 else "s")
@@ -574,6 +695,9 @@ def edit_settings():
             if choice:
                 values[key] = choice
                 settings.save(values)
+            continue
+        if key == "room_rules":
+            _edit_room_rules(values)
             continue
         if key == "riser_symbols":
             if doc is None or doc.IsFamilyDocument:
