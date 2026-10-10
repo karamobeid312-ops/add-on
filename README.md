@@ -543,6 +543,30 @@ The **Model Check** panel of the **Electrical** tab:
 | Measured | Against both side faces of the wall, in 3D: the fixture's insertion point (face-based families have it on the face they are placed on) and the points of its 3D geometry. The fixture's side is the face its insertion point is nearest, or for wall-hosted families the face its body sticks out of most. A back box behind the face is fine as long as part of the fixture is in front of it, so flush fixtures pass. |
 | Not read | Curtain walls and walls whose faces Revit cannot give. |
 
+## Circuit descriptions
+
+The **Panel Schedules** panel of the **Electrical** tab:
+
+- **Circuit Description** – fills the circuit description (the circuit's
+  *Load Name*, the CIRCUIT DESCRIPTION column of the panel schedules)
+  with the room its fixtures are in, read from the architectural link:
+  `012 FIRE FIGHTING PUMP ROOM`. When a circuit's fixtures are in several
+  rooms, each room is written once, in order: `101 OFFICE, 102 CORRIDOR`.
+  Open a panel schedule or select boards first, or pick the boards after
+  clicking. Every change is listed (board, circuit, was, now) to untick
+  before anything is written, in one transaction (one Undo). The report
+  lists the circuits whose fixtures are in no room; they keep their
+  description.
+- **Description Settings** – how a room is written (number + name, name
+  only, name + number), in capitals or not, and whether this model's
+  rooms and spaces are used when a fixture is in no linked room.
+
+| Item | How |
+| --- | --- |
+| Circuits | Power circuits of the boards. Spares and spaces are left alone, and so are circuits feeding other boards and circuits with nothing connected. |
+| Room of a fixture | The room of the loaded links (the architectural model) at the fixture's insertion point; then 300 mm in front of and behind it (fixtures on a wall face sit on the room boundary); then higher and lower, down to its level (ceiling lights are above the room's height). Then the spaces and rooms of this model, if the setting allows. |
+| Written | The *Load Name* only. No parameter is created. |
+
 ## Install
 
 1. Install pyRevit.
@@ -614,6 +638,7 @@ Electrical.extension/
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
+    Panel Schedules.panel/  Circuit Description, Description Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -659,6 +684,11 @@ Electrical.extension/
     check.py       is a fixture on its wall face: floating, set in, off the wall... (no Revit)
     report.py      the problems by kind, what to do, not checked
     revit_check.py fixtures, their host wall (here or in a link), faces and geometry measured
+    settings.py    per-user settings
+    command.py     button entry points
+  lib/circuitdesc/
+    describe.py    room labels, descriptions, what happens to each circuit (no Revit)
+    revit_desc.py  boards and circuits, the room of each fixture in the links, Load Name written
     settings.py    per-user settings
     command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing

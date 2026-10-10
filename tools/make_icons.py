@@ -314,6 +314,26 @@ def check_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def circuit_description(c, ink):
+    c.fill([rect(2, 3, 22, 29)], WHITE)                 # panel schedule
+    stroke(c, rect(2, 3, 22, 29), 1.2, ink, closed=True)
+    stroke(c, [(8, 3), (8, 29)], 1.0, ink)              # circuit column
+    for y in (9.5, 16, 22.5):
+        stroke(c, [(2, y), (22, y)], 1.0, ink)
+    stroke(c, [(10.5, 12.8), (19.5, 12.8)], 1.8, BLUE)  # the description
+    c.fill([rect(17, 15, 30.5, 26)], AMBER)             # room on the plan
+    stroke(c, rect(17, 15, 30.5, 26), 1.2, ink, closed=True)
+    c.fill([circle(23.8, 20.5, 2.3)], WHITE)            # light fitting in it
+    stroke(c, circle(23.8, 20.5, 2.3, 20), 1.0, ink, closed=True)
+
+
+def description_settings(c, ink):
+    def glyph(c):
+        for y in (21, 24, 27):
+            stroke(c, [(19.5, y), (28.5, y)], 1.4, WHITE)
+    settings_gear(c, ink, BLUE, glyph)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -331,6 +351,8 @@ ICONS = [
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
     (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
     (TAB + "Model Check.panel/Settings.pushbutton", check_settings),
+    (TAB + "Panel Schedules.panel/Circuit Description.pushbutton", circuit_description),
+    (TAB + "Panel Schedules.panel/Settings.pushbutton", description_settings),
 ]
 
 
