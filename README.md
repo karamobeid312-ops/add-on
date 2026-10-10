@@ -569,7 +569,7 @@ The **Panel Schedules** panel of the **Electrical** tab:
 | --- | --- |
 | Circuits | Power circuits of the boards. Spares and spaces are left alone, and so are circuits feeding other boards and circuits with nothing connected. |
 | Room of a fixture | The room of the loaded links (the architectural model) at the fixture's insertion point; then 300 mm in front of and behind it (fixtures on a wall face sit on the room boundary); then higher and lower, down to its level (ceiling lights are above the room's height). Then the spaces and rooms of this model, if the setting allows. |
-| W PER UNIT | The fixture's *Apparent Load*, else an instance or type parameter named *Apparent Load*, *Wattage*, *Load*, *Power*, *Apparent Power* or *Watts*. When one type of the circuit has no load, it is worked out from the circuit's apparent load. Fixtures of the same type with different loads are separate groups. |
+| W PER UNIT | The *Apparent Load* of the fixture's electrical connector, else an instance or type parameter named *Apparent Load*, *Wattage*, *Load*, *Power*, *Apparent Power* or *Watts*. When one type of the circuit has no load, it is worked out from the circuit's apparent load. Fixtures of the same type with different loads are separate groups. |
 | Written | The *Load Name* and the existing `LoadN_Type` / `LoadN_Nos` / `LoadN_WpU` parameters (groups not used are cleared). No parameter is created. |
 
 ## Install

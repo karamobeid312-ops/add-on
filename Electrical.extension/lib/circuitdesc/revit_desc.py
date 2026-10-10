@@ -327,9 +327,34 @@ def _number(param):
     return None
 
 
+def connector_watts(element):
+    """The Apparent Load set on the fixture's electrical connectors, in VA
+    (W), None when it cannot be read (Revit 2017+)."""
+    try:
+        from Autodesk.Revit.DB import Domain, DoubleParameterValue
+        connectors = element.MEPModel.ConnectorManager.Connectors
+    except Exception:
+        return None
+    load_id = ElementId(BuiltInParameter.RBS_ELEC_APPARENT_LOAD)
+    total = None
+    for connector in connectors:
+        try:
+            if connector.Domain != Domain.DomainElectrical:
+                continue
+            value = connector.GetMEPConnectorInfo().GetConnectorParameterValue(load_id)
+            if isinstance(value, DoubleParameterValue) and value.Value > 0:
+                total = (total or 0.0) + _to_watts(value.Value)
+        except Exception:
+            continue
+    return total
+
+
 def fixture_watts(element):
-    """The load of one fixture in W (VA): Revit's Apparent Load of its
+    """The load of one fixture in W (VA): the Apparent Load of its
     connector, else a load parameter of the instance or its type."""
+    value = connector_watts(element)
+    if value:
+        return value
     symbol = _symbol(element)
     for holder in (element, symbol):
         if holder is None:
