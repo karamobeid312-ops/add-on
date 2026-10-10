@@ -119,7 +119,8 @@ class EquipmentInfo(object):
                  incoming_cable="", details=None, connected_kw=None, demand_kw=None,
                  mains_rating=None, incomer_rating=None, incomer_frame="",
                  phases=3, neutral=True, fault_level="", incomer_device="",
-                 upstream_protection="", demand_factor=None):
+                 upstream_protection="", demand_factor=None, spares=None,
+                 spare_rating=""):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -145,6 +146,8 @@ class EquipmentInfo(object):
         # breaker on the way feeding it, e.g. '40AT/100AF MCCB'
         self.upstream_protection = upstream_protection or ""
         self.demand_factor = demand_factor    # its own diversity factor
+        self.spares = spares                  # spare ways wanted ('SLD Spares')
+        self.spare_rating = spare_rating or ""   # e.g. '63AT/100AF MCCB'
 
     def supply_text(self):
         """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
@@ -190,7 +193,7 @@ class CircuitInfo(object):
                  rating="", poles="", voltage="", load="", wire_size="",
                  fed_equipment_ids=None, branch_load_count=0, cable="",
                  start_slot=None, is_spare=False, symbol="", connected_kw=None,
-                 length_m=None, vd_percent=None, frame=""):
+                 length_m=None, vd_percent=None, frame="", device=""):
         self.id = id
         self.source_id = source_id
         self.circuit_number = circuit_number or ""
@@ -210,6 +213,7 @@ class CircuitInfo(object):
         self.length_m = length_m          # cable length (VD Length)
         self.vd_percent = vd_percent      # cumulative voltage drop at its end
         self.frame = frame or ""          # 'SLD Frame' typed on it, e.g. 250
+        self.device = device or ""        # 'SLD Breaker Type', e.g. MCB
 
     def cable_text(self):
         """BS/IEC cable description, or Revit's raw wire size as fallback."""
@@ -231,7 +235,7 @@ class CircuitInfo(object):
 
     def breaker_lines(self):
         """['40AT', '100AF', 'MCCB'], printed beside its breaker."""
-        return breaker_lines(self.rating, self.frame)
+        return breaker_lines(self.rating, self.frame, self.device or None)
 
 
 class Way(object):
@@ -511,27 +515,38 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
     spare when all its breakers are). A board too small for the minimum
     grows by just that many, up to `max_ways`. Returns warnings for a board
     that cannot take the minimum within `max_ways`.
+
+    Spares set on the board (SLD Spares / SLD Spare Rating, typed in the
+    editor) win: exactly that many spare ways, with that breaker.
     """
-    low, high = spares or (style.MIN_SPARES, style.MAX_SPARES)
+    e = board.equipment
+    wanted = _declared_ways(u"%s" % e.spares) if e.spares not in (None, "") else None
+    low, high = (wanted, wanted) if wanted is not None else (
+        spares or (style.MIN_SPARES, style.MAX_SPARES))
     limit = max_ways or style.MAX_WAYS
     groups = _way_groups(board.ways, phases).values()
     spare_ways = sum(1 for g in groups if all(w.kind == SPARE for w in g))
     used = len(groups) - spare_ways
-    room = min(_declared_ways(board.equipment.ways) or limit, limit)
+    room = limit if wanted is not None else min(_declared_ways(e.ways) or limit, limit)
     if used + low > room:
         room = min(used + low, limit)
     target = next((n for n in range(high, low - 1, -1) if used + n <= room),
                   max(limit - used, 0))
     add = max(target - spare_ways, 0)
     if add:
-        rating = _spare_rating(board)
+        trip, frame, device = parse_protection(e.spare_rating)
+        rating = trip or _spare_rating(board)
         number = _next_way_number([w.label for w in board.ways])
         for i in range(add):
             c = CircuitInfo("spare:%s:%d" % (board.id, i + 1), board.id,
                             rating="%sA" % trim_number(rating, 1) if rating else "",
-                            poles="3", is_spare=True)
+                            poles="3", is_spare=True, device=device or "",
+                            frame=trim_number(frame, 1) if frame else "")
             label = str(number + i) if numbering != "revit" else ""
             board.ways.append(Way(c, SPARE, label, "SPARE"))
+    if wanted is not None and spare_ways + add < wanted:
+        return ["%s: %d spares do not fit within the %d ways allowed on a board." % (
+            board.name, wanted, limit)]
     if spare_ways + add < low:
         return ["%s uses %d ways: with %d spares it needs %d, more than the %d circuit "
                 "breakers allowed on a sub-main board. Split the board." % (
@@ -706,7 +721,7 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
 
     if spares:
         for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
-            if is_sub_main(b):
+            if is_sub_main(b) or b.equipment.spares not in (None, ""):
                 warnings.extend(add_spares(b, numbering, phases_of.get(b.id, 3)))
 
     return Schematic(roots, warnings)

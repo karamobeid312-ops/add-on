@@ -220,6 +220,9 @@ P_INCOMER_TYPE = "Incomer_Type"                       # MCCB / MCS / ACB
 P_UPSTREAM = ("Upstream_Protection_Rating_A",         # 40AT/100AF
               "Upstream_Protection_Type")             # MCCB
 P_WAYS = "No_Of_Ways"
+P_SPARES = "SLD Spares"                              # spare ways drawn, e.g. 3
+P_SPARE_RATING = "SLD Spare Rating"                   # 63AT/100AF MCCB
+P_BREAKER_TYPE = "SLD Breaker Type"                   # on circuits: MCB / MCCB...
 # Revit panel loads, by name (newer Revit), else the built-in totals.
 P_CONNECTED = "Total Connected Apparent Power"
 P_DEMAND = "Total Demand Apparent Power"
@@ -384,20 +387,25 @@ def _start_slot(system):
         return None
 
 
-def _vd_results(doc):
+def _vd_results(doc, live=None):
     """Lengths and voltage drops as the Voltage Drop tool works them out.
 
     Returns ({panel or circuit id: (length m, cumulative V.D %)}, {circuit
     id: load kW}, {panel or circuit id: cable}, warning or None). A panel's
     row is its incoming cable, so its id gives the V.D (and the VD Cable)
-    of the way feeding it.
+    of the way feeding it. `live` (a dict) receives the VD feeders and
+    settings, for the editor to recalculate as cables are changed.
     """
     try:
         from vdrop import calc, revit_vd
         from vdrop import settings as vd_settings
         values = vd_settings.load()
         model = revit_vd.collect(doc, values)
-        result = calc.calculate(model.feeders, vd_settings.calc_settings(values))
+        calc_settings = vd_settings.calc_settings(values)
+        result = calc.calculate(model.feeders, calc_settings)
+        if live is not None:
+            live.update(feeders=model.feeders, settings=calc_settings,
+                        kinds=dict((k, e.kind) for k, e in model.equipment.items()))
     except Exception as error:
         return {}, {}, {}, u"Lengths and voltage drops not read: %s" % error
 
@@ -416,10 +424,11 @@ def _vd_results(doc):
     return vd, circuit_kw, cables, None
 
 
-def extract(doc):
+def extract(doc, live=None):
     """Collect EquipmentInfo/CircuitInfo lists (and phase counts) from the
-    model, and warnings about what could not be read."""
-    vd, circuit_kw, vd_cables, warning = _vd_results(doc)
+    model, and warnings about what could not be read. `live`: see
+    _vd_results."""
+    vd, circuit_kw, vd_cables, warning = _vd_results(doc, live)
     warnings = [warning] if warning else []
     equipment, ids, phases_of = [], set(), {}
     collector = (FilteredElementCollector(doc)
@@ -454,6 +463,8 @@ def extract(doc):
             phases=phases,
             neutral=_has_neutral(doc, el, phases),
             fault_level=_fault_level(el),
+            spares=_lookup(el, P_SPARES) or None,
+            spare_rating=_lookup(el, P_SPARE_RATING),
         ))
         ids.add(el.UniqueId)
         phases_of[el.UniqueId] = phases
@@ -504,6 +515,7 @@ def extract(doc):
             length_m=length,
             vd_percent=vd_percent,
             frame=_lookup(system, "SLD Frame"),
+            device=_lookup(system, P_BREAKER_TYPE),
         ))
     return equipment, circuits, phases_of, warnings
 

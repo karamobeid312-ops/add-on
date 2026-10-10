@@ -679,20 +679,22 @@ def _bind(doc, definition, binding, again=False):
         return insert(definition, binding)
 
 
-def _add_parameters(doc, names):
+def _add_parameters(doc, names, specs=None, group_name=None):
     """Shared parameters for `names` bound to their categories; the ones
     already in the project get the categories they lack. The shared
-    parameter file is a temporary one; the user's own file is restored."""
+    parameter file is a temporary one; the user's own file is restored.
+    specs / group_name: other parameters than the VD ones (the SLD editor's)."""
+    specs = specs or PARAMETERS
     app = doc.Application
     bound = _bindings(doc)
-    for name, _, categories in PARAMETERS:
+    for name, _, categories in specs:
         if name in names and name in bound:
             definition, binding = bound[name]
             for category in _categories(doc, categories):
                 if not binding.Categories.Contains(category):
                     binding.Categories.Insert(category)
             _bind(doc, definition, binding, again=True)
-    new = [p for p in PARAMETERS if p[0] in names and p[0] not in bound]
+    new = [p for p in specs if p[0] in names and p[0] not in bound]
     if not new:
         return
     previous = app.SharedParametersFilename
@@ -700,7 +702,7 @@ def _add_parameters(doc, names):
     open(path, "w").close()
     app.SharedParametersFilename = path
     try:
-        group = app.OpenSharedParameterFile().Groups.Create(PARAMETER_GROUP)
+        group = app.OpenSharedParameterFile().Groups.Create(group_name or PARAMETER_GROUP)
         for name, kind, categories in new:
             category_set = app.Create.NewCategorySet()
             for category in _categories(doc, categories):
