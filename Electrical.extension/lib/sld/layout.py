@@ -607,8 +607,9 @@ def _draw_way_end(d, g, w, x, settings):
         if lines:
             room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
             text = wrap("\n".join(lines), style.TEXT_RATING, room)
-            d.text(x - 0.4, t + style.RATING_START, text, style.TEXT_RATING,
-                   align=LEFT, valign=BOTTOM, rotation=symbols.VERTICAL)
+            # Reading up, just right of the way line (the office position).
+            d.text(x + 0.4, t + style.RATING_START, text, style.TEXT_RATING,
+                   align=LEFT, valign=TOP, rotation=symbols.VERTICAL)
 
 
 def _draw_feed(d, f, row_base):
