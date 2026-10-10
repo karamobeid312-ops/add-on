@@ -15,9 +15,10 @@ LIGHTING = "lighting"       # only light fittings on it
 MCB = "MCB"                 # the circuit's Rating (A)
 WIRING = {
     POWER: [(MCB, u"20"), ("Circuit_Wire_Size_mm2", u"4"), ("Earth_Wire_Size_mm2", u"4"),
-            ("Circuit_Wire_Rating", u"27.8(5.4)"), ("Circuit_Wire_Type", u"SINGLE CORE")],
+            ("Circuit_Wire_Rating", u"27.8(5.4)"), ("Circuit_Wire_Type", u"SINGLE CORE"), ("Circuit_Type", u"RAD")],
     LIGHTING: [(MCB, u"16"), ("Circuit_Wire_Size_mm2", u"2.5"), ("Earth_Wire_Size_mm2", u"2.5"),
-               ("Circuit_Wire_Rating", u"20.9(4.1)"), ("Circuit_Wire_Type", u"SINGLE CORE")],
+               ("Circuit_Wire_Rating", u"20.9(4.1)"), ("Circuit_Wire_Type", u"SINGLE CORE"),
+               ("Circuit_Type", u"RAD")],
 }
 WIRING_NAMES = [name for name, _ in WIRING[POWER]]
 
@@ -25,9 +26,9 @@ WIRING_NAMES = [name for name, _ in WIRING[POWER]]
 def wiring_text(kind):
     """'MCB 20 A, 4 / 4 mm², 27.8(5.4), SINGLE CORE' for the preview."""
     v = dict(WIRING[kind])
-    return u"MCB %s A, %s / %s mm\u00b2, %s, %s" % (
+    return u"MCB %s A, %s / %s mm\u00b2, %s, %s, %s" % (
         v[MCB], v["Circuit_Wire_Size_mm2"], v["Earth_Wire_Size_mm2"],
-        v["Circuit_Wire_Rating"], v["Circuit_Wire_Type"])
+        v["Circuit_Wire_Rating"], v["Circuit_Wire_Type"], v["Circuit_Type"])
 
 LOAD_SLOTS = 6              # Load1_Type / _Nos / _WpU ... Load6_ on the circuits
 

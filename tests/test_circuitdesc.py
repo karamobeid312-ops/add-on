@@ -123,7 +123,7 @@ def test_unknown_load_from_the_circuit():
 
 
 WIRING = {u"MCB": u"32", u"Circuit_Wire_Size_mm2": u"", u"Earth_Wire_Size_mm2": u"",
-          u"Circuit_Wire_Rating": u"", u"Circuit_Wire_Type": u""}
+          u"Circuit_Wire_Rating": u"", u"Circuit_Wire_Type": u"", u"Circuit_Type": u""}
 
 
 def test_power_circuit_gets_the_office_cable():
@@ -131,7 +131,8 @@ def test_power_circuit_gets_the_office_cable():
                 old_wiring=WIRING)
     assert c.status == CHANGE and c.wiring == {
         u"MCB": u"20", u"Circuit_Wire_Size_mm2": u"4", u"Earth_Wire_Size_mm2": u"4",
-        u"Circuit_Wire_Rating": u"27.8(5.4)", u"Circuit_Wire_Type": u"SINGLE CORE"}
+        u"Circuit_Wire_Rating": u"27.8(5.4)", u"Circuit_Wire_Type": u"SINGLE CORE",
+        u"Circuit_Type": u"RAD"}
     again = Circuit(None, u"DB", u"1", 1, u"101 OFFICE", [u"101 OFFICE"], kind=POWER,
                     old_wiring=c.wiring)
     assert again.status == SAME
@@ -142,8 +143,9 @@ def test_lighting_circuit_gets_the_lighting_cable():
                 old_wiring=WIRING)
     assert c.wiring == {
         u"MCB": u"16", u"Circuit_Wire_Size_mm2": u"2.5", u"Earth_Wire_Size_mm2": u"2.5",
-        u"Circuit_Wire_Rating": u"20.9(4.1)", u"Circuit_Wire_Type": u"SINGLE CORE"}
-    assert wiring_text(LIGHTING) == u"MCB 16 A, 2.5 / 2.5 mm\u00b2, 20.9(4.1), SINGLE CORE"
+        u"Circuit_Wire_Rating": u"20.9(4.1)", u"Circuit_Wire_Type": u"SINGLE CORE",
+        u"Circuit_Type": u"RAD"}
+    assert wiring_text(LIGHTING) == u"MCB 16 A, 2.5 / 2.5 mm\u00b2, 20.9(4.1), SINGLE CORE, RAD"
 
 
 def test_circuit_of_no_kind_keeps_its_cable():
