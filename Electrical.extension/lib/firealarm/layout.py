@@ -21,7 +21,7 @@ are also cut into rectangles, across and along, each with its own grid;
 the layout with the fewest detectors wins.
 
 When one detector covers the whole room it goes in the middle of the
-room's biggest rectangle (or of its area) if it still covers it all from
+biggest rectangle that fits in the room (or of its area) if it still covers it all from
 there, so an L-shaped bedroom gets it over the bed, not at the entrance.
 
 Lengths are in any unit (the Revit side uses metres). Keep this module
@@ -431,10 +431,11 @@ def _single_spot(loops, spacing, clearance, spot, tol):
     segs = segments(loops)
     candidates = []
     if _is_orthogonal(loops, tol):
-        rects = list(_strips(loops, tol))
+        rects = [r for r in [_biggest_rectangle(loops, tol)] if r is not None]
+        rects += list(_strips(loops, tol))
         rects += [(y0, x0, y1, x1) for x0, y0, x1, y1 in
                   _strips([[(y, x) for x, y in loop] for loop in loops], tol)]
-        rects.sort(key=lambda r: -(r[2] - r[0]) * (r[3] - r[1]))
+        rects[1:] = sorted(rects[1:], key=lambda r: -(r[2] - r[0]) * (r[3] - r[1]))
         candidates += [((x0 + x1) / 2, (y0 + y1) / 2) for x0, y0, x1, y1 in rects]
     candidates.append(_area_centroid(loops))
     if not candidates or candidates[0] == spot:
@@ -452,6 +453,39 @@ def _single_spot(loops, spacing, clearance, spot, tol):
         if not check.uncovered():
             return p
     return spot
+
+
+def _biggest_rectangle(loops, tol):
+    """The biggest rectangle (x0, y0, x1, y1) inside an outline with square
+    walls, holes left out; None if there is none."""
+    segs = segments(loops)
+    xs, ys = [], []
+    for values, k in ((xs, 0), (ys, 1)):
+        for v in sorted(p[k] for loop in loops for p in loop):
+            if not values or v - values[-1] > tol:
+                values.append(v)
+    nx, ny = len(xs) - 1, len(ys) - 1
+    if nx < 1 or ny < 1:
+        return None
+    inside = [[point_inside((xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2, segs)
+               for j in range(ny)] for i in range(nx)]
+    best, best_area = None, 0.0
+    for i0 in range(nx):
+        for j0 in range(ny):
+            if not inside[i0][j0]:
+                continue
+            top = ny                    # rows j0..top-1 open in every column so far
+            for i1 in range(i0, nx):
+                j = j0
+                while j < top and inside[i1][j]:
+                    j += 1
+                top = j
+                if top == j0:
+                    break
+                area = (xs[i1 + 1] - xs[i0]) * (ys[top] - ys[j0])
+                if area > best_area + EPS:
+                    best, best_area = (xs[i0], ys[j0], xs[i1 + 1], ys[top]), area
+    return best
 
 
 def _area_centroid(loops):

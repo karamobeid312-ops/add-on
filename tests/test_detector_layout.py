@@ -148,3 +148,13 @@ def test_single_detector_in_middle_of_main_rectangle():
     assert len(points) == 1
     assert abs(points[0][0] - 4.05) < 1e-6 and abs(points[0][1] - 2.25) < 1e-6
     assert worst_gap([room], points, 0.1) <= reach(SMOKE) + 1e-6
+
+
+def test_single_detector_in_biggest_rectangle_of_stepped_room():
+    # bedroom with a step on one side and a passage along the top
+    room = [(1.8, 0), (6.0, 0), (6.0, 4.2), (4.2, 4.2), (4.2, 5.3), (1.4, 5.3),
+            (1.4, 1.9), (1.8, 1.9)]
+    points = layout_detectors([room], SMOKE).points
+    assert len(points) == 1
+    assert abs(points[0][0] - 3.9) < 1e-6 and abs(points[0][1] - 2.1) < 1e-6
+    assert worst_gap([room], points, 0.1) <= reach(SMOKE) + 1e-6
