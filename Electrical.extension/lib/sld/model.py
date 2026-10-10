@@ -324,6 +324,7 @@ class Board(object):
         self.parent = None              # parent Board
         self.transformer = None         # EquipmentInfo drawn under a main board
         self.children = []              # Boards fed from this one
+        self.phases = 3                 # for counting ways (R/Y/B share one)
 
     @property
     def id(self):
@@ -364,6 +365,15 @@ class Board(object):
         if not any_load:
             return None
         return cl, (dl / cl if cl > 0 else None), dl
+
+    def way_count(self):
+        """Ways printed in the board info: the declared ways (SLD Ways,
+        No_Of_Ways...), or the ways drawn when there are more (spares)."""
+        drawn = way_positions(self.ways, self.phases)
+        declared = _declared_ways(self.equipment.ways)
+        if declared is None:
+            return self.equipment.ways or drawn
+        return max(declared, drawn)
 
     def iter_tree(self):
         yield self
@@ -452,6 +462,11 @@ def is_sub_main(board):
         re.search(style.SUB_MAIN_NAME_PATTERN, board.name or "", re.IGNORECASE))
 
 
+def _declared_ways(text):
+    m = re.match(r"\s*(\d+)", text or "")
+    return int(m.group(1)) if m else None
+
+
 def _next_way_number(labels):
     numbers = [int(n) for n in (re.sub(r"^[RYB]", "", l or "") for l in labels) if n.isdigit()]
     return max(numbers) + 1 if numbers else 1
@@ -462,7 +477,7 @@ def _spare_rating(board):
     breaker (the larger on a tie), None when none is known."""
     counts = {}
     for w in board.ways:
-        if w.kind == SPARE and w.circuit is not None and w.circuit.id.startswith("spare:"):
+        if w.kind == SPARE:
             continue
         trip = w.trip()
         if trip is not None:
@@ -472,27 +487,42 @@ def _spare_rating(board):
     return max(counts, key=lambda t: (counts[t], t))
 
 
+def _way_groups(ways, phases=3):
+    """{way number: [ways]} as printed on the board: single-pole breakers
+    on a three-phase board share a way (R9, Y9, B9 are one way)."""
+    ways = [w for w in ways if w.circuit is not None]
+    labels = way_labels([w.circuit for w in ways], phases, "slots")
+    groups = {}
+    for w, label in zip(ways, labels):
+        groups.setdefault(re.sub(r"^[RYB]", "", label), []).append(w)
+    return groups
+
+
 def way_positions(ways, phases=3):
-    """Ways the breakers take on the board: single-pole breakers on a
-    three-phase board share a way (R9, Y9, B9 are one way)."""
-    labels = way_labels([w.circuit for w in ways if w.circuit is not None], phases, "slots")
-    return len(set(re.sub(r"^[RYB]", "", l) for l in labels))
+    """Ways the breakers take on the board (R9, Y9, B9 count as one)."""
+    return len(_way_groups(ways, phases))
 
 
 def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
     """Spare breakers on a sub-main board, drawn after its circuits.
 
-    The board gets the most spares in `spares` (min, max) that keep it within
-    `max_ways` ways, counting spares already in the model. Returns warnings
-    for a board that cannot take the minimum within the limit.
+    The board gets the most spare ways in `spares` (min, max) that fit in
+    its declared ways, counting spare ways already in the model (a way is
+    spare when all its breakers are). A board too small for the minimum
+    grows by just that many, up to `max_ways`. Returns warnings for a board
+    that cannot take the minimum within `max_ways`.
     """
     low, high = spares or (style.MIN_SPARES, style.MAX_SPARES)
     limit = max_ways or style.MAX_WAYS
-    existing = sum(1 for w in board.ways if w.kind == SPARE)
-    used = way_positions([w for w in board.ways if w.kind != SPARE], phases)
-    target = next((n for n in range(high, low - 1, -1) if used + n <= limit),
+    groups = _way_groups(board.ways, phases).values()
+    spare_ways = sum(1 for g in groups if all(w.kind == SPARE for w in g))
+    used = len(groups) - spare_ways
+    room = min(_declared_ways(board.equipment.ways) or limit, limit)
+    if used + low > room:
+        room = min(used + low, limit)
+    target = next((n for n in range(high, low - 1, -1) if used + n <= room),
                   max(limit - used, 0))
-    add = max(target - existing, 0)
+    add = max(target - spare_ways, 0)
     if add:
         rating = _spare_rating(board)
         number = _next_way_number([w.label for w in board.ways])
@@ -502,14 +532,13 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
                             poles="3", is_spare=True)
             label = str(number + i) if numbering != "revit" else ""
             board.ways.append(Way(c, SPARE, label, "SPARE"))
-    total = way_positions(board.ways, phases)
-    if used + low > limit:
+    if spare_ways + add < low:
         return ["%s uses %d ways: with %d spares it needs %d, more than the %d circuit "
                 "breakers allowed on a sub-main board. Split the board." % (
                     board.name, used, low, used + low, limit)]
-    if total > limit:
+    if used + spare_ways + add > limit:
         return ["%s has %d ways (spares included), more than the %d circuit breakers "
-                "allowed on a sub-main board." % (board.name, total, limit)]
+                "allowed on a sub-main board." % (board.name, used + spare_ways + add, limit)]
     return []
 
 
@@ -584,7 +613,7 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         return lst[0] is c
 
     for board in boards.values():
-        phases = phases_of.get(board.id, 3)
+        phases = board.phases = phases_of.get(board.id, 3)
         board_circuits = by_source.get(board.id, [])
         labels = way_labels(board_circuits, phases, numbering)
         for c, label in zip(board_circuits, labels):

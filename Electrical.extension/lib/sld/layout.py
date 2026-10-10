@@ -451,7 +451,7 @@ def _board_labels(board):
             info.append("LOCATION: %s" % e.location)
     else:
         info = [e.supply_text(),
-                "%s, %s WAYS" % (e.form or style.DEFAULT_FORM, e.ways or len(board.ways))]
+                "%s, %s WAYS" % (e.form or style.DEFAULT_FORM, board.way_count())]
         if e.location:
             info.append("LOCATION: %s" % e.location)
         if e.level_name:
@@ -496,7 +496,8 @@ def _draw_board(d, g, settings):
         d.line(x, g.bus_y, x, y_arc)
         top_arc = symbols.breaker(d, x, y_arc)
         d.line(x, top_arc, x, g.top)
-        d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
+        if w.label:
+            d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
         lines = w.breaker_lines()
         d.text(x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS, "\n".join(lines),
                style.TEXT_WAY, align=LEFT, valign=MIDDLE)

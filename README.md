@@ -28,7 +28,7 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | **Main boards** | `FORM4-TYPE6`, `LOCATION: LV ROOM`, CT with 3 ammeters, indicator lamps, withdrawable ACB, busbar mounted fuse, SPD to earth `R<1Ω`, incoming cable, transformer, `MV CABLE FROM TAQA`, `FROM TAQA`. |
 | **Final DBs** (LDB, PDB, DB-...) | Tall box with the name, at the end of the way. A DB on a higher floor than its board is drawn on its own floor, fed by a riser (like UDB-FF-01 from USMDB-GF-M). |
 | **Equipment** (AHU, VRF, pumps, EV...) | Local isolator with the load name. |
-| **Spare ways** | `SPARE`. |
+| **Spare ways** | `SPARE`. Every sub-main board (fed from another board, or named `SMDB`/`SMSB`) gets 3 spare ways when they fit in its ways, else 2; spare ways already in the model count. Added spares take the board's most common breaker rating and are drawn only (the Revit panel is not changed). A sub-main board is limited to 18 ways: one that cannot take 2 spares within 18 is reported in the warnings, to be split. |
 | **PFC** | Capacitor bank symbol, `POWER FACTOR CORRECTION`. |
 | **UPS** | Box across the ways that feed it; its output rises to the UPS board. |
 | **Transformer fed from a board** | Transformer symbol on the way, its output rises to the panel it feeds (e.g. SWB → T-2A → PP-2A). |
@@ -55,7 +55,7 @@ Buttons on the **Electrical** tab → **SLD** panel:
 | Location | The **room** the equipment is in (name + number). |
 | Ways | Power circuits of the board, in slot order. Spare circuits → `SPARE`; spaces are skipped. |
 | Load name | The circuit's **Load Name**. `PFC` / `POWER FACTOR` / `CAPACITOR` → PFC symbol. |
-| Number of ways | *Max #1 Pole Breakers* ÷ 3 for three-phase boards. |
+| Number of ways | `SLD Ways`, else `No_Of_Ways`, else *Max #1 Pole Breakers* ÷ 3 for three-phase boards; the ways drawn when there are more (spares added). |
 
 ### Optional parameters
 

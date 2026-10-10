@@ -252,3 +252,16 @@ def test_lengths_and_vd_along_the_ways():
     assert any("V.D:" in t and "L:" in t for t in _texts(lay.drawing))
     lay = sample_layout(show_ratings=False)
     assert not any("V.D:" in t for t in _texts(lay.drawing))
+
+
+def test_board_info_prints_the_ways_drawn_with_spares():
+    from sld.layout import _board_labels
+    b = dict((b.name, b) for b in build_schematic(*sample_al_yasat.build()).boards())
+    assert "FORM 2b, 18 WAYS" in _board_labels(b["SMDB-RF-01"])[1]   # R/Y/B share a way
+    assert "FORM 2b, 12 WAYS" in _board_labels(b["SMDB-BB-01"])[1]   # 9 declared, 12 drawn
+
+
+def test_revit_numbering_draws_no_empty_way_labels():
+    s = build_schematic(*sample_al_yasat.build(), numbering="revit")
+    assert any(w.label == "" for b in s.boards() for w in b.ways)
+    assert all(t.text for t in layout_schematic(s).drawing.texts)

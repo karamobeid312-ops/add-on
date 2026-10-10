@@ -361,3 +361,45 @@ def test_spares_named_sub_main_root_and_revit_numbering():
     assert b["MDB-9"].ways == []                                # main board: no spares
     b = boards(build_schematic(equipment, circuits, spares=False))
     assert [w.kind for w in b["SMDB-01"].ways] == [DB_BOX]
+
+
+def test_spares_fit_the_declared_ways_or_grow_the_board_by_two():
+    def smdb(n, ways="12"):
+        equipment = [eq("MDB-1"), eq("SMDB-1", ways=ways)]
+        circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", n)
+        s = build_schematic(equipment, circuits)
+        b = boards(s)["SMDB-1"]
+        return [w.kind for w in b.ways].count(SPARE), b.way_count(), s.warnings
+    assert smdb(9) == (3, 12, [])
+    assert smdb(10) == (2, 12, [])
+    assert smdb(11) == (2, 13, [])                              # board grows by 2
+    assert smdb(15, ways="14 WAYS") == (2, 17, [])
+
+
+def test_single_pole_spares_in_the_model_count_by_way():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    sp_spares = [ckt("SMDB-1", 31 + i, poles="1", is_spare=True) for i in range(3)]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 10) + sp_spares
+    b = boards(build_schematic(equipment, circuits))["SMDB-1"]
+    assert [w.label for w in b.ways if w.kind == SPARE] == ["R11", "Y11", "B11", "12", "13"]
+    # a way shared with a load is not a spare way
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"]),
+                ckt("SMDB-1", 1, poles="1", load_name="L", branch_load_count=1),
+                ckt("SMDB-1", 2, poles="1", is_spare=True),
+                ckt("SMDB-1", 3, poles="1", is_spare=True)]
+    b = boards(build_schematic(equipment, circuits))["SMDB-1"]
+    assert [w.label for w in b.ways] == ["R1", "Y1", "B1", "2", "3", "4"]
+    # 17 ways and one spare way: warn
+    circuits = ([ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 17)
+                + [ckt("SMDB-1", 52 + i, poles="1", is_spare=True) for i in range(3)])
+    s = build_schematic(equipment, circuits)
+    assert boards(s)["SMDB-1"].way_count() == 18
+    assert any("SMDB-1 uses 17 ways" in w for w in s.warnings)
+
+
+def test_way_count_counts_single_pole_breakers_by_way():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + [
+        ckt("SMDB-1", i + 1, poles="1", load_name="L%d" % i, branch_load_count=1)
+        for i in range(45)]
+    assert boards(build_schematic(equipment, circuits))["SMDB-1"].way_count() == 18
