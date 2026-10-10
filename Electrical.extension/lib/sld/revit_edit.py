@@ -13,8 +13,9 @@ in the order the tools read them):
   cable                         Feeder_Size + Feeder_Type on the fed panel,
                                 VD Cable / SLD Cable where they exist
   length                        Feeder_Length_m (and the panel's VD Length when
-                                it has a value); final circuits: VD Length on
-                                the circuit and its loads that have one
+                                it has a value); final circuits:
+                                Feeder_Length_m (or VD Length) on its loads,
+                                VD Length on the circuit, where they exist
   incomer of a main board       Upstream_Protection_Rating_A / _Type, else
                                 Incomer_Rating_A + Incomer_Type, panel SLD
                                 Frame; else MCB Rating (a fed board's incomer
@@ -127,6 +128,15 @@ def _name(element):
         return "?"
 
 
+def _circuit_name(circuit):
+    """'SMDB-GF-01 CKT 1 (AHU-B-A)' rather than the bare circuit number."""
+    try:
+        text = u"%s CKT %s" % (circuit.BaseEquipment.Name, circuit.CircuitNumber)
+        return text + (u" (%s)" % circuit.LoadName if circuit.LoadName else u"")
+    except Exception:
+        return _name(circuit)
+
+
 def _breaker_text(trip, frame):
     text = "%sAT" % trim_number(trip, 1)
     return text + ("/%sAF" % trim_number(frame, 1) if frame else "")
@@ -136,7 +146,7 @@ def _apply(w, change):
     v = change.values
     panel = w.element(change.element_id)
     circuit = w.element(change.circuit_id)
-    what = _name(panel if panel is not None else circuit)
+    what = _name(panel) if panel is not None else _circuit_name(circuit)
 
     if change.kind == "breaker":
         rating, kind = revit_vd.P_UPSTREAM
@@ -182,14 +192,25 @@ def _apply(w, change):
             w.first([(panel, revit_vd.P_FEEDER_LENGTH), (panel, revit_vd.P_LENGTH),
                      (circuit, revit_vd.P_LENGTH)], length, what)
             return
-        w.write(circuit, revit_vd.P_LENGTH, length, what)
+        # A final circuit: its loads' length (read first by the VD tool),
+        # else the circuit's VD Length; whichever of them exist.
         try:
             loads = list(circuit.Elements)
         except Exception:
             loads = []
-        for load in loads:           # a load's own VD Length wins over the circuit's
+        done = 0
+        for load in loads:
+            names = [revit_vd.P_FEEDER_LENGTH]
             if _has_value(_param(load, revit_vd.P_LENGTH)):
-                w.write(load, revit_vd.P_LENGTH, length, what)
+                names.append(revit_vd.P_LENGTH)
+            for name in names:
+                if _param(load, name) is not None:
+                    done += w.write(load, name, length, what)
+        if _param(circuit, revit_vd.P_LENGTH) is not None:
+            done += w.write(circuit, revit_vd.P_LENGTH, length, what)
+        if not done:
+            w.skipped.append(u"%s: length - no Feeder_Length_m on its loads / VD Length "
+                             u"to write to" % what)
 
     elif change.kind == "incomer":
         from sld.revit_sld import P_INCOMER, P_INCOMER_TYPE
