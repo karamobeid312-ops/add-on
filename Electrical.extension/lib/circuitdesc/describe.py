@@ -9,6 +9,14 @@ STYLES = [NUMBER_NAME, NAME, NAME_NUMBER]
 
 SEPARATOR = ", "
 
+# the cable of a power circuit (sockets, power outlets...), office standard
+POWER_WIRING = [
+    ("Circuit_Wire_Size_mm2", u"4"),
+    ("Earth_Wire_Size_mm2", u"4"),
+    ("Circuit_Wire_Rating", u"27.8(5.4)"),
+    ("Circuit_Wire_Type", u"SINGLE CORE"),
+]
+
 LOAD_SLOTS = 6              # Load1_Type / _Nos / _WpU ... Load6_ on the circuits
 
 # what happens to a circuit
@@ -101,7 +109,7 @@ class Circuit(object):
     """A circuit of a board, as read from the model."""
 
     def __init__(self, ref, panel, number, slot, old, labels, feeder=False,
-                 fixtures=(), old_loads=None):
+                 fixtures=(), old_loads=None, power=False, old_wiring=None):
         self.ref = ref                  # the Revit circuit
         self.panel = panel              # board name
         self.number = number            # R1, 12...
@@ -113,6 +121,18 @@ class Circuit(object):
         self.new = self.found or self.old   # kept when no room is found
         self.loads, self.overflow = group_loads(fixtures)
         self.old_loads = list(old_loads) if old_loads is not None else list(self.loads)
+        # power circuits get the office cable; others keep theirs. Only the
+        # wiring parameters on the circuit (in old_wiring) are written.
+        self.old_wiring = dict(old_wiring or {})
+        self.wiring = dict(self.old_wiring)
+        if power:
+            for name, value in POWER_WIRING:
+                if name in self.wiring:
+                    self.wiring[name] = value
+
+    @property
+    def wiring_changed(self):
+        return self.wiring != self.old_wiring
 
     @property
     def loads_changed(self):
@@ -124,7 +144,7 @@ class Circuit(object):
             return FEEDER
         if not self.labels:
             return NO_FIXTURES
-        if self.new != self.old or self.loads_changed:
+        if self.new != self.old or self.loads_changed or self.wiring_changed:
             return CHANGE
         if not self.found:
             return NOT_FOUND

@@ -120,3 +120,30 @@ def test_unknown_load_from_the_circuit():
     assert fill_unknown(fixtures, 436) == [(u"LED", 36), (u"SO", 200), (u"SO", 200)]
     assert fill_unknown(fixtures, None) == fixtures
     assert fill_unknown([(u"A", None), (u"B", None)], 100) == [(u"A", None), (u"B", None)]
+
+
+WIRING = {u"Circuit_Wire_Size_mm2": u"", u"Earth_Wire_Size_mm2": u"",
+          u"Circuit_Wire_Rating": u"", u"Circuit_Wire_Type": u""}
+
+
+def test_power_circuit_gets_the_office_cable():
+    c = Circuit(None, u"DB", u"1", 1, u"101 OFFICE", [u"101 OFFICE"], power=True,
+                old_wiring=WIRING)
+    assert c.status == CHANGE and c.wiring == {
+        u"Circuit_Wire_Size_mm2": u"4", u"Earth_Wire_Size_mm2": u"4",
+        u"Circuit_Wire_Rating": u"27.8(5.4)", u"Circuit_Wire_Type": u"SINGLE CORE"}
+    again = Circuit(None, u"DB", u"1", 1, u"101 OFFICE", [u"101 OFFICE"], power=True,
+                    old_wiring=c.wiring)
+    assert again.status == SAME
+
+
+def test_lighting_circuit_keeps_its_cable():
+    c = Circuit(None, u"DB", u"1", 1, u"101 OFFICE", [u"101 OFFICE"], power=False,
+                old_wiring=WIRING)
+    assert not c.wiring_changed and c.status == SAME
+
+
+def test_only_wiring_parameters_on_the_circuit_are_written():
+    c = Circuit(None, u"DB", u"1", 1, u"X", [u"X"], power=True,
+                old_wiring={u"Circuit_Wire_Type": u""})
+    assert c.wiring == {u"Circuit_Wire_Type": u"SINGLE CORE"}

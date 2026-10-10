@@ -25,6 +25,8 @@ class _Change(forms.TemplateListItem):
             text += c.new or u"(blank)"
         if c.loads_changed:
             text += u"   |   " + (describe.loads_text(c.loads) or u"loads cleared")
+        if c.wiring_changed:
+            text += u"   |   cable 4 / 4 mm², 27.8(5.4), SINGLE CORE"
         return text
 
 

@@ -8,7 +8,7 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
-from circuitdesc.describe import LOAD_SLOTS, Circuit, fill_unknown, label, number_text
+from circuitdesc.describe import LOAD_SLOTS, POWER_WIRING, Circuit, fill_unknown, label, number_text
 
 FEET = 0.3048                   # metres in a foot
 SIDE_STEP = 0.3 / FEET          # off the wall, for fixtures on a wall face
@@ -240,7 +240,8 @@ def read(board, systems, models, values):
         has_loads = len(missing_load_params(system)) < LOAD_SLOTS * 3
         circuit = Circuit(system, name, system.CircuitNumber or u"", _slot(system),
                           system.LoadName, labels, feeder, fixtures,
-                          read_loads(system) if has_loads else None)
+                          read_loads(system) if has_loads else None,
+                          is_power(elements), read_wiring(system))
         circuit.has_loads = has_loads
         out.append(circuit)
     return out
@@ -436,6 +437,58 @@ def _set(param, text):
         param.Set(_from_watts(value) if _is_power(param) else value)
 
 
+LIGHTING = (BuiltInCategory.OST_LightingFixtures, BuiltInCategory.OST_LightingDevices)
+
+
+def is_power(elements):
+    """A power circuit: fixtures connected and none of them lights."""
+    if not elements:
+        return False
+    for element in elements:
+        try:
+            if id_int(element.Category.Id) in [int(c) for c in LIGHTING]:
+                return False
+        except Exception:
+            return False
+    return True
+
+
+def read_wiring(system):
+    """{name: text} of the wiring parameters on the circuit."""
+    out = {}
+    for name, _ in POWER_WIRING:
+        param = system.LookupParameter(name)
+        if param is None:
+            continue
+        if not param.HasValue:
+            out[name] = u""
+        elif param.StorageType == StorageType.String:
+            out[name] = (param.AsString() or u"").strip()
+        else:
+            out[name] = number_text(_number(param)) if _number(param) else u""
+    return out
+
+
+def write_wiring(circuit):
+    for name, text in circuit.wiring.items():
+        if text == circuit.old_wiring.get(name):
+            continue
+        param = circuit.ref.LookupParameter(name)
+        if param is None or param.IsReadOnly:
+            continue
+        if param.StorageType == StorageType.String:
+            param.Set(text)
+            continue
+        try:
+            value = float(text)
+        except ValueError:
+            continue                    # 27.8(5.4) does not go in a number
+        if param.StorageType == StorageType.Integer:
+            param.Set(int(round(value)))
+        elif param.StorageType == StorageType.Double:
+            param.Set(value)
+
+
 def write_loads(circuit):
     for i, group in enumerate(circuit.loads, 1):
         for part, text in zip((TYPE, NOS, WPU), group):
@@ -452,6 +505,8 @@ def write(circuits):
                 _write_name(circuit)
             if circuit.loads_changed:
                 write_loads(circuit)
+            if circuit.wiring_changed:
+                write_wiring(circuit)
         except Exception as error:
             failed.append((circuit, error))
     return failed
