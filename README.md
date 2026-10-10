@@ -45,6 +45,14 @@ Buttons on the **Electrical** tab → **SLD** panel:
   `(4X120)mm² CU/XLPE/SWA/PVC +(1X70)mm² CU/PVC(E)`. Board fields: incomer,
   fault level, ways and spares (count and breaker; drawn only, the Revit panel
   schedule is not changed).
+  - **Auto Size** sizes the feeder cable and breaker of every SMDB and DB
+    (nothing else) from its connected load, by the office XLPE/SWA/PVC 4-core
+    table (`lib/sld/sizing.py`: e.g. 45 kW -> `(4X25)mm² CU/XLPE/SWA/PVC
+    +(1X16)mm² CU/PVC(E)`, 100AT/100AF MCCB; 350 kW -> 2 runs of 4X240,
+    800 A). Earth: phase size up to 16, 16 for 25/35, else half. Where the
+    table gives a breaker range (60-80, 225-250) the lower rating is used for
+    the lower half of the kW range. Sized rows turn green until saved; a V.D
+    over the limit is only flagged.
   - **Save to Revit** writes the changes where the SLD and Voltage Drop tools
     read them: `Upstream_Protection_Rating_A` / `_Type` on the fed panel (or
     the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `Feeder_Size` /

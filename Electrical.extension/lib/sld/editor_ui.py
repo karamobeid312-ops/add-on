@@ -29,12 +29,13 @@ COLUMNS = (
     ("length", "Length m", 70, "text"), ("vd", "V.D %", 60, "vd"),
 )
 HIDDEN = ("key",)
-FLAGS = ("vd_over", "locked")
+FLAGS = ("vd_over", "locked", "sized")
 BOARD_CONTROLS = (("IncomerAT", "incomer_at"), ("IncomerAF", "incomer_af"),
                   ("IncomerDevice", "incomer_device"), ("FaultLevel", "fault_level"),
                   ("WaysCount", "ways"), ("SpareCount", "spares"), ("SpareAT", "spare_at"),
                   ("SpareAF", "spare_af"), ("SpareDevice", "spare_device"))
 NAMES = ("BoardsTree", "BoardTitle", "WaysGrid", "PreviewText", "WarningsText", "SaveButton",
+         "AutoSizeButton",
          "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare", "SetUtility",
          "SetSubstation", "SetShowRatings", "SetNumbering") + tuple(n for n, _ in BOARD_CONTROLS)
 
@@ -78,7 +79,8 @@ def row_values(way):
 
 def row_flags(way):
     return {"vd_over": bool(way.vd_over),
-            "locked": not any(way.editable(f) for f in ed.FIELDS)}
+            "locked": not any(way.editable(f) for f in ed.FIELDS),
+            "sized": bool(way.sized)}
 
 
 def warnings_text(warnings, limit=2):
@@ -88,6 +90,19 @@ def warnings_text(warnings, limit=2):
     if len(warnings) > limit:
         text += u"   (+%d more)" % (len(warnings) - limit)
     return text
+
+
+def auto_size_message(changed, messages):
+    lines = []
+    if changed:
+        lines.append(u"%d way(s) sized from the connected load (SMDBs and DBs only). "
+                     u"They are shown in green: check them, then Save to Revit." % len(changed))
+    else:
+        lines.append(u"Nothing changed: every SMDB and DB already matches the sizing table.")
+    if messages:
+        lines.append(u"")
+        lines += [u"- %s" % m for m in messages]
+    return u"\n".join(lines)
 
 
 def spare_count(text, step):
@@ -191,6 +206,7 @@ class EditorWindow(object):
         self.WaysGrid.CellEditEnding += self.on_cell_edit_ending
         self.WaysGrid.CurrentCellChanged += self.on_current_cell
         self.SaveButton.Click += self.on_save_click
+        self.AutoSizeButton.Click += self.on_auto_size
         self.GenerateButton.Click += self.on_generate
         self.CloseButton.Click += self.on_close_click
         self.AddSpare.Click += self.on_add_spare
@@ -391,6 +407,16 @@ class EditorWindow(object):
     def on_remove_spare(self, sender, args):
         if self.current is not None:
             self._safe(self._step_spares, -1)
+
+    def on_auto_size(self, sender, args):
+        self._commit()
+        self._safe(self._auto_size)
+
+    def _auto_size(self):
+        changed, messages = self.editor.auto_size()
+        if self.current is not None:
+            self._show_board(self.current)
+        self._alert(auto_size_message(changed, messages))
 
     def on_save_click(self, sender, args):
         self._commit()

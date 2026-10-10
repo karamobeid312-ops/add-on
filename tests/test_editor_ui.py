@@ -37,7 +37,7 @@ def test_row_values_and_flags():
     values = ui.row_values(way)
     assert values["feeds"] == "LIGHTS" and values["size"] == "6" and values["at"] == "32"
     assert set(c[0] for c in ui.COLUMNS) <= set(values)
-    assert ui.row_flags(way) == {"vd_over": False, "locked": False}
+    assert ui.row_flags(way) == {"vd_over": False, "locked": False, "sized": False}
     spare = [w for w in editor.ways("SMDB-1") if w.added][0]
     assert ui.row_flags(spare)["locked"] is True
 

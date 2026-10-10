@@ -10,7 +10,7 @@ what Save to Revit has to write (see revit_edit).
 from __future__ import division
 
 from sld import cablespec, style
-from sld.model import (PFC, SPARE, add_spares, breaker_lines, frame_rating, is_sub_main,
+from sld.model import (DB_BOX, FEEDER, PFC, SPARE, add_spares, breaker_lines, frame_rating, is_sub_main,
                        parse_amps, parse_protection, trim_number, way_positions)
 
 FIELDS = ("at", "af", "device", "runs", "cores", "size", "material", "insulation",
@@ -106,6 +106,7 @@ class WayItem(object):
         self.spare = way.kind == SPARE
         self.added = c.id.startswith("spare:")
         self.errors = {}
+        self.sized = False              # values set by Auto Size, not saved yet
         self.vd, self.vd_over, self.vd_tip = "", False, ""
         trip, frame, device = self._breaker()
         self.values = {"at": _num(trip), "af": _num(frame or frame_rating(trip)),
@@ -224,6 +225,7 @@ class Editor(object):
             if w.key in old and not w.added:     # keep what was typed
                 w.values, w.saved, w.errors = old[w.key].values, old[w.key].saved, \
                     old[w.key].errors
+                w.sized = old[w.key].sized
             self._by_key[w.key] = w
         self._ways[item.id] = ways
 
@@ -309,6 +311,66 @@ class Editor(object):
         if frame:
             text += "/%sAF" % trim_number(frame, 1)
         return (text + " " + (v["spare_device"] or "")).strip()
+
+    # ------------------------------------------------------------ auto size
+
+    def _sizable(self, w):
+        """True for a way feeding an SMDB or a DB (Auto Size sizes nothing
+        else: final circuits, UPS, spares and main boards are left alone)."""
+        if w.added or w.spare or not w.target_id:
+            return False
+        if w.kind == DB_BOX:
+            return True
+        fed = next((b for b in self.boards if b.id == w.target_id), None)
+        return (w.kind == FEEDER and fed is not None and is_sub_main(fed.board) and
+                not fed.board.is_main)
+
+    def _connected_kw(self, w):
+        """Connected load (kW) of the SMDB or DB a way feeds."""
+        if w.kind == DB_BOX:
+            return w.way.loads()[0]
+        fed = next(b for b in self.boards if b.id == w.target_id)
+        totals = fed.board.load_totals()
+        return totals[0] if totals else None
+
+    def auto_size(self):
+        """Size the feeder cable and breaker of every SMDB and DB from its
+        connected load (sld.sizing). Returns (changed way keys, messages)."""
+        from sld import sizing
+        changed, messages, done = [], [], set()
+        for b in self.boards:
+            for w in self.ways(b.id):
+                if w.target_id in done or not self._sizable(w):
+                    continue
+                done.add(w.target_id)
+                kw = self._connected_kw(w)
+                s = sizing.size_for(kw)
+                if s is None:
+                    messages.append(
+                        u"%s: no connected load, not sized." % w.feeds if not kw else
+                        u"%s: %.1f kW is more than the table's %d kW, not sized." % (
+                            w.feeds, kw, sizing.MAX_KW))
+                    continue
+                values = {"at": trim_number(s.trip, 2), "af": trim_number(s.frame, 2),
+                          "device": s.device}
+                values.update(_cable_values(s.cable))
+                for other in self._by_key.values():
+                    if other.target_id == w.target_id and not other.added:
+                        new = dict(values) if other is w else \
+                            dict((f, values[f]) for f in BREAKER_FIELDS)
+                        if any(other.values.get(f) != v for f, v in new.items()):
+                            other.values.update(new)
+                            other.sized = True
+                            for f in new:
+                                other.errors.pop(f, None)
+                            changed.append(other.key)
+                fed = next((x for x in self.boards if x.id == w.target_id), None)
+                if fed is not None:
+                    for f in BREAKER_FIELDS:
+                        fed.values["incomer_" + f] = values[f]
+        if changed:
+            self._recalculate()
+        return changed, messages
 
     def preview(self, key):
         w = self._by_key[key]
@@ -442,6 +504,8 @@ class Editor(object):
         return out
 
     def mark_saved(self):
+        for w in self._by_key.values():
+            w.sized = False
         for b in self.boards:
             b.saved = dict(b.values)
         for w in self._by_key.values():
