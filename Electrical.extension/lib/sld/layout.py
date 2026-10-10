@@ -3,7 +3,9 @@
 
 * Boards are drawn on their floor: one horizontal band per Revit level,
   with a dashed floor line and label (ROOF FLOOR, GROUND FLOOR...). Main
-  boards sit in the SUBSTATION band at the bottom with their transformer.
+  boards sit in the SUBSTATION band at the bottom with their transformer
+  and the utility supply. A board or DB fed from nothing in the model is
+  drawn on its own floor, with no supply under it.
 * A board fed from another board on the same floor is drawn in a second
   tier of that floor's band.
 * Feeders between boards are risers: straight up from the outgoing way,
@@ -168,14 +170,16 @@ class BoardGeom(object):
 
 
 class BoxGeom(object):
-    """A DB on a higher floor than its board: drawn as a DB box on its own
-    floor, fed by a riser (like UDB-FF-01 from USMDB-GF-M)."""
+    """A DB box on its own floor: a DB on a higher floor than its board, fed
+    by a riser (like UDB-FF-01 from USMDB-GF-M), or a DB fed from nothing in
+    the model (equipment, no way)."""
 
     width = 4.0
     incomer_offset = 2.0
 
-    def __init__(self, way):
+    def __init__(self, way=None, equipment=None):
         self.way = way
+        self.equipment = equipment
         self.left = 0.0
         self.bottom = 0.0       # board bottom of its row
         self.band = 0
@@ -183,11 +187,18 @@ class BoxGeom(object):
 
     @property
     def key(self):
+        if self.way is None:
+            return "db:%s" % self.equipment.id
         return "box:%s" % self.way.circuit.id
 
     @property
     def name(self):
-        return self.way.name
+        return self.way.name if self.way is not None else self.equipment.name
+
+    def loads(self):
+        if self.way is not None:
+            return self.way.loads()
+        return self.equipment.connected_kw, self.equipment.demand_kw
 
     @property
     def row(self):
@@ -210,7 +221,7 @@ class BoxGeom(object):
         return self.feed_y
 
     def content_height(self):
-        return symbols.db_box_height(self.name, self.way.loads())
+        return symbols.db_box_height(self.name, self.loads())
 
 
 class Feed(object):
@@ -264,8 +275,12 @@ def layout_schematic(schematic, settings=None):
             _draw_board(d, g, settings)
     for f in feeds:
         _draw_feed(d, f, row_base)
+    for box in boxes:
+        if box.way is None:
+            symbols.db_box(d, box.incomer_x, box.feed_y, box.name, box.loads())
     for root in schematic.roots:
-        _draw_source(d, geoms[root.id], floor_ys[SUBSTATION_BAND], settings)
+        if root.is_main:
+            _draw_source(d, geoms[root.id], floor_ys[SUBSTATION_BAND], settings)
 
     x0, _, x1, _ = d.bounds()
     bands = []
@@ -292,14 +307,18 @@ def _assign_rows(schematic, geoms):
         for w in b.ways:
             if w.kind == DB_BOX and w.target is not None:
                 levels.setdefault(w.target.level_name, w.target.level_elevation)
+    for e in schematic.loose_dbs:
+        levels.setdefault(e.level_name, e.level_elevation)
     ordered = sorted(levels.items(), key=lambda kv: (kv[1], kv[0]))
     band_of_level = dict((name, i) for i, (name, _) in enumerate(ordered))
     band_names = dict((i, name.upper()) for i, (name, _) in enumerate(ordered))
 
     def visit(board, parent_geom):
         g = geoms[board.id]
-        if board.is_main or parent_geom is None:
+        if board.is_main:
             g.band, g.tier = SUBSTATION_BAND, 0
+        elif parent_geom is None:
+            g.band, g.tier = band_of_level[board.equipment.level_name], 0
         else:
             band = band_of_level[board.equipment.level_name]
             if band > parent_geom.band:
@@ -325,12 +344,18 @@ def _assign_rows(schematic, geoms):
                 box.band, box.tier = band, 0
                 boxes.append(box)
                 g.remote_ways.add(w)
+    for e in schematic.loose_dbs:
+        box = BoxGeom(equipment=e)
+        box.band, box.tier = band_of_level[e.level_name], 0
+        boxes.append(box)
     return band_names, boxes
 
 
 def _collect_feeds(schematic, geoms, boxes):
     feeds = []
     for box in boxes:
+        if box.way is None:
+            continue
         board = next(b for b in schematic.boards() if box.way in b.ways)
         feeds.append(Feed(geoms[board.id], box, way=box.way))
     for b in schematic.boards():
@@ -589,7 +614,7 @@ def _draw_way_end(d, g, w, x, settings):
 def _draw_feed(d, f, row_base):
     xt, yt = f.target.incomer_x, f.target.feed_y
     if isinstance(f.target, BoxGeom):
-        symbols.db_box(d, xt, yt, f.target.name, f.target.way.loads())
+        symbols.db_box(d, xt, yt, f.target.name, f.target.loads())
     points = [(f.source_x(), f.source_y())]
     for row, x0, x1, track in f.jogs:
         y = row_base[row] - style.JOG_FIRST - track * style.JOG_TRACK

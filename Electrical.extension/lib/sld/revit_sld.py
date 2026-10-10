@@ -685,7 +685,7 @@ def generate(doc, settings=None, numbering="slots"):
     equipment, circuits, phases_of, warnings = extract(doc)
     schematic = build_schematic(equipment, circuits, phases_of, numbering)
     schematic.warnings = warnings + schematic.warnings
-    if not schematic.roots:
+    if schematic.is_empty():
         return None, schematic
 
     layout = layout_schematic(schematic, settings or LayoutSettings())

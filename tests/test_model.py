@@ -403,3 +403,22 @@ def test_way_count_counts_single_pole_breakers_by_way():
         ckt("SMDB-1", i + 1, poles="1", load_name="L%d" % i, branch_load_count=1)
         for i in range(45)]
     assert boards(build_schematic(equipment, circuits))["SMDB-1"].way_count() == 18
+
+
+def test_unconnected_panels_only_mdb_is_main():
+    equipment = [eq("MDB-1", level_name="Substation"), eq("SMDB-GF-01", level_name="Ground Floor"),
+                 eq("DB-FF-01", level_name="First Floor", connected_kw=12.0, demand_kw=9.0),
+                 eq("EMDB-1"), eq("PANEL-X")]
+    circuits = [ckt("DB-FF-01", 1, load_name="LIGHTING"), ckt("SMDB-GF-01", 1, load_name="AHU")]
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    assert b["MDB-1"].role == MAIN_BOARD and b["EMDB-1"].role == MAIN_BOARD
+    assert b["SMDB-GF-01"].role == BOARD and b["SMDB-GF-01"].parent is None
+    assert sorted(r.name for r in s.roots) == ["EMDB-1", "MDB-1", "SMDB-GF-01"]
+    assert "DB-FF-01" not in b                       # a DB is never drawn as a board
+    assert [e.name for e in s.loose_dbs] == ["DB-FF-01", "PANEL-X"]
+
+
+def test_fed_db_is_not_loose():
+    s = build_schematic([eq("MDB-1"), eq("DB-1")], [ckt("MDB-1", 1, ["DB-1"])])
+    assert s.loose_dbs == []

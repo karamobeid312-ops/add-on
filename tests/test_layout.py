@@ -265,3 +265,23 @@ def test_revit_numbering_draws_no_empty_way_labels():
     s = build_schematic(*sample_al_yasat.build(), numbering="revit")
     assert any(w.label == "" for b in s.boards() for w in b.ways)
     assert all(t.text for t in layout_schematic(s).drawing.texts)
+
+
+def test_unconnected_boards_on_their_floor_and_only_mdb_from_utility():
+    from sld.model import EquipmentInfo, CircuitInfo
+    def eq(name, level, elev):
+        return EquipmentInfo(name, name, level_name=level, level_elevation=elev)
+    equipment = [eq("MDB-1", "Ground Floor", 0.0), eq("SMDB-FF-01", "First Floor", 4.0),
+                 eq("DB-FF-02", "First Floor", 4.0), eq("DB-SF-01", "Second Floor", 8.0)]
+    circuits = [CircuitInfo("c1", "DB-FF-02", "1", load_name="LIGHTS", start_slot=1)]
+    lay = layout_schematic(build_schematic(equipment, circuits), LayoutSettings(utility="TAQA"))
+    texts = _texts(lay.drawing)
+    assert sum("FROM TAQA" in t for t in texts) == 1
+    assert [label for label, _ in lay.bands] == ["SUBSTATION", "FIRST FLOOR", "SECOND FLOOR"]
+    g = dict((x.name, x) for x in lay.geoms.values())
+    assert g["SMDB-FF-01"].row == (0, 0)
+    assert isinstance(g["DB-FF-02"], BoxGeom) and g["DB-FF-02"].row == (0, 0)
+    assert isinstance(g["DB-SF-01"], BoxGeom) and g["DB-SF-01"].row == (1, 0)
+    assert "LIGHTS" not in texts                      # nothing inside a DB is drawn
+    assert "DB-SF-01" in texts
+    assert overlaps(lay.drawing) == []

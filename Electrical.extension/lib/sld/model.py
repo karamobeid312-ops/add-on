@@ -7,10 +7,14 @@ numbered ways, following the office drawing standard:
 * A *board* (MDB, SMDB, USMDB...) is drawn as a full switchboard with a
   busbar and every outgoing way. Equipment is a board when it feeds other
   equipment, is fed from a UPS/transformer, or has no upstream supply.
-* A *main board* is a board with no upstream board (fed from a transformer
-  or the utility). It is drawn in the SUBSTATION band with ACB, meters, SPD.
+* A *main board* (MDB, EMDB, MSB...) is fed from the utility (TAQA) or a
+  transformer. It is drawn in the SUBSTATION band with ACB, meters, SPD.
+  Only an MDB-named board (or one fed from the utility transformer) takes
+  the utility supply; any other board fed from nothing in the model is drawn
+  on its floor with no supply.
 * A *DB* (LDB, PDB, DB-...) only feeds final circuits and is drawn as a
-  box at the end of its way.
+  box at the end of its way; one fed from nothing is a box on its floor.
+  What is inside a DB is never drawn.
 * A *UPS* (or a transformer fed from a board) is drawn between the ways
   that supply it and the board it feeds.
 
@@ -401,9 +405,13 @@ class Board(object):
 
 
 class Schematic(object):
-    def __init__(self, roots, warnings):
-        self.roots = roots
+    def __init__(self, roots, warnings, loose_dbs=None):
+        self.roots = roots              # main boards, and boards fed from nothing
         self.warnings = warnings
+        self.loose_dbs = loose_dbs or []   # EquipmentInfo of DBs fed from nothing
+
+    def is_empty(self):
+        return not self.roots and not self.loose_dbs
 
     def boards(self):
         for root in self.roots:
@@ -465,12 +473,19 @@ def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transforme
         return TRANSFORMER
     if "UPS" in family:
         return UPS
-    if not has_feeder or fed_from_root_transformer:
+    if fed_from_root_transformer or (not has_feeder and is_main_name(eq.name)):
         return MAIN_BOARD
     if (feeds_equipment or fed_by_role in (UPS, TRANSFORMER) or eq.part_type == "switchboard"
             or re.search(style.BOARD_NAME_PATTERN, eq.name or "", re.IGNORECASE)):
         return BOARD
     return DB
+
+
+def is_main_name(name):
+    """MDB, EMDB, MSB...: a main board name (not SMDB / USMDB)."""
+    name = name or ""
+    return bool(re.search(style.BOARD_NAME_PATTERN, name, re.IGNORECASE) and
+                not re.search(style.SUB_MAIN_NAME_PATTERN, name, re.IGNORECASE))
 
 
 def is_sub_main(board):
@@ -715,8 +730,6 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
     for b in boards.values():
         if b.parent is not None and b.role == MAIN_BOARD:
             b.role = BOARD
-    for b in roots:
-        b.role = MAIN_BOARD
     # Feed loops: boards never reached from a root.
     reached = set()
     for r in roots:
@@ -724,11 +737,11 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             reached.add(b.id)
     for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
         if b.id not in reached:
-            warnings.append("%s is part of a feed loop; drawn as a separate source." % b.name)
+            warnings.append("%s is part of a feed loop; drawn on its floor without "
+                            "its feed." % b.name)
             if b.parent is not None:
                 b.parent.children.remove(b)
             b.parent, b.feed_way, b.feed_pass_through = None, None, None
-            b.role = MAIN_BOARD
             roots.append(b)
             for x in b.iter_tree():
                 reached.add(x.id)
@@ -738,7 +751,10 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             if is_sub_main(b) or b.equipment.spares not in (None, ""):
                 warnings.extend(add_spares(b, numbering, phases_of.get(b.id, 3)))
 
-    return Schematic(roots, warnings)
+    drawn = set(w.target_id for b in boards.values() for w in b.ways)
+    loose = sorted([e for e in equipment if roles[e.id] == DB and e.id not in drawn],
+                   key=lambda e: natural_key(e.name))
+    return Schematic(roots, warnings, loose)
 
 
 def _child_order(parent, child):
