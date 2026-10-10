@@ -3,8 +3,7 @@
 from pyrevit import forms, revit, script
 
 from circuitdesc import describe, revit_desc, settings
-from circuitdesc.describe import CHANGE, FEEDER, NAME, NAME_NUMBER, NO_FIXTURES, NOT_FOUND, \
-    NUMBER_NAME
+from circuitdesc.describe import CHANGE, FEEDER, NAME, NAME_NUMBER, NO_FIXTURES, NUMBER_NAME
 
 TITLE = "Circuit Description"
 
@@ -19,7 +18,14 @@ class _Change(forms.TemplateListItem):
     @property
     def name(self):
         c = self.item
-        return u"%s  %s:   %s   >   %s" % (c.panel, c.number, c.old or u"(blank)", c.new)
+        text = u"%s  %s:   " % (c.panel, c.number)
+        if c.new != c.old:
+            text += u"%s   >   %s" % (c.old or u"(blank)", c.new)
+        else:
+            text += c.new or u"(blank)"
+        if c.loads_changed:
+            text += u"   |   " + (describe.loads_text(c.loads) or u"loads cleared")
+        return text
 
 
 def _choose_boards(doc, uidoc, circuits):
@@ -43,14 +49,15 @@ def _show(done, found, failed):
     output.print_md(u"%d circuit%s described." % (len(done), "" if len(done) == 1 else "s"))
     if done:
         output.print_table(
-            table_data=[[c.panel, c.number, c.old, c.new] for c in done],
-            columns=["Board", "Circuit", "Was", "Now"])
+            table_data=[[c.panel, c.number, c.old, c.new, describe.loads_text(c.loads)]
+                        for c in done],
+            columns=["Board", "Circuit", "Was", "Now", "Loads"])
     if failed:
         output.print_md("## Not written")
         output.print_table(
             table_data=[[c.panel, c.number, u"%s" % e] for c, e in failed],
             columns=["Board", "Circuit", "Why"])
-    missing = describe.by_status(found, NOT_FOUND)
+    missing = [c for c in found if c.labels and not c.feeder and not c.found]
     if missing:
         output.print_md("## No room found: description kept")
         output.print_md("*Their fixtures are in no room of the linked models (outside the "
@@ -60,7 +67,7 @@ def _show(done, found, failed):
                          output.linkify([e.Id for e in c.ref.Elements], "select fixtures")]
                         for c in missing],
             columns=["Board", "Circuit", "Description", ""])
-    partial = [c for c in describe.by_status(found, CHANGE) if c.missing and c in done]
+    partial = [c for c in done if c.missing and c.found]
     if partial:
         output.print_md("## Some fixtures in no room")
         output.print_md("*Described from the fixtures that are in a room.*")
@@ -69,7 +76,29 @@ def _show(done, found, failed):
                          output.linkify([e.Id for e in c.ref.Elements], "select fixtures")]
                         for c in partial],
             columns=["Board", "Circuit", "Fixtures in no room", ""])
+    over = [c for c in found if c.overflow and not c.feeder]
+    if over:
+        output.print_md("## More than %d fixture types" % describe.LOAD_SLOTS)
+        output.print_md("*Only the %d types with the most fixtures are in Load1 to Load%d.*"
+                        % (describe.LOAD_SLOTS, describe.LOAD_SLOTS))
+        output.print_table(table_data=[[c.panel, c.number] for c in over],
+                           columns=["Board", "Circuit"])
+    no_watts = [c for c in done if any(nos and not wpu for _, nos, wpu in c.loads)]
+    if no_watts:
+        output.print_md("## Fixtures with no load")
+        output.print_md("*Their W PER UNIT is left blank: give the fixture family an "
+                        "Apparent Load.*")
+        output.print_table(
+            table_data=[[c.panel, c.number,
+                         u", ".join(t or u"?" for t, nos, wpu in c.loads if nos and not wpu)]
+                        for c in no_watts],
+            columns=["Board", "Circuit", "Types"])
     others = []
+    no_params = [c for c in found if not getattr(c, "has_loads", True) and not c.feeder]
+    if no_params:
+        others.append(u"%d circuit%s without the Load1_Type ... Load6_WpU parameters: "
+                      u"only the description was written" % (
+                          len(no_params), "" if len(no_params) == 1 else "s"))
     feeders = describe.by_status(found, FEEDER)
     if feeders:
         others.append(u"%d circuit%s feeding other boards kept %s description" % (
@@ -84,7 +113,8 @@ def _show(done, found, failed):
 
 
 def run():
-    """Write the room of each circuit's fixtures to its Load Name."""
+    """Write the room of each circuit's fixtures to its Load Name, and its
+    fixtures by type to Load1_Type / _Nos / _WpU ... Load6_."""
     doc, uidoc = revit.doc, revit.uidoc
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model to describe the circuits.", title=TITLE)
@@ -112,8 +142,8 @@ def run():
     changes = describe.by_status(found, CHANGE)
     if not changes:
         _show([], found, [])
-        forms.alert("Nothing to change: the circuits already say their rooms, or no room "
-                    "was found for them (see the report).", title=TITLE)
+        forms.alert("Nothing to change: the circuits already say their rooms and loads, "
+                    "or no room was found for them (see the report).", title=TITLE)
         return
 
     chosen = forms.SelectFromList.show(
@@ -122,7 +152,7 @@ def run():
         multiselect=True, button_name="Write descriptions", width=900, height=650)
     if not chosen:
         return
-    with revit.Transaction("Circuit descriptions from rooms"):
+    with revit.Transaction("Circuit descriptions and loads"):
         failed = revit_desc.write(chosen)
     bad = set(id(c) for c, _ in failed)
     _show([c for c in chosen if id(c) not in bad], found, failed)

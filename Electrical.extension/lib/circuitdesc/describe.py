@@ -9,6 +9,8 @@ STYLES = [NUMBER_NAME, NAME, NAME_NUMBER]
 
 SEPARATOR = ", "
 
+LOAD_SLOTS = 6              # Load1_Type / _Nos / _WpU ... Load6_ on the circuits
+
 # what happens to a circuit
 CHANGE = "change"           # gets a new description
 SAME = "same"               # already says it
@@ -45,10 +47,61 @@ def describe(labels):
     return SEPARATOR.join(out)
 
 
+def number_text(value):
+    """'36', '7.5' or '' for a count or a load in W."""
+    if value is None:
+        return u""
+    value = round(float(value), 1)
+    if value == int(value):
+        return u"%d" % int(value)
+    return u"%.1f" % value
+
+
+def fill_unknown(fixtures, circuit_watts):
+    """Fixtures [(type, watts)] with the load of the one type whose fixtures
+    have none worked out from the circuit's load (all unknown types: unchanged)."""
+    unknown = set(kind for kind, watts in fixtures if watts is None)
+    if len(unknown) != 1 or not circuit_watts:
+        return list(fixtures)
+    known = sum(watts for _, watts in fixtures if watts is not None)
+    count = sum(1 for _, watts in fixtures if watts is None)
+    rest = circuit_watts - known
+    if rest <= 0:
+        return list(fixtures)
+    return [(kind, watts if watts is not None else rest / count) for kind, watts in fixtures]
+
+
+def group_loads(fixtures, slots=LOAD_SLOTS):
+    """The load groups of a circuit from its fixtures [(type, watts)]:
+    [(type, nos, W per unit)], most fixtures first, padded to `slots`
+    with ('', '', ''); and whether some types did not fit."""
+    counts, order = {}, []
+    for kind, watts in fixtures:
+        key = (_clean(kind), number_text(watts))
+        if key not in counts:
+            counts[key] = 0
+            order.append(key)
+        counts[key] += 1
+    keys = sorted(order, key=lambda k: (-counts[k], order.index(k)))
+    groups = [(k[0], u"%d" % counts[k], k[1]) for k in keys[:slots]]
+    groups += [(u"", u"", u"")] * (slots - len(groups))
+    return groups, len(keys) > slots
+
+
+def loads_text(groups):
+    """'2 x LED 36W (36 W), 1 x EXIT (5 W)' for the preview."""
+    parts = []
+    for kind, nos, wpu in groups:
+        if nos:
+            parts.append(u"%s x %s%s" % (nos, kind or u"?", u" (%s W)" % wpu if wpu else u""))
+    return u", ".join(parts)
+
+
 class Circuit(object):
     """A circuit of a board, as read from the model."""
 
-    def __init__(self, ref, panel, number, slot, old, labels, feeder=False):
+    def __init__(self, ref, panel, number, slot, old, labels, feeder=False,
+                 fixtures=(), old_loads=None):
         self.ref = ref                  # the Revit circuit
         self.panel = panel              # board name
         self.number = number            # R1, 12...
@@ -56,7 +109,14 @@ class Circuit(object):
         self.old = old or u""
         self.labels = list(labels)      # one per fixture, None when not in a room
         self.feeder = feeder
-        self.new = describe(self.labels)
+        self.found = describe(self.labels)
+        self.new = self.found or self.old   # kept when no room is found
+        self.loads, self.overflow = group_loads(fixtures)
+        self.old_loads = list(old_loads) if old_loads is not None else list(self.loads)
+
+    @property
+    def loads_changed(self):
+        return self.loads != self.old_loads
 
     @property
     def status(self):
@@ -64,11 +124,11 @@ class Circuit(object):
             return FEEDER
         if not self.labels:
             return NO_FIXTURES
-        if not self.new:
+        if self.new != self.old or self.loads_changed:
+            return CHANGE
+        if not self.found:
             return NOT_FOUND
-        if self.new == self.old:
-            return SAME
-        return CHANGE
+        return SAME
 
     @property
     def missing(self):

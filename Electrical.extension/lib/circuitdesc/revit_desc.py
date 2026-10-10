@@ -4,11 +4,11 @@ fixture is in (in the architectural link, else in this model), and the
 descriptions written to the circuits' Load Name."""
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, ElementId, FilteredElementCollector, LocationCurve,
-    LocationPoint, RevitLinkInstance, XYZ,
+    LocationPoint, RevitLinkInstance, StorageType, XYZ,
 )
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
-from circuitdesc.describe import Circuit, label
+from circuitdesc.describe import LOAD_SLOTS, Circuit, fill_unknown, label, number_text
 
 FEET = 0.3048                   # metres in a foot
 SIDE_STEP = 0.3 / FEET          # off the wall, for fixtures on a wall face
@@ -224,7 +224,7 @@ def read(board, systems, models, values):
     for system in systems:
         elements = [e for e in system.Elements if e is not None]
         feeder = any(_is_board(e) and id_int(e.Id) != id_int(board.Id) for e in elements)
-        labels = []
+        labels, fixtures = [], []
         if not feeder:
             for element in elements:
                 key = id_int(element.Id)
@@ -233,22 +233,209 @@ def read(board, systems, models, values):
                     cache[key] = (space_label(space, values["style"], values["upper"])
                                   if space is not None else None)
                 labels.append(cache[key])
-        out.append(Circuit(system, name, system.CircuitNumber or u"", _slot(system),
-                           system.LoadName, labels, feeder))
+                fixtures.append((fixture_type(element), fixture_watts(element)))
+        if any(watts is None for _, watts in fixtures):
+            fixtures = fill_unknown(fixtures, circuit_watts(system))
+        # without the Load parameters on the circuit the groups are not written
+        has_loads = len(missing_load_params(system)) < LOAD_SLOTS * 3
+        circuit = Circuit(system, name, system.CircuitNumber or u"", _slot(system),
+                          system.LoadName, labels, feeder, fixtures,
+                          read_loads(system) if has_loads else None)
+        circuit.has_loads = has_loads
+        out.append(circuit)
     return out
 
 
+# ---------------------------------------------------------------- load groups
+
+TYPE, NOS, WPU = "Type", "Nos", "WpU"
+# fixture parameters holding its load, when Revit's own is not on it
+LOAD_NAMES = ("Apparent Load", "Wattage", "Load", "Power", "Apparent Power", "Watts")
+
+
+def _symbol(element):
+    try:
+        return element.Document.GetElement(element.GetTypeId())
+    except Exception:
+        return None
+
+
+def fixture_type(element):
+    """What the TYPE column says: the Type Comments of the fixture's type,
+    else its type name."""
+    symbol = _symbol(element)
+    if symbol is None:
+        return u""
+    text = _bip_text(symbol, "ALL_MODEL_TYPE_COMMENTS").strip()
+    if text:
+        return text
+    try:
+        p = symbol.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)
+        return (p.AsString() or u"").strip()
+    except Exception:
+        return u""
+
+
+def _is_power(param):
+    try:
+        from Autodesk.Revit.DB import SpecTypeId
+        spec = param.Definition.GetDataType()
+        return spec in (SpecTypeId.ApparentPower, SpecTypeId.ElectricalPower,
+                        SpecTypeId.Wattage)
+    except Exception:
+        pass
+    try:
+        from Autodesk.Revit.DB import ParameterType       # Revit 2021 and older
+        return param.Definition.ParameterType in (
+            ParameterType.ElectricalApparentPower, ParameterType.ElectricalPower,
+            ParameterType.ElectricalWattage)
+    except Exception:
+        return False
+
+
+def _to_watts(internal):
+    try:
+        from Autodesk.Revit.DB import UnitTypeId, UnitUtils
+        return UnitUtils.ConvertFromInternalUnits(internal, UnitTypeId.Watts)
+    except Exception:
+        return internal * FEET ** 2
+
+
+def _from_watts(watts):
+    try:
+        from Autodesk.Revit.DB import UnitTypeId, UnitUtils
+        return UnitUtils.ConvertToInternalUnits(watts, UnitTypeId.Watts)
+    except Exception:
+        return watts / FEET ** 2
+
+
+def _number(param):
+    """The value of a number or text parameter, power in W; None when empty."""
+    if param is None or not param.HasValue:
+        return None
+    if param.StorageType == StorageType.Double:
+        value = param.AsDouble()
+        return _to_watts(value) if _is_power(param) else value
+    if param.StorageType == StorageType.Integer:
+        return float(param.AsInteger())
+    if param.StorageType == StorageType.String:
+        text = (param.AsString() or u"").upper().replace("VA", "").replace("W", "")
+        try:
+            return float(text.replace(",", ".").strip())
+        except ValueError:
+            return None
+    return None
+
+
+def fixture_watts(element):
+    """The load of one fixture in W (VA): Revit's Apparent Load of its
+    connector, else a load parameter of the instance or its type."""
+    symbol = _symbol(element)
+    for holder in (element, symbol):
+        if holder is None:
+            continue
+        try:
+            value = _number(holder.get_Parameter(BuiltInParameter.RBS_ELEC_APPARENT_LOAD))
+            if value:
+                return value
+        except Exception:
+            pass
+    for holder in (element, symbol):
+        if holder is None:
+            continue
+        for name in LOAD_NAMES:
+            try:
+                value = _number(holder.LookupParameter(name))
+            except Exception:
+                value = None
+            if value:
+                return value
+    return None
+
+
+def circuit_watts(system):
+    """The circuit's apparent load in VA (W), None when not known."""
+    try:
+        value = _to_watts(system.ApparentLoad)
+        return value if value > 0 else None
+    except Exception:
+        return _number(system.get_Parameter(BuiltInParameter.RBS_ELEC_APPARENT_LOAD))
+
+
+def _load_param(system, i, part):
+    return system.LookupParameter("Load%d_%s" % (i, part))
+
+
+def missing_load_params(system):
+    """Names of the Load1_Type ... Load6_WpU parameters not on the circuit."""
+    return ["Load%d_%s" % (i, part) for i in range(1, LOAD_SLOTS + 1)
+            for part in (TYPE, NOS, WPU) if _load_param(system, i, part) is None]
+
+
+def _read_text(param, part):
+    if param is None or not param.HasValue:
+        return u""
+    if part == TYPE or param.StorageType == StorageType.String:
+        text = (param.AsString() or u"").strip()
+        if part == TYPE:
+            return text
+        value = _number(param)
+        return number_text(value) if value is not None else text
+    value = _number(param)
+    return number_text(value) if value else u""
+
+
+def read_loads(system):
+    """[(type, nos, W per unit)] typed on the circuit now."""
+    return [tuple(_read_text(_load_param(system, i, part), part)
+                  for part in (TYPE, NOS, WPU)) for i in range(1, LOAD_SLOTS + 1)]
+
+
+def _set(param, text):
+    """Write a Load parameter from its text; nothing to write clears it."""
+    if param is None or param.IsReadOnly:
+        return
+    if param.StorageType == StorageType.String:
+        param.Set(text)
+        return
+    if not text:
+        try:
+            param.ClearValue()
+        except Exception:
+            param.Set(0 if param.StorageType == StorageType.Integer else 0.0)
+        return
+    value = float(text)
+    if param.StorageType == StorageType.Integer:
+        param.Set(int(round(value)))
+    elif param.StorageType == StorageType.Double:
+        param.Set(_from_watts(value) if _is_power(param) else value)
+
+
+def write_loads(circuit):
+    for i, group in enumerate(circuit.loads, 1):
+        for part, text in zip((TYPE, NOS, WPU), group):
+            _set(_load_param(circuit.ref, i, part), text)
+
+
 def write(circuits):
-    """Write the new descriptions; [(circuit, error)] of those that failed."""
+    """Write the new descriptions and load groups; [(circuit, error)] of
+    those that failed."""
     failed = []
     for circuit in circuits:
         try:
-            circuit.ref.LoadName = circuit.new
-        except Exception:
-            try:
-                p = circuit.ref.get_Parameter(BuiltInParameter.RBS_ELEC_CIRCUIT_NAME)
-                if p is None or p.IsReadOnly or not p.Set(circuit.new):
-                    raise Exception("Load Name is read only")
-            except Exception as error:
-                failed.append((circuit, error))
+            if circuit.new != circuit.old:
+                _write_name(circuit)
+            if circuit.loads_changed:
+                write_loads(circuit)
+        except Exception as error:
+            failed.append((circuit, error))
     return failed
+
+
+def _write_name(circuit):
+    try:
+        circuit.ref.LoadName = circuit.new
+    except Exception:
+        p = circuit.ref.get_Parameter(BuiltInParameter.RBS_ELEC_CIRCUIT_NAME)
+        if p is None or p.IsReadOnly or not p.Set(circuit.new):
+            raise Exception("Load Name is read only")
