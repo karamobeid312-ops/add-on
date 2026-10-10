@@ -63,6 +63,17 @@ class CableSpec(object):
             text += u" +(1X%s)%s %s" % (_trim(self.earth_size), MM2, EARTH_BUILD)
         return text
 
+    def feeder_fields(self):
+        """(Feeder_Size, Feeder_Type) of the office panel family, e.g.
+        ('(4X120)mm² +(1X70)mm²', 'CU/XLPE/SWA/PVC')."""
+        text = self.text()
+        if not text:
+            return "", ""
+        main = text.split(u" ", 1)[0]
+        if self.earth_size:
+            main += u" +(1X%s)%s" % (_trim(self.earth_size), MM2)
+        return main, self.build()
+
     def vd_cable(self):
         """The cable as the Voltage Drop tool sees it."""
         from vdrop import parse
@@ -108,6 +119,22 @@ def parse(text):
                      runs=int(match.group(1)) if match.group(1) else 1, material=material,
                      insulation=insulation, armour=armour, sheath=sheath,
                      earth_size=earth_size)
+
+
+def feeder_text(size, kind):
+    """Cable text from the panel's Feeder_Size and Feeder_Type."""
+    size, kind = (size or u"").strip(), (kind or u"").strip()
+    main, plus, earth = size.partition(u"+")
+    text = (u"%s %s" % (main.strip(), kind)).strip()
+    if plus and earth.strip():
+        text += u" +%s %s" % (earth.strip(), EARTH_BUILD)
+    return text
+
+
+def from_feeder(size, kind):
+    """CableSpec from Feeder_Size / Feeder_Type, None when unreadable
+    (e.g. 'REFER TO SINGLE LINE DIAGRAM')."""
+    return parse(feeder_text(size, kind))
 
 
 def from_vd(cable):

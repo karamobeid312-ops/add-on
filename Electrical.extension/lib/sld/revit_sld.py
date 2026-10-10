@@ -351,12 +351,17 @@ def _vd_cable_text(cable, system):
 
 
 def _typed_cable_text(elements):
-    """VD Cable typed on the fed panel or the circuit (what the editor
-    saves), in the office format; '' when none can be read."""
+    """VD Cable, else Feeder_Size + Feeder_Type, typed on the fed panel or
+    the circuit (what the editor saves), in the office format; '' when none
+    can be read."""
     from sld import cablespec
     for element in elements:
-        text = _lookup(element, "VD Cable") if element is not None else ""
+        if element is None:
+            continue
+        text = _lookup(element, "VD Cable")
         spec = cablespec.parse(text) if text else None
+        spec = spec or cablespec.from_feeder(_lookup(element, "Feeder_Size"),
+                                             _lookup(element, "Feeder_Type"))
         if spec is not None:
             return spec.text()
     return ""

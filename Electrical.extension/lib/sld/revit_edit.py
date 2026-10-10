@@ -10,11 +10,11 @@ in the order the tools read them):
                                 + Upstream_Protection_Type on the fed panel;
                                 else as a final circuit
   breaker of a final circuit    circuit Rating, SLD Frame, SLD Breaker Type
-  cable                         circuit SLD Cable (printed as typed) and
-                                VD Cable on the fed panel / circuit
-  length                        VD Length (panel), Feeder_Length_m, VD Length
-                                (circuit); final circuits: the circuit and
-                                its loads that have one
+  cable                         Feeder_Size + Feeder_Type on the fed panel,
+                                VD Cable / SLD Cable where they exist
+  length                        Feeder_Length_m (and the panel's VD Length when
+                                it has a value); final circuits: VD Length on
+                                the circuit and its loads that have one
   incomer of a main board       Upstream_Protection_Rating_A / _Type, else
                                 Incomer_Rating_A + Incomer_Type, panel SLD
                                 Frame; else MCB Rating (a fed board's incomer
@@ -158,16 +158,28 @@ def _apply(w, change):
             w.write(circuit, "SLD Breaker Type", v["device"], what)
 
     elif change.kind == "cable":
-        w.write(circuit, "SLD Cable", v["text"], what)
-        if panel is not None and _param(panel, revit_vd.P_CABLE) is not None:
-            w.write(panel, revit_vd.P_CABLE, v["text"], what)
-        if _param(circuit, revit_vd.P_CABLE) is not None:
-            w.write(circuit, revit_vd.P_CABLE, v["text"], what)
+        from sld import cablespec
+        done = 0
+        spec = cablespec.parse(v["text"])
+        if panel is not None and spec is not None:
+            for name, value in zip(revit_vd.P_FEEDER_CABLE, spec.feeder_fields()):
+                if _param(panel, name) is not None:
+                    done += w.write(panel, name, value, what)
+        for element, name in ((panel, revit_vd.P_CABLE), (circuit, "SLD Cable"),
+                              (circuit, revit_vd.P_CABLE)):
+            if element is not None and _param(element, name) is not None:
+                done += w.write(element, name, v["text"], what)
+        if not done:
+            w.skipped.append(u"%s: cable %s - no Feeder_Size / VD Cable / SLD Cable "
+                             u"to write to" % (what, v["text"]))
 
     elif change.kind == "length":
         length = v["length"]
         if panel is not None:
-            w.first([(panel, revit_vd.P_LENGTH), (panel, revit_vd.P_FEEDER_LENGTH),
+            # Feeder_Length_m, and VD Length too when it holds a value (it is read first)
+            if _has_value(_param(panel, revit_vd.P_LENGTH)):
+                w.write(panel, revit_vd.P_LENGTH, length, what)
+            w.first([(panel, revit_vd.P_FEEDER_LENGTH), (panel, revit_vd.P_LENGTH),
                      (circuit, revit_vd.P_LENGTH)], length, what)
             return
         w.write(circuit, revit_vd.P_LENGTH, length, what)

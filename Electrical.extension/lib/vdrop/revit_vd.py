@@ -53,6 +53,7 @@ P_TOTAL = "VD Total Percent"
 # Office panel family parameters: the length when VD Length is empty, and
 # the breaker feeding the panel.
 P_FEEDER_LENGTH = "Feeder_Length_m"
+P_FEEDER_CABLE = ("Feeder_Size", "Feeder_Type")      # (4X120)mm² / CU/XLPE/SWA/PVC
 P_UPSTREAM = ("Upstream_Protection_Rating_A", "Upstream_Protection_Type")
 # Where each parameter goes. Lengths can also be typed on the loads of final
 # circuits (fixtures, mechanical equipment).
@@ -360,6 +361,13 @@ def _typed_cable(element, names, notes):
     return None
 
 
+def _feeder_cable(element):
+    """Cable from the panel's Feeder_Size + Feeder_Type, or None."""
+    from sld.cablespec import feeder_text
+    text = feeder_text(*[_text(element, n) for n in P_FEEDER_CABLE])
+    return parse.cable(text) if text else None
+
+
 def _revit_cable(system, notes):
     """Cable from the circuit's wire size, the only place Revit keeps it."""
     if system is None:
@@ -457,7 +465,7 @@ def _panel_feeder(panel, system, source, values, model):
     mdl = _first(typed, _typed_load, notes)
     if mdl is None and values["load_basis"] == MDL and panel.demand_kva:
         mdl = panel.demand_kva * to_kw
-    cable = (_typed_cable(el, (P_CABLE, "SLD Incoming Cable"), notes) or
+    cable = (_typed_cable(el, (P_CABLE, "SLD Incoming Cable"), notes) or _feeder_cable(el) or
              (_typed_cable(system, (P_CABLE, "SLD Cable"), notes) if system is not None else None))
     if cable is None and not [n for n in notes if n.startswith("VD Cable")]:
         cable = _revit_cable(system, notes)

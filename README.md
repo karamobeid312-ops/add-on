@@ -47,8 +47,8 @@ Buttons on the **Electrical** tab → **SLD** panel:
   schedule is not changed).
   - **Save to Revit** writes the changes where the SLD and Voltage Drop tools
     read them: `Upstream_Protection_Rating_A` / `_Type` on the fed panel (or
-    the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `SLD Cable` and
-    `VD Cable`, `VD Length` (or `Feeder_Length_m`), `Incomer_Rating_A` /
+    the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `Feeder_Size` /
+    `Feeder_Type` (and `VD Cable` / `SLD Cable` where they exist), `Feeder_Length_m`, `Incomer_Rating_A` /
     `Incomer_Type`, `SC_Rating_kA` / `No_Of_Ways` (or `SLD Fault Level` /
     `SLD Ways`), `SLD Spares` / `SLD Spare Rating`. Only parameters already
     in the model are written (nothing is added to the project); missing or

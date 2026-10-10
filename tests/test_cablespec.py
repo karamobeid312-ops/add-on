@@ -42,3 +42,15 @@ def test_voltage_drop_tool_reads_the_office_text():
 def test_from_vd():
     assert from_vd(Cable(2, 4, 300, "XLPE/SWA/PVC")) == CableSpec(4, 300, 2)
     assert from_vd(None) is None
+
+
+def test_feeder_size_and_type_fields():
+    from sld.cablespec import feeder_text, from_feeder
+    spec = CableSpec(4, 120, earth_size=70)
+    size, kind = spec.feeder_fields()
+    assert (size, kind) == (u"(4X120)mm² +(1X70)mm²", "CU/XLPE/SWA/PVC")
+    assert from_feeder(size, kind) == spec
+    assert from_feeder(*CableSpec(4, 240, runs=2, armour="").feeder_fields()) == \
+        CableSpec(4, 240, runs=2, armour="")
+    assert from_feeder("REFER TO SINGLE LINE DIAGRAM", "REFER TO SINGLE LINE DIAGRAM") is None
+    assert vd_parse.cable(feeder_text(size, kind)) == Cable(1, 4, 120, "XLPE/SWA/PVC")
