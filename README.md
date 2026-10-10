@@ -53,6 +53,15 @@ Buttons on the **Electrical** tab → **SLD** panel:
     table gives a breaker range (60-80, 225-250) the lower rating is used for
     the lower half of the kW range. Sized rows turn green until saved; a V.D
     over the limit is only flagged.
+  - **Fed from** (board fields): for a board no circuit in this model feeds
+    (its MDB is in another link), the board feeding it, saved to the panel's
+    `Fed_By`. A panel's `Fed_By` is only used when no circuit feeds it. A
+    board named there that is in this model feeds it through a way; a name
+    that is not in this model is drawn as that MDB in the substation band
+    (marked "in another model", from the utility), built from the boards it
+    feeds: one way each (their Upstream_Protection, Feeder_Size, length and
+    V.D), connected / demand load summed, incomer sized from the connected
+    load. The Voltage Drop tool counts the same feeds.
   - **Save to Revit** writes the changes where the SLD and Voltage Drop tools
     read them: `Upstream_Protection_Rating_A` / `_Type` on the fed panel (or
     the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `Feeder_Size` /

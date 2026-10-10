@@ -33,7 +33,8 @@ FLAGS = ("vd_over", "locked", "sized")
 BOARD_CONTROLS = (("IncomerAT", "incomer_at"), ("IncomerAF", "incomer_af"),
                   ("IncomerDevice", "incomer_device"), ("FaultLevel", "fault_level"),
                   ("WaysCount", "ways"), ("SpareCount", "spares"), ("SpareAT", "spare_at"),
-                  ("SpareAF", "spare_af"), ("SpareDevice", "spare_device"))
+                  ("SpareAF", "spare_af"), ("SpareDevice", "spare_device"),
+                  ("FedBy", "fed_by"))
 NAMES = ("BoardsTree", "BoardTitle", "WaysGrid", "PreviewText", "WarningsText", "SaveButton",
          "AutoSizeButton",
          "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare", "SetUtility",
@@ -167,6 +168,7 @@ class EditorWindow(object):
     def _fill_choices(self):
         for key, values in ed.CHOICES.items():
             self.win.Resources["ch_%s" % key] = self._strings(values)
+        self.win.Resources["ch_fed_by"] = self._strings(self.editor.board_names())
 
     def _fill_settings(self):
         s = self.settings
@@ -271,6 +273,7 @@ class EditorWindow(object):
         try:
             for name, field in BOARD_CONTROLS:
                 getattr(self, name).Text = board.values.get(field, "")
+            self.FedBy.IsEnabled = self.editor.fed_by_editable(board_id)
         finally:
             self._busy = False
         table = DataTable("Ways")
@@ -423,9 +426,15 @@ class EditorWindow(object):
         self._safe(self._save)
 
     def _save(self):
+        reload = any(c.kind == "fed_by" for c in self.editor.changes())
         message = self.on_save(self.editor)
         self._show_board(self.current)
+        if reload:
+            message += u"\n\nFed from changed: the editor opens again with the new feeds."
         self._alert(message)
+        if reload:
+            self.action = "reload"
+            self.win.Close()
 
     def on_generate(self, sender, args):
         self._commit()
@@ -437,7 +446,7 @@ class EditorWindow(object):
 
     def on_closing(self, sender, args):
         self._commit()
-        if self.action == "generate" or not self.editor.dirty():
+        if self.action in ("generate", "reload") or not self.editor.dirty():
             return
         answer = self._alert("Save your changes to Revit before closing?", ask=True)
         if answer == "cancel":
@@ -448,5 +457,6 @@ class EditorWindow(object):
 
 def show_editor(editor, settings_values, on_save):
     """Show the window (modal). on_save(editor) writes to Revit and returns
-    a message. Returns ('generate' or 'close', settings values)."""
+    a message. Returns ('generate', 'reload' (after a Fed from change was
+    saved) or 'close', settings values)."""
     return EditorWindow(editor, settings_values, on_save).show()

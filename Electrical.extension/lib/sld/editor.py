@@ -10,15 +10,16 @@ what Save to Revit has to write (see revit_edit).
 from __future__ import division
 
 from sld import cablespec, style
-from sld.model import (DB_BOX, FEEDER, PFC, SPARE, add_spares, breaker_lines, frame_rating, is_sub_main,
-                       parse_amps, parse_protection, trim_number, way_positions)
+from sld.model import (DB_BOX, FEEDER, PFC, SPARE, add_spares, breaker_lines, frame_rating,
+                       is_sub_main, natural_key, parse_amps, parse_protection, trim_number,
+                       way_positions)
 
 FIELDS = ("at", "af", "device", "runs", "cores", "size", "material", "insulation",
           "armour", "earth", "length")
 CABLE_FIELDS = ("runs", "cores", "size", "material", "insulation", "armour", "earth")
 BREAKER_FIELDS = ("at", "af", "device")
 BOARD_FIELDS = ("incomer_at", "incomer_af", "incomer_device", "fault_level", "ways",
-                "spares", "spare_at", "spare_af", "spare_device")
+                "spares", "spare_at", "spare_af", "spare_device", "fed_by")
 
 TRIPS = ("6", "10", "16", "20", "25", "32", "40", "50", "63", "80", "100", "125", "160",
          "200", "250", "315", "400", "500", "630", "800", "1000", "1250", "1600", "2000",
@@ -179,6 +180,7 @@ class BoardItem(object):
         self.parent_id = parent_id
         self.children = []
         self.warnings = []
+        self.virtual = e.virtual        # stand-in for a board in another model
         trip, frame, device = e._incomer()
         spare = next((w.circuit for w in board.ways if w.circuit is not None and
                       w.circuit.id.startswith("spare:")), None)
@@ -193,6 +195,7 @@ class BoardItem(object):
             "spares": str(sum(1 for w in board.ways if w.kind == SPARE)),
             "spare_at": _num(s_trip), "spare_af": _num(s_frame or frame_rating(s_trip)),
             "spare_device": s_device or (style.WAY_DEVICE if s_trip else ""),
+            "fed_by": e.fed_by or "",
         }
         self.saved = dict(self.values)
 
@@ -296,6 +299,17 @@ class Editor(object):
         b.warnings = add_spares(b.board, self.numbering, b.board.phases)
         self._load_ways(b)
         return True
+
+    def fed_by_editable(self, board_id):
+        """Fed from can be chosen for a board no circuit in this model feeds
+        (its board is in another model): saved to its Fed_By."""
+        b = self.board(board_id)
+        feed = b.board.feed_way
+        return not b.virtual and b.board.feed_pass_through is None and (
+            feed is None or feed.circuit.id.startswith("fedby-way:"))
+
+    def board_names(self):
+        return sorted(set(b.name for b in self.boards), key=natural_key)
 
     def _feeding_way(self, board_id):
         return next((w for w in self._by_key.values() if w.target_id == board_id and
@@ -487,6 +501,10 @@ class Editor(object):
 
     def _board_changes(self, b):
         v, s, out = b.values, b.saved, []
+        if b.virtual:                 # in another model: nothing to write here
+            return out
+        if v["fed_by"] != s["fed_by"]:
+            out.append(Change("fed_by", b.id, text=v["fed_by"]))
         if any(v[f] != s[f] for f in ("incomer_at", "incomer_af", "incomer_device")) and \
                 self._feeding_way(b.id) is None:     # else saved as the way's breaker
             trip = _try(_number, v["incomer_at"])

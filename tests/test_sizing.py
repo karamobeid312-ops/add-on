@@ -65,3 +65,22 @@ def test_auto_size_smdb_and_db_only_by_connected_load():
     assert kinds == ["breaker", "breaker", "cable", "cable"]
     ed.mark_saved()
     assert not ed.way("c1").sized
+
+
+def test_fed_by_in_the_editor():
+    from sld.model import add_fed_by, fed_by_links
+    equipment = [EquipmentInfo("SMDB-1", "SMDB-1", fed_by="MDB-9", connected_kw=45.0),
+                 EquipmentInfo("SMDB-2", "SMDB-2")]
+    links = fed_by_links(dict((e.id, e) for e in equipment), set())
+    equipment, circuits = add_fed_by(equipment, [], links)
+    ed = Editor(build_schematic(equipment, circuits))
+    mdb = next(b for b in ed.boards if b.name == "MDB-9")
+    assert mdb.virtual and not ed.fed_by_editable(mdb.id)
+    assert ed.fed_by_editable("SMDB-1") and ed.fed_by_editable("SMDB-2")
+    assert ed.board_names() == ["MDB-9", "SMDB-1", "SMDB-2"]
+    changed, _ = ed.auto_size()                          # sized from the stand-in MDB
+    assert ed.way(changed[0]).values["size"] == "25"
+    ed.set_board("SMDB-2", "fed_by", "MDB-9")
+    kinds = [(c.kind, c.element_id) for c in ed.changes()]
+    assert ("fed_by", "SMDB-2") in kinds
+    assert not any(e == mdb.id for _, e in kinds)       # nothing written for the stand-in

@@ -131,7 +131,7 @@ class EquipmentInfo(object):
                  mains_rating=None, incomer_rating=None, incomer_frame="",
                  phases=3, neutral=True, fault_level="", incomer_device="",
                  upstream_protection="", demand_factor=None, spares=None,
-                 spare_rating=""):
+                 spare_rating="", fed_by="", virtual=False):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -156,6 +156,8 @@ class EquipmentInfo(object):
         self.incomer_device = incomer_device or ""   # MCCB / MCS / ACB...
         # breaker on the way feeding it, e.g. '40AT/100AF MCCB'
         self.upstream_protection = upstream_protection or ""
+        self.fed_by = fed_by or ""            # 'Fed_By': its board when no circuit feeds it
+        self.virtual = virtual                # a board in another model, built from Fed_By
         self.demand_factor = demand_factor    # its own diversity factor
         self.spares = spares                  # spare ways wanted ('SLD Spares')
         self.spare_rating = spare_rating or ""   # e.g. '63AT/100AF MCCB'
@@ -586,6 +588,83 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
     return []
 
 
+OTHER_MODEL = "IN ANOTHER MODEL (LINK)"
+
+
+class FedBySource(object):
+    """A board named in a panel's Fed_By that is not in this model (an MDB
+    in another link): it stands in for it, fed from the utility."""
+
+    def __init__(self, name, kind=None):
+        self.name = name
+        self.id = virtual_id(name)
+        self.kind = kind            # the Voltage Drop tool's source kind
+
+
+def virtual_id(name):
+    return "fedby:%s" % (name or "").strip().upper()
+
+
+def fed_by_links(panels, connected, kind=None):
+    """{panel id: source} for the panels not fed by any circuit in this model
+    whose Fed_By names a board: that board when it is in the model, else a
+    FedBySource. panels: {id: object with .name and .fed_by}; connected: ids
+    of the panels a circuit feeds."""
+    by_name = dict(((p.name or "").strip().upper(), p) for p in panels.values())
+    virtual, links = {}, {}
+    for pid, p in panels.items():
+        name = (p.fed_by or "").strip()
+        key = name.upper()
+        if pid in connected or not key or key == (p.name or "").strip().upper():
+            continue
+        source = by_name.get(key)
+        if source is None:
+            source = virtual.setdefault(key, FedBySource(name, kind))
+        links[pid] = source
+    return links
+
+
+def add_fed_by(equipment, circuits, links, details=None):
+    """Feeds for the panels no circuit feeds whose Fed_By names a board.
+
+    links: {panel id: source} from fed_by_links (source has
+    .id and .name; a board not in this model has an id not in equipment).
+    details: {panel id: dict(cable=, length_m=, vd_percent=)} of its feeder.
+    Returns (equipment, circuits) with a way from the source to each panel,
+    and a stand-in main board for each source that is not in this model:
+    fed from the utility, its loads and incomer worked out from its ways.
+    """
+    equipment, circuits = list(equipment), list(circuits)
+    ids = set(e.id for e in equipment)
+    details = details or {}
+    for pid in sorted(links, key=lambda i: natural_key(next(
+            (e.name for e in equipment if e.id == i), ""))):
+        source = links[pid]
+        if source.id not in ids:
+            equipment.append(EquipmentInfo(source.id, source.name, symbol="MAIN",
+                                           location=OTHER_MODEL, virtual=True))
+            ids.add(source.id)
+        d = details.get(pid, {})
+        circuits.append(CircuitInfo(
+            "fedby-way:%s" % pid, source.id, poles="3", fed_equipment_ids=[pid],
+            cable=d.get("cable", ""), length_m=d.get("length_m"),
+            vd_percent=d.get("vd_percent")))
+    return equipment, circuits
+
+
+def _size_virtual_incomer(board):
+    """A stand-in board's incomer from its connected load (sld.sizing)."""
+    e = board.equipment
+    if e.incomer_rating or e.upstream_protection:
+        return
+    from sld import sizing
+    totals = board.load_totals()
+    s = sizing.size_for(totals[0] if totals else None)
+    if s is not None:
+        e.incomer_rating = "%sA" % trim_number(s.trip, 1)
+        e.incomer_frame, e.incomer_device = trim_number(s.frame, 1), s.device
+
+
 def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spares=True):
     """Build boards/ways from flat equipment and circuit lists.
 
@@ -750,6 +829,10 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
             if is_sub_main(b) or b.equipment.spares not in (None, ""):
                 warnings.extend(add_spares(b, numbering, phases_of.get(b.id, 3)))
+
+    for b in boards.values():
+        if b.equipment.virtual:
+            _size_virtual_incomer(b)
 
     drawn = set(w.target_id for b in boards.values() for w in b.ways)
     loose = sorted([e for e in equipment if roles[e.id] == DB and e.id not in drawn],

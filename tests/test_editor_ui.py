@@ -28,7 +28,7 @@ def test_every_combo_column_has_choices():
     for _, field in ui.BOARD_CONTROLS:
         assert field in ed.BOARD_FIELDS
     resources = set(re.findall(r"ch_(\w+)", open(ui.XAML_FILE).read()))
-    assert resources <= set(ed.CHOICES)
+    assert resources <= set(ed.CHOICES) | {"fed_by"}       # fed_by: the board names
 
 
 def test_row_values_and_flags():

@@ -62,7 +62,7 @@ from sld.cables import (cable_from_revit_values, conductor_code, construction,
                         format_cable, insulation_code)
 from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, line_length
 from sld.layout import LayoutSettings, layout_schematic
-from sld.model import CircuitInfo, EquipmentInfo, build_schematic
+from sld.model import CircuitInfo, EquipmentInfo, add_fed_by, build_schematic, fed_by_links
 
 VIEW_NAME = "LV Schematic Diagram"
 MM_PER_FOOT = 304.8
@@ -223,6 +223,7 @@ P_WAYS = "No_Of_Ways"
 P_SPARES = "SLD Spares"                              # spare ways drawn, e.g. 3
 P_SPARE_RATING = "SLD Spare Rating"                   # 63AT/100AF MCCB
 P_BREAKER_TYPE = "SLD Breaker Type"                   # on circuits: MCB / MCCB...
+P_FED_BY = "Fed_By"                     # board feeding a panel not connected in this model
 # Revit panel loads, by name (newer Revit), else the built-in totals.
 P_CONNECTED = "Total Connected Apparent Power"
 P_DEMAND = "Total Demand Apparent Power"
@@ -482,6 +483,7 @@ def extract(doc, live=None):
             fault_level=_fault_level(el),
             spares=_lookup(el, P_SPARES) or None,
             spare_rating=_lookup(el, P_SPARE_RATING),
+            fed_by=_lookup(el, P_FED_BY),
         ))
         ids.add(el.UniqueId)
         panels[el.UniqueId] = el
@@ -539,7 +541,23 @@ def extract(doc, live=None):
             frame=_lookup(system, "SLD Frame"),
             device=_lookup(system, P_BREAKER_TYPE),
         ))
+    equipment, circuits = _fed_by(equipment, circuits, panels, vd, vd_cables)
     return equipment, circuits, phases_of, warnings
+
+
+def _fed_by(equipment, circuits, panels, vd, vd_cables):
+    """Ways to the panels no circuit feeds, from the board in their Fed_By
+    (a stand-in when that board is in another model)."""
+    connected = set(f for c in circuits for f in c.fed_equipment_ids if f != c.source_id)
+    links = fed_by_links(dict((e.id, e) for e in equipment), connected)
+    details = {}
+    for pid in links:
+        length, vd_percent = vd.get(pid, (None, None))
+        cable = (_lookup(panels[pid], "SLD Incoming Cable") or
+                 _typed_cable_text([panels[pid]]) or
+                 _vd_cable_text(vd_cables.get(pid), panels[pid]))
+        details[pid] = dict(cable=cable, length_m=length, vd_percent=vd_percent)
+    return add_fed_by(equipment, circuits, links, details)
 
 
 # ---------------------------------------------------------------- drawing

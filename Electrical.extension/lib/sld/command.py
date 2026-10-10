@@ -40,15 +40,17 @@ def run():
 
     from sld.editor_ui import show_editor
     values = settings.load()
-    editor = _editor(doc, values)
-    if not editor.boards:
-        forms.alert("No electrical equipment was found in this model.\n\n"
-                    "Place panels/switchboards and connect them with circuits first.",
-                    exitscript=True)
-    action, new_values = show_editor(editor, values, lambda ed: _save(doc, ed))
-    if new_values and new_values != values:
-        values.update(new_values)
-        settings.save(values)
+    action = "reload"
+    while action == "reload":         # again after a Fed from change is saved
+        editor = _editor(doc, values)
+        if not editor.boards:
+            forms.alert("No electrical equipment was found in this model.\n\n"
+                        "Place panels/switchboards and connect them with circuits first.",
+                        exitscript=True)
+        action, new_values = show_editor(editor, values, lambda ed: _save(doc, ed))
+        if new_values and new_values != values:
+            values.update(new_values)
+            settings.save(values)
     if action != "generate":
         return
     if editor.dirty():

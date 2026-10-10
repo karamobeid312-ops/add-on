@@ -422,3 +422,33 @@ def test_unconnected_panels_only_mdb_is_main():
 def test_fed_db_is_not_loose():
     s = build_schematic([eq("MDB-1"), eq("DB-1")], [ckt("MDB-1", 1, ["DB-1"])])
     assert s.loose_dbs == []
+
+
+def test_fed_by_board_in_another_model_is_built_from_its_boards():
+    from sld.model import add_fed_by, fed_by_links
+    equipment = [eq("SMDB-GF-01", fed_by="MDB-01", connected_kw=45.0, demand_kw=30.0,
+                    upstream_protection="100AT/100AF MCCB", level_name="Ground Floor"),
+                 eq("SMDB-FF-01", fed_by="mdb-01", connected_kw=20.0, demand_kw=10.0),
+                 eq("DB-FF-01", fed_by="SMDB-FF-01", connected_kw=5.0, demand_kw=4.0),
+                 eq("SMDB-X", fed_by="SMDB-GF-01")]
+    circuits = [ckt("SMDB-GF-01", 1, ["SMDB-X"])]          # SMDB-X is fed in the model
+    links = fed_by_links(dict((e.id, e) for e in equipment),
+                         set(f for c in circuits for f in c.fed_equipment_ids))
+    assert sorted(links) == ["DB-FF-01", "SMDB-FF-01", "SMDB-GF-01"]
+    assert links["SMDB-GF-01"] is links["SMDB-FF-01"]       # one MDB-01, any case
+    assert links["DB-FF-01"].name == "SMDB-FF-01"           # a board in this model
+    equipment, circuits = add_fed_by(equipment, circuits, links,
+                                     {"SMDB-GF-01": dict(cable="(4X25)mm² CU/XLPE/SWA/PVC",
+                                                         length_m=40.0, vd_percent=1.2)})
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    mdb = b["MDB-01"]
+    assert mdb.role == MAIN_BOARD and mdb.equipment.virtual and mdb in s.roots
+    assert [w.name for w in mdb.ways] == ["SMDB-FF-01", "SMDB-GF-01"]
+    assert all(w.kind == FEEDER for w in mdb.ways)
+    assert mdb.load_totals()[0] == 65.0 and mdb.load_totals()[2] == 40.0
+    assert mdb.equipment.main_incomer_lines() == ["160AT", "160AF", "MCCB"]   # 65 kW CL
+    assert b["SMDB-GF-01"].parent is mdb
+    assert b["SMDB-GF-01"].feed_way.circuit.length_m == 40.0
+    assert [w.kind for w in b["SMDB-FF-01"].ways][0] == DB_BOX
+    assert s.loose_dbs == []

@@ -55,6 +55,7 @@ P_TOTAL = "VD Total Percent"
 P_FEEDER_LENGTH = "Feeder_Length_m"
 P_FEEDER_CABLE = ("Feeder_Size", "Feeder_Type")      # (4X120)mm² / CU/XLPE/SWA/PVC
 P_UPSTREAM = ("Upstream_Protection_Rating_A", "Upstream_Protection_Type")
+P_FED_BY = "Fed_By"         # the board feeding a panel not connected in this model
 # Where each parameter goes. Lengths can also be typed on the loads of final
 # circuits (fixtures, mechanical equipment).
 _ON_PANELS = ("OST_ElectricalEquipment", "OST_ElectricalCircuit")
@@ -223,6 +224,7 @@ class _Equipment(object):
         dist = _distribution(element)
         self.phases = _phases(dist)
         self.voltage = _voltage(dist, self.phases)
+        self.fed_by = _text(element, P_FED_BY)
         self.true_kw = 0.0            # sum of the loads of its circuits
         self.apparent_kva = 0.0
 
@@ -439,6 +441,7 @@ class Model(object):
         self.equipment = {}       # panel id -> _Equipment (with its loads)
         self.elements = {}        # feeder id -> element holding its results
         self.skipped = 0          # final circuits without VD Length
+        self.fed_by = {}          # panel id -> board in its Fed_By (no circuit feeds it)
         self.warnings = []
 
 
@@ -551,11 +554,16 @@ def collect(doc, values):
             model.warnings.append(u"Circuit %s skipped: %s" % (
                 _attr(system, "CircuitNumber") or "?", error))
 
+    # a panel whose board is in another link: fed from the board in its Fed_By
+    from sld.model import fed_by_links
+    model.fed_by = fed_by_links(equipment, feeding, BOARD)
     for panel in equipment.values():
         try:
             if panel.id in feeding:
                 system, source = feeding[panel.id]
                 _panel_feeder(panel, system, source, values, model)
+            elif panel.id in model.fed_by:
+                _panel_feeder(panel, None, model.fed_by[panel.id], values, model)
             elif panel.kind == BOARD:
                 # main board fed straight from the transformer: a row only
                 # when its incoming cable is described on it

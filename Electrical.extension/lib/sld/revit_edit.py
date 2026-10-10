@@ -23,6 +23,7 @@ in the order the tools read them):
   fault level / ways            SLD Fault Level / SLD Ways when typed, else
                                 SC_Rating_kA / No_Of_Ways, else the SLD one
   spares                        SLD Spares + SLD Spare Rating (drawing only)
+  fed from                      Fed_By (a panel whose board is in another model)
 
 Only parameters already in the model are written: nothing is added to the
 project. What could not be written is listed for the user.
@@ -249,6 +250,9 @@ def _apply(w, change):
         if _has_value(_param(panel, own)):
             places = [(panel, own)]
         w.first(places, v["text"], what)
+
+    elif change.kind == "fed_by":
+        w.write(panel, "Fed_By", v["text"], what)
 
     elif change.kind == "spares":
         w.write(panel, "SLD Spares", v["count"], what)

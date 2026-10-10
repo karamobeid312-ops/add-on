@@ -86,6 +86,10 @@
               <ComboBox x:Name="SpareDevice" Width="70" Style="{StaticResource EditCombo}"
                         ItemsSource="{DynamicResource ch_spare_device}"/>
               <Button x:Name="AddSpare" Content="+ Add spare" Margin="8,0,0,0" Padding="6,0"/>
+              <TextBlock Text="Fed from" VerticalAlignment="Center" Margin="14,0,4,0"/>
+              <ComboBox x:Name="FedBy" Width="130" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_fed_by}"
+                        ToolTip="For a board no circuit in this model feeds (its MDB is in another link): the board feeding it, saved to Fed_By. A name not in this model is drawn as that MDB, built from the boards it feeds."/>
               <Button x:Name="RemoveSpare" Content="- Remove spare" Margin="4,0,0,0" Padding="6,0"/>
             </WrapPanel>
 
