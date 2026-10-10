@@ -87,14 +87,14 @@ def test_risers_never_cross_boards_on_other_floors():
 def test_main_board_details_present():
     lay = sample_layout()
     texts = [t.text for t in lay.drawing.texts]
-    for expected in ("MDB-1", "1600AT\n1600AF\nACB", "SPD", "3NO", u"R<1Ω", "TR-01",
+    for expected in ("MDB-1", "1600AT", "1600AF\nACB", "SPD", "3NO", u"R<1Ω", "TR-01",
                      "FROM TAQA", "MV CABLE FROM TAQA",
                      "1600A,3PH+N+E,50kA FOR 1 SEC\nFORM4-TYPE6\nLOCATION: LV ROOM",
                      u"(7 SC 630mm²", "POWER FACTOR CORRECTION"):
         assert expected in texts, expected
     assert ("250A,3PH+N+E,35kA FOR 1 SEC\nFORM 2b, 18 WAYS\nLOCATION: ELEC. ROOM GF-48"
             "\n@ GROUND FLOOR") in texts
-    assert "200AT\n250AF\nMCCB" in texts             # sub-board incomer
+    assert "200AT" in texts and "250AF\nMCCB" in texts   # sub-board incomer
 
 
 def test_utility_setting_and_ratings_toggle():
@@ -103,7 +103,7 @@ def test_utility_setting_and_ratings_toggle():
     assert "FROM DEWA" in texts and "FROM TAQA" not in texts
     assert not any(t.startswith(u"4Cx16mm²") for t in texts)
     assert any(t.startswith(u"4Cx16mm²") for t in (x.text for x in sample_layout().drawing.texts))
-    assert "63AT\n100AF\nMCCB" in texts                # breakers stay either way
+    assert "63AT" in texts and "100AF\nMCCB" in texts   # breakers stay either way
 
 
 def test_board_info_clear_of_busbar():

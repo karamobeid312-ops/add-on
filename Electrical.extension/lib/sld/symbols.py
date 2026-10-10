@@ -223,6 +223,21 @@ def dot(d, x, y):
     d.circle(x, y, 0.3)
 
 
+def breaker_label(d, x, y, lines, size):
+    """Breaker rating to the right of x, middle at y: '100AT' above a bar,
+    '100AF' and the type below it (the office style); other text as is."""
+    lines = [l for l in lines if l]
+    if not lines:
+        return
+    if len(lines) < 2 or not lines[0].upper().endswith("AT"):
+        d.text(x, y, "\n".join(lines), size, align=LEFT, valign=MIDDLE)
+        return
+    gap = 0.25 * size
+    d.text(x, y + gap, lines[0], size, align=LEFT, valign=BOTTOM)
+    d.text(x, y - gap, "\n".join(lines[1:]), size, align=LEFT, valign=TOP)
+    d.line(x, y, x + max(line_length(l, size) for l in lines[:2]), y)
+
+
 def main_incomer(d, xi, bus_y, bottom, right, device=None):
     """Main board incomer between busbar and box bottom: CT and ammeters,
     indicator lamps, withdrawable ACB, busbar fuse, SPD and earth."""
@@ -255,7 +270,8 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
     d.arc(xi, bus_y - 12.0, 1.0, HALF_PI, 3 * HALF_PI)
     y_lower = bus_y - 15.8
     chevrons(d, xi, y_lower, up=False)
-    d.text(xi + 2.5, y_lower + 0.4, device, small, align=LEFT, valign=MIDDLE)
+    breaker_label(d, xi + 2.5, y_lower + 0.4 + 0.5 * small * style.LINE_SPACING,
+                  (device or "").split("\n"), small)
     # busbar mounted fuse feeding the indicator lamps
     y_fuse = bus_y - 21.0
     d.line(xi, y_lower, xi, y_fuse + 1.1)

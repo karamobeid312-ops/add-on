@@ -47,6 +47,7 @@ BREAKER_ABOVE_BUS = 4.5     # busbar -> bottom of the breaker arc
 BREAKER_RADIUS = 0.9
 INCOMER_BREAKER_BELOW_BUS = 5.0
 BOARD_GAP = 12.0            # min horizontal gap between boards in a row
+BUS_END_MARGIN = 1.5        # busbar end -> board side
 RISER_CLEARANCE = 5.0       # riser jogs this far clear of a board it passes
 
 # Spare breakers added to every sub-main board: as many as fit between the

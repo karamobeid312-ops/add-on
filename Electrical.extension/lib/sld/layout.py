@@ -512,8 +512,9 @@ def _draw_board(d, g, settings):
     b = g.board
     d.rect(g.left, g.bottom, g.right, g.top)
     xs = [g.way_x(w) for w in b.ways]
-    bus_l = min(xs + [g.incomer_x]) - 3.0
-    bus_r = max(xs + [g.incomer_x]) + 3.0
+    # the busbar runs the width of the board (office style)
+    bus_l = min(xs + [g.incomer_x, g.left + style.BUS_END_MARGIN + 3.0]) - 3.0
+    bus_r = max(xs + [g.incomer_x, g.right - style.BUS_END_MARGIN - 3.0]) + 3.0
     d.line(bus_l, g.bus_y, bus_r, g.bus_y)
 
     for w, x in zip(b.ways, xs):
@@ -523,9 +524,8 @@ def _draw_board(d, g, settings):
         d.line(x, top_arc, x, g.top)
         if w.label:
             d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
-        lines = w.breaker_lines()
-        d.text(x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS, "\n".join(lines),
-               style.TEXT_WAY, align=LEFT, valign=MIDDLE)
+        symbols.breaker_label(d, x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS,
+                              w.breaker_lines(), style.TEXT_WAY)
         _draw_way_end(d, g, w, x, settings)
 
     for pt in b.pass_throughs:
@@ -545,8 +545,8 @@ def _draw_board(d, g, settings):
         d.line(xi, g.bus_y, xi, y_arc + 2 * style.BREAKER_RADIUS)
         symbols.breaker(d, xi, y_arc)
         d.line(xi, y_arc, xi, g.bottom)
-        d.text(xi + 2.0, y_arc + style.BREAKER_RADIUS, "\n".join(b.equipment.incomer_lines()),
-               style.TEXT_WAY, align=LEFT, valign=MIDDLE)
+        symbols.breaker_label(d, xi + 2.0, y_arc + style.BREAKER_RADIUS,
+                              b.equipment.incomer_lines(), style.TEXT_WAY)
         d.text(g.left + 1.0, g.bottom + 1.0, g.name_text, style.TEXT_BOARD_NAME,
                align=LEFT, valign=BOTTOM)
         d.text(g.left + 1.5, g.bottom + 1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING,
