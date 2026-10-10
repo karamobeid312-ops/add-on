@@ -50,9 +50,11 @@ Buttons on the **Electrical** tab → **SLD** panel:
     the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `SLD Cable` and
     `VD Cable`, `VD Length` (or `Feeder_Length_m`), `Incomer_Rating_A` /
     `Incomer_Type`, `SC_Rating_kA` / `No_Of_Ways` (or `SLD Fault Level` /
-    `SLD Ways`), `SLD Spares` / `SLD Spare Rating`. Missing SLD / VD text
-    parameters are added to the project; read-only (formula or type)
-    parameters are listed as not written.
+    `SLD Ways`), `SLD Spares` / `SLD Spare Rating`. Only parameters already
+    in the model are written (nothing is added to the project); missing or
+    read-only (formula or type) ones are listed as not written. A board's
+    incomer is its `Upstream_Protection_Rating_A` / `_Type` (the breaker
+    feeding it), so changing it changes that way's breaker too.
   - **Generate SLD** saves any changes and creates a new drafting view
     `LV Schematic Diagram` (`LV Schematic Diagram 2`, ... on later runs;
     earlier diagrams are never overwritten). The view is 1:1, so sizes match

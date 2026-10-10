@@ -173,6 +173,13 @@ class EquipmentInfo(object):
         return ",".join(parts)
 
     def _incomer(self):
+        """(trip, frame, device) of the incoming breaker: the panel's
+        Upstream_Protection (the breaker feeding it), else its incomer
+        rating (Incomer_Rating_A / MCB Rating / Mains) and type."""
+        if self.upstream_protection:
+            trip, frame, device = parse_protection(self.upstream_protection)
+            if trip is not None:
+                return trip, frame, device
         trip, frame, device = parse_protection(self.incomer_rating, self.incomer_device)
         return trip, parse_amps(self.incomer_frame) or frame, device
 

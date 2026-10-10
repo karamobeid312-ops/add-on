@@ -261,6 +261,9 @@ class Editor(object):
                 if other is not w and other.target_id == w.target_id:
                     other.values[field] = text
                     changed.append(other.key)
+            fed = next((b for b in self.boards if b.id == w.target_id), None)
+            if fed is not None:            # its incomer is this breaker
+                fed.values["incomer_" + field] = text
         if field in BREAKER_FIELDS + CABLE_FIELDS + ("length",):
             before = dict((k, (x.vd, x.vd_over)) for k, x in self._by_key.items())
             self._recalculate()
@@ -274,6 +277,12 @@ class Editor(object):
         text = (u"%s" % (text if text is not None else "")).strip()
         if field in _TEXT:
             text = text.upper()
+        feed = self._feeding_way(board_id)
+        if field.startswith("incomer_") and feed is not None:
+            # the incomer is the breaker on the way feeding the board
+            self.set_way(feed.key, field[len("incomer_"):], text)
+            b.values[field] = feed.values[field[len("incomer_"):]]
+            return False
         b.values[field] = text
         if field not in ("spares", "spare_at", "spare_af", "spare_device"):
             return False
@@ -285,6 +294,10 @@ class Editor(object):
         b.warnings = add_spares(b.board, self.numbering, b.board.phases)
         self._load_ways(b)
         return True
+
+    def _feeding_way(self, board_id):
+        return next((w for w in self._by_key.values() if w.target_id == board_id and
+                     not w.added), None)
 
     def _spare_rating(self, b):
         v = b.values
@@ -412,7 +425,8 @@ class Editor(object):
 
     def _board_changes(self, b):
         v, s, out = b.values, b.saved, []
-        if any(v[f] != s[f] for f in ("incomer_at", "incomer_af", "incomer_device")):
+        if any(v[f] != s[f] for f in ("incomer_at", "incomer_af", "incomer_device")) and \
+                self._feeding_way(b.id) is None:     # else saved as the way's breaker
             trip = _try(_number, v["incomer_at"])
             if trip is not None:
                 out.append(Change("incomer", b.id, trip=trip,

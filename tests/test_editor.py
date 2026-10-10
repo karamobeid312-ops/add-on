@@ -140,10 +140,23 @@ def test_spares_set_on_the_board():
     assert [c.values for c in ed.changes() if c.kind == "fault_level"] == [{"text": "35kA"}]
 
 
-def test_incomer_change():
+def test_incomer_is_the_breaker_feeding_the_board():
     ed = small(vd=False)
-    ed.set_board("SMDB-1", "incomer_at", "250")
-    ed.set_board("SMDB-1", "incomer_device", "mccb")
+    smdb = ed.board("SMDB-1")
+    assert (smdb.values["incomer_at"], smdb.values["incomer_device"]) == ("250", "MCCB")
+    ed.set_board("SMDB-1", "incomer_at", "200")
+    assert ed.ways("MDB-1")[0].values["at"] == "200"
+    ed.set_way(ed.ways("MDB-1")[0].key, "af", "400")
+    assert smdb.values["incomer_af"] == "400"
     (change,) = ed.changes()
-    assert change.kind == "incomer" and change.element_id == "SMDB-1"
-    assert change.values == {"trip": 250.0, "frame": None, "device": "MCCB"}
+    assert change.kind == "breaker" and change.element_id == "SMDB-1"
+    assert change.values == {"trip": 200.0, "frame": 400.0, "device": "MCCB"}
+
+
+def test_main_board_incomer_change():
+    ed = small(vd=False)
+    ed.set_board("MDB-1", "incomer_at", "1600")
+    ed.set_board("MDB-1", "incomer_device", "acb")
+    (change,) = ed.changes()
+    assert change.kind == "incomer" and change.element_id == "MDB-1"
+    assert change.values == {"trip": 1600.0, "frame": None, "device": "ACB"}

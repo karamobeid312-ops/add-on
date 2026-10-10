@@ -15,34 +15,26 @@ in the order the tools read them):
   length                        VD Length (panel), Feeder_Length_m, VD Length
                                 (circuit); final circuits: the circuit and
                                 its loads that have one
-  incomer                       Incomer_Rating_A + Incomer_Type, panel SLD
-                                Frame; else MCB Rating
+  incomer of a main board       Upstream_Protection_Rating_A / _Type, else
+                                Incomer_Rating_A + Incomer_Type, panel SLD
+                                Frame; else MCB Rating (a fed board's incomer
+                                is the breaker of the way feeding it)
   fault level / ways            SLD Fault Level / SLD Ways when typed, else
                                 SC_Rating_kA / No_Of_Ways, else the SLD one
   spares                        SLD Spares + SLD Spare Rating (drawing only)
 
-Missing SLD / VD text parameters are added to the project; the office
-panel family parameters are never created.
+Only parameters already in the model are written: nothing is added to the
+project. What could not be written is listed for the user.
 """
 from __future__ import division
 
 import re
 
-from Autodesk.Revit.DB import (BuiltInParameter, StorageType, Transaction,
-                               TransactionGroup)
+from Autodesk.Revit.DB import BuiltInParameter, StorageType, Transaction
 
 from sld.model import trim_number
 from vdrop import revit_vd
 
-_CIRCUITS = ("OST_ElectricalCircuit",)
-_PANELS = ("OST_ElectricalEquipment",)
-_BOTH = _PANELS + _CIRCUITS
-SLD_PARAMETERS = [("SLD Cable", "text", _CIRCUITS), ("SLD Frame", "text", _BOTH),
-                  ("SLD Breaker Type", "text", _CIRCUITS), ("SLD Spares", "text", _PANELS),
-                  ("SLD Spare Rating", "text", _PANELS), ("SLD Fault Level", "text", _PANELS),
-                  ("SLD Ways", "text", _PANELS)]
-SLD_GROUP = "LV Schematic"
-VD_NEEDED = (revit_vd.P_LENGTH, revit_vd.P_CABLE)
 FEET_PER_M = 1 / 0.3048
 
 
@@ -108,10 +100,12 @@ class _Writer(object):
         return self.doc.GetElement(unique_id) if unique_id else None
 
     def write(self, element, name, value, what):
-        if _set(_param(element, name), value):
+        p = _param(element, name)
+        if _set(p, value):
             self.written += 1
             return True
-        self.skipped.append(u"%s: %s not written" % (what, name))
+        reason = "not in the model" if p is None else "read-only"
+        self.skipped.append(u"%s: %s %s" % (what, name, reason))
         return False
 
     def first(self, places, value, what):
@@ -121,7 +115,8 @@ class _Writer(object):
             if p is not None and not p.IsReadOnly and _set(p, value):
                 self.written += 1
                 return True
-        self.skipped.append(u"%s: no parameter to write to" % what)
+        self.skipped.append(u"%s: none of %s in the model" % (
+            what, ", ".join(n for _, n in places)))
         return False
 
 
@@ -186,6 +181,13 @@ def _apply(w, change):
 
     elif change.kind == "incomer":
         from sld.revit_sld import P_INCOMER, P_INCOMER_TYPE
+        rating, kind = revit_vd.P_UPSTREAM
+        p = _param(panel, rating)
+        if p is not None and not p.IsReadOnly:
+            w.write(panel, rating, _breaker_text(v["trip"], v["frame"]), what)
+            if v.get("device"):
+                w.write(panel, kind, v["device"], what)
+            return
         p = _param(panel, P_INCOMER)
         if p is not None and not p.IsReadOnly:
             old = p.AsString() if p.StorageType == StorageType.String else ""
@@ -221,49 +223,21 @@ def _apply(w, change):
 
 
 def save(doc, changes):
-    """Write the changes in one undo step. Returns (written, skipped messages,
-    names of parameters added to the project)."""
+    """Write the changes in one undo step. Returns (written, skipped
+    messages, [] - no parameter is ever added)."""
     if not changes:
         return 0, [], []
-    group = TransactionGroup(doc, "LV Schematic Editor: Save")
-    group.Start()
-    try:
-        added = _ensure_parameters(doc)
-        t = Transaction(doc, "Write SLD values")
-        t.Start()
-        w = _Writer(doc)
-        try:
-            for change in changes:
-                try:
-                    _apply(w, change)
-                except Exception as error:
-                    w.skipped.append(u"%s: %s" % (change.kind, error))
-            t.Commit()
-        except Exception:
-            t.RollBack()
-            raise
-        group.Assimilate()
-    except Exception:
-        group.RollBack()
-        raise
-    return w.written, w.skipped, added
-
-
-def _ensure_parameters(doc):
-    bound = revit_vd._bindings(doc)
-    sld_missing = [n for n, _, _ in SLD_PARAMETERS if n not in bound]
-    vd_missing = [n for n in VD_NEEDED if n not in bound]
-    if not sld_missing and not vd_missing:
-        return []
-    t = Transaction(doc, "Add SLD parameters")
+    t = Transaction(doc, "LV Schematic Editor: Save")
     t.Start()
+    w = _Writer(doc)
     try:
-        if sld_missing:
-            revit_vd._add_parameters(doc, sld_missing, SLD_PARAMETERS, SLD_GROUP)
-        if vd_missing:
-            revit_vd._add_parameters(doc, vd_missing)
+        for change in changes:
+            try:
+                _apply(w, change)
+            except Exception as error:
+                w.skipped.append(u"%s: %s" % (change.kind, error))
         t.Commit()
     except Exception:
         t.RollBack()
         raise
-    return sld_missing + vd_missing
+    return w.written, w.skipped, []

@@ -350,6 +350,18 @@ def _vd_cable_text(cable, system):
     return format_cable(cable.cores or 4, cable.size, build=build, runs=cable.runs or 1)
 
 
+def _typed_cable_text(elements):
+    """VD Cable typed on the fed panel or the circuit (what the editor
+    saves), in the office format; '' when none can be read."""
+    from sld import cablespec
+    for element in elements:
+        text = _lookup(element, "VD Cable") if element is not None else ""
+        spec = cablespec.parse(text) if text else None
+        if spec is not None:
+            return spec.text()
+    return ""
+
+
 def _cable_text(system, wire_size):
     """BS/IEC cable text, e.g. 4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC."""
     override = _lookup(system, "SLD Cable")
@@ -430,7 +442,7 @@ def extract(doc, live=None):
     _vd_results."""
     vd, circuit_kw, vd_cables, warning = _vd_results(doc, live)
     warnings = [warning] if warning else []
-    equipment, ids, phases_of = [], set(), {}
+    equipment, ids, phases_of, panels = [], set(), {}, {}
     collector = (FilteredElementCollector(doc)
                  .OfCategory(BuiltInCategory.OST_ElectricalEquipment)
                  .WhereElementIsNotElementType())
@@ -467,6 +479,7 @@ def extract(doc, live=None):
             spare_rating=_lookup(el, P_SPARE_RATING),
         ))
         ids.add(el.UniqueId)
+        panels[el.UniqueId] = el
         phases_of[el.UniqueId] = phases
 
     circuits = []
@@ -493,8 +506,12 @@ def extract(doc, live=None):
         # a circuit to a panel: the panel's row is its cable
         row_id = next((i for i in fed if i in vd), system.UniqueId)
         length, vd_percent = vd.get(row_id, (None, None))
-        cable = "" if kind == "spare" else (_cable_text(system, wire_size) or
-                                            _vd_cable_text(vd_cables.get(row_id), system))
+        # SLD Cable, else a typed VD Cable (the editor saves both), else Revit's wire size
+        cable = "" if kind == "spare" else (
+            _lookup(system, "SLD Cable") or
+            _typed_cable_text([panels.get(i) for i in fed] + [system]) or
+            _cable_text(system, wire_size) or
+            _vd_cable_text(vd_cables.get(row_id), system))
         circuits.append(CircuitInfo(
             id=system.UniqueId,
             source_id=source.UniqueId,
