@@ -37,12 +37,29 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 
 Buttons on the **Electrical** tab → **SLD** panel:
 
-- **Generate SLD** – creates a new drafting view `LV Schematic Diagram`
-  (`LV Schematic Diagram 2`, ... on later runs; earlier diagrams are never
-  overwritten). The view is 1:1, so sizes match the printed sheet; place it
-  on your A1 title block sheet.
-- **SLD Settings** – utility name (`TAQA`), bottom band label (`SUBSTATION`),
-  ratings on/off, and way numbering (ways in order, or Revit circuit numbers).
+- **Generate SLD** – opens the **LV Schematic Editor**: the boards tree on
+  the left and the selected board's ways in a table you can edit: breaker AT /
+  AF / type, cable runs, cores, size, Cu/Al, insulation, armour, earth size
+  and length. The V.D % is worked out again with the Voltage Drop tool as you
+  type (red over the limit), and a preview line shows the cable as it prints:
+  `(4X120)mm² CU/XLPE/SWA/PVC +(1X70)mm² CU/PVC(E)`. Board fields: incomer,
+  fault level, ways and spares (count and breaker; drawn only, the Revit panel
+  schedule is not changed).
+  - **Save to Revit** writes the changes where the SLD and Voltage Drop tools
+    read them: `Upstream_Protection_Rating_A` / `_Type` on the fed panel (or
+    the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `SLD Cable` and
+    `VD Cable`, `VD Length` (or `Feeder_Length_m`), `Incomer_Rating_A` /
+    `Incomer_Type`, `SC_Rating_kA` / `No_Of_Ways` (or `SLD Fault Level` /
+    `SLD Ways`), `SLD Spares` / `SLD Spare Rating`. Missing SLD / VD text
+    parameters are added to the project; read-only (formula or type)
+    parameters are listed as not written.
+  - **Generate SLD** saves any changes and creates a new drafting view
+    `LV Schematic Diagram` (`LV Schematic Diagram 2`, ... on later runs;
+    earlier diagrams are never overwritten). The view is 1:1, so sizes match
+    the printed sheet; place it on your A1 title block sheet.
+- **SLD Settings** – opens the same editor; its **Settings** tab holds the
+  utility name (`TAQA`), bottom band label (`SUBSTATION`), ratings on/off and
+  way numbering (ways in order, or Revit circuit numbers).
 
 ## How the model is read
 

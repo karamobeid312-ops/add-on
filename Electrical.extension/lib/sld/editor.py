@@ -27,8 +27,7 @@ SIZES = ("1.5", "2.5", "4", "6", "10", "16", "25", "35", "50", "70", "95", "120"
          "185", "240", "300", "400", "500", "630")
 DEVICES = ("MCCB", "MCB", "ACB", "MCS", "RCBO")
 CHOICES = {
-    "at": TRIPS, "af": tuple(str(f) for f in style.ACB_FRAMES[:0] + style.MCCB_FRAMES) +
-    ("2000", "2500", "3200", "4000"),
+    "at": TRIPS, "af": tuple(str(f) for f in style.MCCB_FRAMES) + ("2000", "2500", "3200", "4000"),
     "device": DEVICES, "runs": ("1", "2", "3", "4", "5", "6"),
     "cores": ("1", "2", "3", "4", "5"), "size": SIZES, "earth": SIZES,
     "material": cablespec.MATERIALS, "insulation": cablespec.INSULATIONS,

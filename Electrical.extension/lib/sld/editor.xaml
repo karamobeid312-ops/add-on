@@ -1,0 +1,120 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LV Schematic Editor" Width="1450" Height="820" MinWidth="900" MinHeight="500"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" FontSize="12">
+  <!-- No event attributes and no x:Class: XamlReader cannot bind them, so
+       editor_ui.py wires the events and puts the grid columns in place of the marker below. -->
+  <Window.Resources>
+    <Style x:Key="EditCombo" TargetType="ComboBox">
+      <Setter Property="IsEditable" Value="True"/>
+      <Setter Property="IsTextSearchEnabled" Value="False"/>
+    </Style>
+    <Style x:Key="VdCell" TargetType="DataGridCell">
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding vd_over}" Value="True">
+          <Setter Property="Background" Value="#FFFFD6D6"/>
+          <Setter Property="Foreground" Value="#FFC00000"/>
+          <Setter Property="FontWeight" Value="Bold"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="WayRow" TargetType="DataGridRow">
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding locked}" Value="True">
+          <Setter Property="Foreground" Value="#FF888888"/>
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel Margin="8">
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" LastChildFill="True">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <Button x:Name="CloseButton" Content="Close" Width="90" Margin="4,0"/>
+        <Button x:Name="SaveButton" Content="Save to Revit" Width="120" Margin="4,0"/>
+        <Button x:Name="GenerateButton" Content="Generate SLD" Width="120" Margin="4,0"
+                FontWeight="Bold"/>
+      </StackPanel>
+      <TextBlock x:Name="WarningsText" VerticalAlignment="Center" Foreground="#FFB06000"
+                 TextTrimming="CharacterEllipsis"/>
+    </DockPanel>
+
+    <TabControl>
+      <TabItem Header="Boards and ways">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="5"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <TreeView x:Name="BoardsTree" Grid.Column="0"/>
+          <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch"/>
+
+          <DockPanel Grid.Column="2" Margin="6,0,0,0">
+            <TextBlock x:Name="BoardTitle" DockPanel.Dock="Top" FontSize="15" FontWeight="Bold"
+                       Margin="0,0,0,4"/>
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+              <TextBlock Text="Incomer" VerticalAlignment="Center" Margin="0,0,4,0"/>
+              <ComboBox x:Name="IncomerAT" Width="65" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_incomer_at}" ToolTip="Trip (AT)"/>
+              <TextBlock Text="AT" VerticalAlignment="Center" Margin="2,0,6,0"/>
+              <ComboBox x:Name="IncomerAF" Width="65" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_incomer_af}" ToolTip="Frame (AF)"/>
+              <TextBlock Text="AF" VerticalAlignment="Center" Margin="2,0,6,0"/>
+              <ComboBox x:Name="IncomerDevice" Width="70" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_incomer_device}"/>
+              <TextBlock Text="Fault level" VerticalAlignment="Center" Margin="14,0,4,0"/>
+              <ComboBox x:Name="FaultLevel" Width="65" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_fault_level}"/>
+              <TextBlock Text="Ways" VerticalAlignment="Center" Margin="14,0,4,0"/>
+              <TextBox x:Name="WaysCount" Width="40" VerticalContentAlignment="Center"/>
+              <TextBlock Text="Spares" VerticalAlignment="Center" Margin="14,0,4,0"/>
+              <ComboBox x:Name="SpareCount" Width="45" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_spares}"/>
+              <TextBlock Text="x" VerticalAlignment="Center" Margin="4,0"/>
+              <ComboBox x:Name="SpareAT" Width="65" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_spare_at}" ToolTip="Spare trip (AT)"/>
+              <TextBlock Text="AT" VerticalAlignment="Center" Margin="2,0,6,0"/>
+              <ComboBox x:Name="SpareAF" Width="65" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_spare_af}" ToolTip="Spare frame (AF)"/>
+              <TextBlock Text="AF" VerticalAlignment="Center" Margin="2,0,6,0"/>
+              <ComboBox x:Name="SpareDevice" Width="70" Style="{StaticResource EditCombo}"
+                        ItemsSource="{DynamicResource ch_spare_device}"/>
+              <Button x:Name="AddSpare" Content="+ Add spare" Margin="8,0,0,0" Padding="6,0"/>
+              <Button x:Name="RemoveSpare" Content="- Remove spare" Margin="4,0,0,0" Padding="6,0"/>
+            </WrapPanel>
+
+            <TextBlock x:Name="PreviewText" DockPanel.Dock="Bottom" Margin="0,6,0,0"
+                       FontFamily="Consolas" FontSize="13" TextWrapping="Wrap"/>
+
+            <DataGrid x:Name="WaysGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserDeleteRows="False" CanUserSortColumns="False"
+                      CanUserReorderColumns="False" SelectionMode="Single"
+                      SelectionUnit="Cell" HeadersVisibility="Column"
+                      RowStyle="{StaticResource WayRow}" GridLinesVisibility="All"
+                      HorizontalGridLinesBrush="#FFDDDDDD" VerticalGridLinesBrush="#FFDDDDDD">
+              <DataGrid.Columns>
+COLUMNS
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </Grid>
+      </TabItem>
+
+      <TabItem Header="Settings">
+        <StackPanel Margin="10" Width="420" HorizontalAlignment="Left">
+          <TextBlock Text="Utility / supply authority (FROM ...)"/>
+          <TextBox x:Name="SetUtility" Margin="0,2,0,10"/>
+          <TextBlock Text="Bottom band label"/>
+          <TextBox x:Name="SetSubstation" Margin="0,2,0,10"/>
+          <CheckBox x:Name="SetShowRatings" Content="Print breaker rating and cable along each way"
+                    Margin="0,0,0,10"/>
+          <TextBlock Text="Way numbering"/>
+          <ComboBox x:Name="SetNumbering" Margin="0,2,0,10"/>
+          <TextBlock TextWrapping="Wrap" Foreground="#FF666666"
+                     Text="A new way numbering is used the next time the editor opens."/>
+        </StackPanel>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>
