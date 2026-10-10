@@ -9,13 +9,25 @@ STYLES = [NUMBER_NAME, NAME, NAME_NUMBER]
 
 SEPARATOR = ", "
 
-# the cable of a power circuit (sockets, power outlets...), office standard
-POWER_WIRING = [
-    ("Circuit_Wire_Size_mm2", u"4"),
-    ("Earth_Wire_Size_mm2", u"4"),
-    ("Circuit_Wire_Rating", u"27.8(5.4)"),
-    ("Circuit_Wire_Type", u"SINGLE CORE"),
-]
+# the breaker and cable of a final circuit, office standard
+POWER = "power"             # sockets, power outlets, equipment
+LIGHTING = "lighting"       # only light fittings on it
+MCB = "MCB"                 # the circuit's Rating (A)
+WIRING = {
+    POWER: [(MCB, u"20"), ("Circuit_Wire_Size_mm2", u"4"), ("Earth_Wire_Size_mm2", u"4"),
+            ("Circuit_Wire_Rating", u"27.8(5.4)"), ("Circuit_Wire_Type", u"SINGLE CORE")],
+    LIGHTING: [(MCB, u"16"), ("Circuit_Wire_Size_mm2", u"2.5"), ("Earth_Wire_Size_mm2", u"2.5"),
+               ("Circuit_Wire_Rating", u"20.9(4.1)"), ("Circuit_Wire_Type", u"SINGLE CORE")],
+}
+WIRING_NAMES = [name for name, _ in WIRING[POWER]]
+
+
+def wiring_text(kind):
+    """'MCB 20 A, 4 / 4 mm², 27.8(5.4), SINGLE CORE' for the preview."""
+    v = dict(WIRING[kind])
+    return u"MCB %s A, %s / %s mm\u00b2, %s, %s" % (
+        v[MCB], v["Circuit_Wire_Size_mm2"], v["Earth_Wire_Size_mm2"],
+        v["Circuit_Wire_Rating"], v["Circuit_Wire_Type"])
 
 LOAD_SLOTS = 6              # Load1_Type / _Nos / _WpU ... Load6_ on the circuits
 
@@ -109,7 +121,7 @@ class Circuit(object):
     """A circuit of a board, as read from the model."""
 
     def __init__(self, ref, panel, number, slot, old, labels, feeder=False,
-                 fixtures=(), old_loads=None, power=False, old_wiring=None):
+                 fixtures=(), old_loads=None, kind=None, old_wiring=None):
         self.ref = ref                  # the Revit circuit
         self.panel = panel              # board name
         self.number = number            # R1, 12...
@@ -121,12 +133,13 @@ class Circuit(object):
         self.new = self.found or self.old   # kept when no room is found
         self.loads, self.overflow = group_loads(fixtures)
         self.old_loads = list(old_loads) if old_loads is not None else list(self.loads)
-        # power circuits get the office cable; others keep theirs. Only the
-        # wiring parameters on the circuit (in old_wiring) are written.
+        # power and lighting circuits get the office breaker and cable. Only
+        # the parameters on the circuit (in old_wiring) are written.
+        self.kind = kind
         self.old_wiring = dict(old_wiring or {})
         self.wiring = dict(self.old_wiring)
-        if power:
-            for name, value in POWER_WIRING:
+        if kind in WIRING:
+            for name, value in WIRING[kind]:
                 if name in self.wiring:
                     self.wiring[name] = value
 

@@ -8,7 +8,7 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
-from circuitdesc.describe import LOAD_SLOTS, POWER_WIRING, Circuit, fill_unknown, label, number_text
+from circuitdesc.describe import LIGHTING, LOAD_SLOTS, MCB, POWER, WIRING_NAMES, Circuit, fill_unknown, label, number_text
 
 FEET = 0.3048                   # metres in a foot
 SIDE_STEP = 0.3 / FEET          # off the wall, for fixtures on a wall face
@@ -241,7 +241,7 @@ def read(board, systems, models, values):
         circuit = Circuit(system, name, system.CircuitNumber or u"", _slot(system),
                           system.LoadName, labels, feeder, fixtures,
                           read_loads(system) if has_loads else None,
-                          is_power(elements), read_wiring(system))
+                          circuit_kind(elements), read_wiring(system))
         circuit.has_loads = has_loads
         out.append(circuit)
     return out
@@ -437,27 +437,35 @@ def _set(param, text):
         param.Set(_from_watts(value) if _is_power(param) else value)
 
 
-LIGHTING = (BuiltInCategory.OST_LightingFixtures, BuiltInCategory.OST_LightingDevices)
+LIGHT_CATEGORIES = (BuiltInCategory.OST_LightingFixtures, BuiltInCategory.OST_LightingDevices)
 
 
-def is_power(elements):
-    """A power circuit: fixtures connected and none of them lights."""
+def circuit_kind(elements):
+    """LIGHTING when only light fittings are on the circuit, else POWER;
+    None when nothing is connected."""
     if not elements:
-        return False
+        return None
+    lights = [int(c) for c in LIGHT_CATEGORIES]
     for element in elements:
         try:
-            if id_int(element.Category.Id) in [int(c) for c in LIGHTING]:
-                return False
+            if id_int(element.Category.Id) not in lights:
+                return POWER
         except Exception:
-            return False
-    return True
+            return POWER
+    return LIGHTING
+
+
+def _wiring_param(system, name):
+    if name == MCB:
+        return system.get_Parameter(BuiltInParameter.RBS_ELEC_CIRCUIT_RATING_PARAM)
+    return system.LookupParameter(name)
 
 
 def read_wiring(system):
     """{name: text} of the wiring parameters on the circuit."""
     out = {}
-    for name, _ in POWER_WIRING:
-        param = system.LookupParameter(name)
+    for name in WIRING_NAMES:
+        param = _wiring_param(system, name)
         if param is None:
             continue
         if not param.HasValue:
@@ -473,7 +481,7 @@ def write_wiring(circuit):
     for name, text in circuit.wiring.items():
         if text == circuit.old_wiring.get(name):
             continue
-        param = circuit.ref.LookupParameter(name)
+        param = _wiring_param(circuit.ref, name)
         if param is None or param.IsReadOnly:
             continue
         if param.StorageType == StorageType.String:
