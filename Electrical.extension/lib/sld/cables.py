@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""BS / IEC style cable descriptions, e.g.
+"""Cable descriptions in the office format, e.g.
 
-    4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC
+    (4X4)mm² CU/XLPE/PVC +(1X4)mm² CU/PVC(E)
 
 Revit-independent so it can be unit tested.
 """
@@ -14,6 +14,7 @@ MM2 = u"mm²"  # mm²
 DEFAULT_CONDUCTOR = "Cu"
 DEFAULT_INSULATION = "XLPE"
 DEFAULT_SHEATH = "PVC"
+EARTH_BUILD = "CU/PVC(E)"
 
 _MATERIALS = {
     "copper": "Cu", "cu": "Cu",
@@ -71,20 +72,21 @@ def format_cable(cores, size, earth_cores=0, earth_size=None, build=None,
     size        live conductor size in mm², e.g. '4' or 4
     earth_cores number of separate earth cores (0 = no earth)
     earth_size  earth size in mm² (defaults to `size`)
-    build       e.g. 'Cu/XLPE/PVC' (defaults to Cu/XLPE/PVC)
-    runs        parallel runs; >1 gives '2x(4Cx95mm² ...)'
+    build       e.g. 'Cu/XLPE/PVC' (defaults to Cu/XLPE/PVC), printed upper case
+    runs        parallel runs; >1 gives '2X(4X95)mm² ...'
     """
     if not cores or size in (None, ""):
         return ""
-    build = build or construction()
-    text = u"%dCx%s%s %s" % (int(cores), _clean_number(str(size)), MM2, build)
+    build = (build or construction()).upper()
+    text = u"(%dX%s)%s" % (int(cores), _clean_number(str(size)), MM2)
+    if runs and int(runs) > 1:
+        text = u"%dX%s" % (int(runs), text)
+    text += u" " + build
     if earth_cores:
-        text += u" + %dCx%s%s %s" % (
+        text += u" +(%dX%s)%s %s" % (
             int(earth_cores),
             _clean_number(str(earth_size if earth_size not in (None, "") else size)),
-            MM2, build)
-    if runs and int(runs) > 1:
-        text = u"%dx(%s)" % (int(runs), text)
+            MM2, EARTH_BUILD)
     return text
 
 

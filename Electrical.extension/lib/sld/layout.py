@@ -17,7 +17,7 @@ from __future__ import division
 from sld import style, symbols
 from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing,
                           text_height, text_width, wrap)
-from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS,
+from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS, split_cable,
                        TRANSFORMER)
 
 SUBSTATION_BAND = -1
@@ -627,12 +627,14 @@ def _draw_source(d, g, floor_y, settings):
 
 
 def _cable_label(cable):
-    """'(7 SC 630mm²\nCu/XLPE/AWA/PVC)': size on the first line, build on the next."""
-    if " + " in cable:
-        first, rest = cable.split(" + ", 1)
-        return "(%s\n+ %s)" % (first, rest)
+    """'(7 SC 630mm²\nCu/XLPE/AWA/PVC)': size on the first line, build on the
+    next; office text that has its own brackets is not bracketed again."""
+    wrap = (lambda t: t) if "(" in cable else (lambda t: "(%s)" % t)
+    lines = split_cable(cable)
+    if len(lines) > 1:
+        return wrap("\n".join(lines))
     tokens = cable.split()
     for i, tok in enumerate(tokens):
         if "/" in tok and i > 0:
-            return "(%s\n%s)" % (" ".join(tokens[:i]), " ".join(tokens[i:]))
-    return "(%s)" % cable
+            return wrap("%s\n%s" % (" ".join(tokens[:i]), " ".join(tokens[i:])))
+    return wrap(cable)

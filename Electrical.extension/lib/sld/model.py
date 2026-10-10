@@ -62,6 +62,13 @@ def parse_amps(text):
     return value if value > 0 else None
 
 
+def split_cable(text):
+    """Cable text as lines, the earth part ('+(1X16)...' or '+ 1Cx...')
+    on its own line."""
+    parts = [p.strip() for p in re.split(r"\s+(?=\+)", text or "") if p.strip()]
+    return parts
+
+
 def frame_rating(trip, frames=None):
     """Smallest standard frame (AF) that takes the trip rating (AT)."""
     if trip is None:
@@ -220,9 +227,9 @@ class CircuitInfo(object):
         return self.cable or self.wire_size
 
     def cable_lines(self):
-        """Cable text split so the earth core ('+ 1Cx...') gets its own line."""
-        parts = [p for p in self.cable_text().split(" + ") if p]
-        return parts[:1] + ["+ " + p for p in parts[1:]]
+        """Cable text split so the earth core ('+(1X16)mm²...', '+ 1Cx...')
+        gets its own line."""
+        return split_cable(self.cable_text())
 
     def breaker_text(self):
         """e.g. '63A TP'."""

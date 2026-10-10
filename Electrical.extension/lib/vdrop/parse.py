@@ -18,7 +18,9 @@ _INSTALLATION_WORDS = (
 )
 # 2x(4Cx300mm² ...), 4x4Cx300, 11 x 1C x 630, 4Cx16mm², 4C 16
 _CABLE_RE = re.compile(
-    r"(?:(\d+)\s*X\s*\(?\s*)?(\d+)\s*C\s*(?:X\s*)?(\d+(?:\.\d+)?)")
+    r"(?:(\d+)\s*X\s*\(?\s*)?(\d+)\s*C\s*(?:X\s*)?(\d+(?:[.,]\d+)?)")
+# office format: (4X120)mm², 2X(4X240)mm², 4X(1X300)mm²
+_OFFICE_RE = re.compile(r"(?:(\d+)\s*X\s*)?\(\s*(\d+)\s*X\s*(\d+(?:[.,]\d+)?)\s*\)")
 
 
 def number(text):
@@ -84,18 +86,20 @@ class Cable(object):
 
 
 def cable(text):
-    """Cable from text such as '4x4Cx300', '1Cx630 XLPE/SWA/PVC' or the SLD
-    format '2x(4Cx300mm² Cu/XLPE/SWA/PVC + 1Cx150mm² ...)'. None if no
-    size can be read."""
+    """Cable from text such as '4x4Cx300', '1Cx630 XLPE/SWA/PVC', the old
+    SLD format '2x(4Cx300mm² Cu/XLPE/SWA/PVC + 1Cx150mm² ...)' or the office
+    format '(4X120)mm² CU/XLPE/SWA/PVC +(1X70)mm² CU/PVC(E)'. None if no
+    size can be read. The insulation is read before the earth part."""
     upper = (text or "").upper().replace(u"×", "X").replace("*", "X")
-    match = _CABLE_RE.search(upper)
+    match = _OFFICE_RE.search(upper) or _CABLE_RE.search(upper)
     if not match:
         return None
     runs = int(match.group(1)) if match.group(1) else 1
-    size = float(match.group(3))
+    size = float(match.group(3).replace(",", "."))
+    main = upper[:match.end()] + upper[match.end():].split("+", 1)[0]
     return Cable(runs=max(runs, 1), cores=int(match.group(2)),
                  size=int(size) if size == int(size) else size,
-                 insulation=insulation(upper))
+                 insulation=insulation(main))
 
 
 _SIZE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:mm²|mm2|mm\^2|sq\.?\s*mm|mm)", re.IGNORECASE)
