@@ -49,6 +49,14 @@ INCOMER_BREAKER_BELOW_BUS = 5.0
 BOARD_GAP = 12.0            # min horizontal gap between boards in a row
 RISER_CLEARANCE = 5.0       # riser jogs this far clear of a board it passes
 
+# Spare breakers added to every sub-main board: as many as fit between the
+# minimum and maximum without going over the board's limit. Ways are counted
+# as on the board: single-pole breakers on R, Y and B share one way.
+MIN_SPARES = 2
+MAX_SPARES = 3
+MAX_WAYS = 18               # most circuit breakers (ways) on a sub-main board
+SUB_MAIN_NAME_PATTERN = r"^[A-Z]{0,2}SM(DB|SB)"   # SMDB, USMDB, ESMDB, SMSB...
+
 # Equipment whose panel name matches is always drawn as a full board
 # (with all its ways), even when it only feeds final loads.
 BOARD_NAME_PATTERN = r"^[A-Z]{0,2}(MDB|MSB)"   # MDB, SMDB, USMDB, ESMDB, MSB...

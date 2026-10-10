@@ -246,6 +246,14 @@ class Way(object):
     def target_id(self):
         return self.target.id if self.target is not None else None
 
+    def trip(self):
+        """Trip rating (A) of the way's breaker, None when unknown."""
+        if self.target is not None and self.target.upstream_protection:
+            trip = parse_protection(self.target.upstream_protection)[0]
+            if trip is not None:
+                return trip
+        return parse_amps(self.circuit.rating) if self.circuit is not None else None
+
     def breaker_lines(self):
         """Beside the way's breaker: the upstream protection typed on the
         panel it feeds, else the circuit's rating."""
@@ -437,10 +445,79 @@ def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transforme
     return DB
 
 
-def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
+def is_sub_main(board):
+    """A sub-main board (SMDB, SMSB...): fed from another board, or named
+    like one even when nothing feeds it in the model."""
+    return board.role == BOARD or bool(
+        re.search(style.SUB_MAIN_NAME_PATTERN, board.name or "", re.IGNORECASE))
+
+
+def _next_way_number(labels):
+    numbers = [int(n) for n in (re.sub(r"^[RYB]", "", l or "") for l in labels) if n.isdigit()]
+    return max(numbers) + 1 if numbers else 1
+
+
+def _spare_rating(board):
+    """Trip rating for added spares: the board's most common outgoing
+    breaker (the larger on a tie), None when none is known."""
+    counts = {}
+    for w in board.ways:
+        if w.kind == SPARE and w.circuit is not None and w.circuit.id.startswith("spare:"):
+            continue
+        trip = w.trip()
+        if trip is not None:
+            counts[trip] = counts.get(trip, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=lambda t: (counts[t], t))
+
+
+def way_positions(ways, phases=3):
+    """Ways the breakers take on the board: single-pole breakers on a
+    three-phase board share a way (R9, Y9, B9 are one way)."""
+    labels = way_labels([w.circuit for w in ways if w.circuit is not None], phases, "slots")
+    return len(set(re.sub(r"^[RYB]", "", l) for l in labels))
+
+
+def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
+    """Spare breakers on a sub-main board, drawn after its circuits.
+
+    The board gets the most spares in `spares` (min, max) that keep it within
+    `max_ways` ways, counting spares already in the model. Returns warnings
+    for a board that cannot take the minimum within the limit.
+    """
+    low, high = spares or (style.MIN_SPARES, style.MAX_SPARES)
+    limit = max_ways or style.MAX_WAYS
+    existing = sum(1 for w in board.ways if w.kind == SPARE)
+    used = way_positions([w for w in board.ways if w.kind != SPARE], phases)
+    target = next((n for n in range(high, low - 1, -1) if used + n <= limit),
+                  max(limit - used, 0))
+    add = max(target - existing, 0)
+    if add:
+        rating = _spare_rating(board)
+        number = _next_way_number([w.label for w in board.ways])
+        for i in range(add):
+            c = CircuitInfo("spare:%s:%d" % (board.id, i + 1), board.id,
+                            rating="%sA" % trim_number(rating, 1) if rating else "",
+                            poles="3", is_spare=True)
+            label = str(number + i) if numbering != "revit" else ""
+            board.ways.append(Way(c, SPARE, label, "SPARE"))
+    total = way_positions(board.ways, phases)
+    if used + low > limit:
+        return ["%s uses %d ways: with %d spares it needs %d, more than the %d circuit "
+                "breakers allowed on a sub-main board. Split the board." % (
+                    board.name, used, low, used + low, limit)]
+    if total > limit:
+        return ["%s has %d ways (spares included), more than the %d circuit breakers "
+                "allowed on a sub-main board." % (board.name, total, limit)]
+    return []
+
+
+def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spares=True):
     """Build boards/ways from flat equipment and circuit lists.
 
     phases_of: optional {equipment id: phase count} used for way numbering.
+    spares: add spare breakers to sub-main boards (see add_spares).
     """
     warnings = []
     eq_by_id = dict((e.id, e) for e in equipment)
@@ -597,6 +674,11 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots"):
             roots.append(b)
             for x in b.iter_tree():
                 reached.add(x.id)
+
+    if spares:
+        for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
+            if is_sub_main(b):
+                warnings.extend(add_spares(b, numbering, phases_of.get(b.id, 3)))
 
     return Schematic(roots, warnings)
 
