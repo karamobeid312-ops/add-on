@@ -5,8 +5,8 @@ the results back on it, and add the parameters used to type the lengths.
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 
 For each panel (board, DB, transformer, UPS) the row of its incoming cable
-comes from the panel: FROM = the board supplying it, breaker = MCB Rating
-(else Mains), loads = Total Estimated Demand / Total Connected, power factor
+comes from the panel: FROM = the board supplying it, breaker = the panel's
+Upstream_Protection_Rating_A / _Type (only: empty when not set), loads = Total Estimated Demand / Total Connected, power factor
 = VD PF typed on it, else VD Settings (0.85; or, if VD Settings says so,
 true / apparent load of its circuits), phases =
 its distribution system (and its voltage, if VD Settings says to use the
@@ -39,6 +39,7 @@ from Autodesk.Revit.DB import (BuiltInCategory, BuiltInParameter, Category, Elem
                                FilteredElementCollector, StorageType, Transaction)
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
+from sld.model import parse_protection
 from vdrop import parse
 from vdrop.calc import BOARD, MDL, TRANSFORMER, UPS, Feeder, natural_key
 
@@ -49,6 +50,12 @@ P_LOAD = "VD Load kW"
 P_PF = "VD PF"
 P_VD = "VD Percent"
 P_TOTAL = "VD Total Percent"
+# Office panel family parameters: the length when VD Length is empty, and
+# the breaker feeding the panel.
+P_FEEDER_LENGTH = "Feeder_Length_m"
+P_FEEDER_CABLE = ("Feeder_Size", "Feeder_Type")      # (4X120)mm² / CU/XLPE/SWA/PVC
+P_UPSTREAM = ("Upstream_Protection_Rating_A", "Upstream_Protection_Type")
+P_FED_BY = "Fed_By"         # the board feeding a panel not connected in this model
 # Where each parameter goes. Lengths can also be typed on the loads of final
 # circuits (fixtures, mechanical equipment).
 _ON_PANELS = ("OST_ElectricalEquipment", "OST_ElectricalCircuit")
@@ -103,8 +110,17 @@ def _is_length(p):
 
 
 def _length(element, notes):
-    """VD Length in metres, from a Text, Number or Length parameter."""
-    p = _parameter(element, P_LENGTH)
+    """VD Length in metres, from a Text, Number or Length parameter; else
+    the panel family's Feeder_Length_m."""
+    for name in (P_LENGTH, P_FEEDER_LENGTH):
+        value = _length_of(element, name, notes)
+        if value is not None or notes:
+            return value
+    return None
+
+
+def _length_of(element, name, notes):
+    p = _parameter(element, name)
     if p is None:
         return None
     try:
@@ -113,10 +129,10 @@ def _length(element, notes):
             return value if value > 0 else None
     except Exception:
         return None
-    text = _text(element, P_LENGTH)
+    text = _text(element, name)
     value = parse.length_m(text)
     if value is None and text:
-        notes.append(u"VD Length '%s' not understood" % text)
+        notes.append(u"%s '%s' not understood" % (name, text))
     return value
 
 
@@ -175,6 +191,21 @@ def _id_int(element_id):
 
 # ---------------------------------------------------------------- panels
 
+DEMAND_POWER = "Total Demand Apparent Power"
+CONNECTED_POWER = "Total Connected Apparent Power"
+
+
+def panel_kva(element, name, bip_name):
+    """A panel load in kVA: the named parameter, else the built-in one."""
+    kilo = INTERNAL_POWER / 1000.0
+    p = _parameter(element, name)
+    try:
+        value = _positive(p.AsDouble(), kilo) if p is not None else None
+    except Exception:
+        value = None
+    return value if value is not None else _positive(_bip_double(element, bip_name), kilo)
+
+
 class _Equipment(object):
     """A panel (or transformer / UPS): its own values and what is typed on it."""
 
@@ -183,16 +214,17 @@ class _Equipment(object):
         self.id = element.UniqueId
         self.name = (_bip_text(element, "RBS_ELEC_PANEL_NAME") or element.Name or "").strip()
         self.kind = _kind(element)
-        self.demand_kva = _positive(_bip_double(element, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM"),
-                                    INTERNAL_POWER / 1000.0)
-        self.connected_kva = _positive(_bip_double(element, "RBS_ELEC_PANEL_TOTALLOAD_PARAM"),
-                                       INTERNAL_POWER / 1000.0)
-        # the breaker of the incoming cable: MCB Rating, else Mains (A)
-        self.breaker = (_positive(_bip_double(element, "RBS_ELEC_PANEL_MCB_RATING_PARAM")) or
-                        _positive(_bip_double(element, "RBS_ELEC_MAINS")))
+        # Newer Revit fills Total Demand / Connected Apparent Power and can
+        # leave Total Estimated Demand at 0.
+        self.demand_kva = panel_kva(element, DEMAND_POWER, "RBS_ELEC_PANEL_TOTALESTLOAD_PARAM")
+        self.connected_kva = panel_kva(element, CONNECTED_POWER, "RBS_ELEC_PANEL_TOTALLOAD_PARAM")
+        # the breaker of the incoming cable: the panel's upstream protection
+        # only, e.g. '40AT/100AF' + 'MCCB' (A)
+        self.breaker = parse_protection(*[_text(element, n) for n in P_UPSTREAM])[0]
         dist = _distribution(element)
         self.phases = _phases(dist)
         self.voltage = _voltage(dist, self.phases)
+        self.fed_by = _text(element, P_FED_BY)
         self.true_kw = 0.0            # sum of the loads of its circuits
         self.apparent_kva = 0.0
 
@@ -331,6 +363,13 @@ def _typed_cable(element, names, notes):
     return None
 
 
+def _feeder_cable(element):
+    """Cable from the panel's Feeder_Size + Feeder_Type, or None."""
+    from sld.cablespec import feeder_text
+    text = feeder_text(*[_text(element, n) for n in P_FEEDER_CABLE])
+    return parse.cable(text) if text else None
+
+
 def _revit_cable(system, notes):
     """Cable from the circuit's wire size, the only place Revit keeps it."""
     if system is None:
@@ -399,8 +438,10 @@ class Model(object):
 
     def __init__(self):
         self.feeders = []
+        self.equipment = {}       # panel id -> _Equipment (with its loads)
         self.elements = {}        # feeder id -> element holding its results
         self.skipped = 0          # final circuits without VD Length
+        self.fed_by = {}          # panel id -> board in its Fed_By (no circuit feeds it)
         self.warnings = []
 
 
@@ -414,7 +455,7 @@ def _panel_feeder(panel, system, source, values, model):
     typed = [el, system]          # typed on the panel, else on the circuit
     notes = []
     length = _first(typed, _length, notes)
-    circuit_pf, circuit_tcl, circuit_voltage, rating = (
+    circuit_pf, circuit_tcl, circuit_voltage, _ = (
         _circuit_values(system) if system is not None else (None, None, None, None))
     # typed on the panel (or its circuit), else VD Settings (or the model)
     pf = _first(typed, _typed_pf, notes) or _pf(values, panel.load_pf or circuit_pf)
@@ -427,7 +468,7 @@ def _panel_feeder(panel, system, source, values, model):
     mdl = _first(typed, _typed_load, notes)
     if mdl is None and values["load_basis"] == MDL and panel.demand_kva:
         mdl = panel.demand_kva * to_kw
-    cable = (_typed_cable(el, (P_CABLE, "SLD Incoming Cable"), notes) or
+    cable = (_typed_cable(el, (P_CABLE, "SLD Incoming Cable"), notes) or _feeder_cable(el) or
              (_typed_cable(system, (P_CABLE, "SLD Cable"), notes) if system is not None else None))
     if cable is None and not [n for n in notes if n.startswith("VD Cable")]:
         cable = _revit_cable(system, notes)
@@ -440,7 +481,7 @@ def _panel_feeder(panel, system, source, values, model):
         target_id=panel.id, length=length, phases=panel.phases,
         voltage=_model_voltage(values, panel.voltage or circuit_voltage),
         tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
-        breaker=panel.breaker or rating, installation=_first(typed, _installation, notes),
+        breaker=panel.breaker, installation=_first(typed, _installation, notes),
         cable=cable, source_kind=kind, order=_order(system), ref=el.Id, notes=notes))
     model.elements[panel.id] = el
 
@@ -482,6 +523,7 @@ def collect(doc, values):
     panel) and for every final circuit with a length."""
     model = Model()
     equipment = _equipment(doc)
+    model.equipment = equipment
     feeding = {}      # panel id -> (circuit, source panel)
     finals = []
     for system in FilteredElementCollector(doc).OfClass(ElectricalSystem):
@@ -512,11 +554,16 @@ def collect(doc, values):
             model.warnings.append(u"Circuit %s skipped: %s" % (
                 _attr(system, "CircuitNumber") or "?", error))
 
+    # a panel whose board is in another link: fed from the board in its Fed_By
+    from sld.model import fed_by_links
+    model.fed_by = fed_by_links(equipment, feeding, BOARD)
     for panel in equipment.values():
         try:
             if panel.id in feeding:
                 system, source = feeding[panel.id]
                 _panel_feeder(panel, system, source, values, model)
+            elif panel.id in model.fed_by:
+                _panel_feeder(panel, None, model.fed_by[panel.id], values, model)
             elif panel.kind == BOARD:
                 # main board fed straight from the transformer: a row only
                 # when its incoming cable is described on it
@@ -648,20 +695,22 @@ def _bind(doc, definition, binding, again=False):
         return insert(definition, binding)
 
 
-def _add_parameters(doc, names):
+def _add_parameters(doc, names, specs=None, group_name=None):
     """Shared parameters for `names` bound to their categories; the ones
     already in the project get the categories they lack. The shared
-    parameter file is a temporary one; the user's own file is restored."""
+    parameter file is a temporary one; the user's own file is restored.
+    specs / group_name: other parameters than the VD ones (the SLD editor's)."""
+    specs = specs or PARAMETERS
     app = doc.Application
     bound = _bindings(doc)
-    for name, _, categories in PARAMETERS:
+    for name, _, categories in specs:
         if name in names and name in bound:
             definition, binding = bound[name]
             for category in _categories(doc, categories):
                 if not binding.Categories.Contains(category):
                     binding.Categories.Insert(category)
             _bind(doc, definition, binding, again=True)
-    new = [p for p in PARAMETERS if p[0] in names and p[0] not in bound]
+    new = [p for p in specs if p[0] in names and p[0] not in bound]
     if not new:
         return
     previous = app.SharedParametersFilename
@@ -669,7 +718,7 @@ def _add_parameters(doc, names):
     open(path, "w").close()
     app.SharedParametersFilename = path
     try:
-        group = app.OpenSharedParameterFile().Groups.Create(PARAMETER_GROUP)
+        group = app.OpenSharedParameterFile().Groups.Create(group_name or PARAMETER_GROUP)
         for name, kind, categories in new:
             category_set = app.Create.NewCategorySet()
             for category in _categories(doc, categories):

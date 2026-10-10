@@ -3,7 +3,9 @@
 
 * Boards are drawn on their floor: one horizontal band per Revit level,
   with a dashed floor line and label (ROOF FLOOR, GROUND FLOOR...). Main
-  boards sit in the SUBSTATION band at the bottom with their transformer.
+  boards sit in the SUBSTATION band at the bottom with their transformer
+  and the utility supply. A board or DB fed from nothing in the model is
+  drawn on its own floor, with no supply under it.
 * A board fed from another board on the same floor is drawn in a second
   tier of that floor's band.
 * Feeders between boards are risers: straight up from the outgoing way,
@@ -16,8 +18,8 @@ from __future__ import division
 
 from sld import style, symbols
 from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing,
-                          text_width, wrap)
-from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS,
+                          text_height, text_width, wrap)
+from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS, split_cable,
                        TRANSFORMER)
 
 SUBSTATION_BAND = -1
@@ -37,6 +39,9 @@ class BoardGeom(object):
         self.board = board
         n = len(board.ways)
         self.name_text, self.info_text = _board_labels(board)
+        self.load_rows = _load_rows(board)
+        table_w = (symbols.load_table_size(self.load_rows)[0] + style.LOAD_TABLE_MARGIN
+                   if self.load_rows else 0.0)
         if board.is_main:
             first = style.BOARD_MARGIN + 10.0
             self.height = style.MAIN_HEIGHT
@@ -48,18 +53,26 @@ class BoardGeom(object):
                         text_width(self.info_text, style.TEXT_MAIN_INFO)) + 2.0
             self.incomer_offset = max(style.MAIN_INCOMER_FROM_LEFT,
                                       block + symbols.MAIN_LAMPS_LEFT + 3.0)
-            self.width = max(style.MAIN_MIN_WIDTH, span, self.incomer_offset + 45.0)
+            # The load table sits top right, clear of the meters and fuse text.
+            self.width = max(style.MAIN_MIN_WIDTH, span, self.incomer_offset + 45.0,
+                             self.incomer_offset + 32.0 + table_w)
         else:
             first = style.BOARD_MARGIN
             self.height = style.BOARD_HEIGHT
             self.bus_below_top = style.BUS_BELOW_TOP
             span = first + max(n - 1, 0) * style.WAY_PITCH + style.BOARD_MARGIN
             self.info_text = wrap(self.info_text, style.TEXT_BOARD_INFO, 50.0)
+            # Taller box when the name + info block would reach the busbar.
+            below_bus = (1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING +
+                         text_height(self.info_text, style.TEXT_BOARD_INFO) + 1.5)
+            self.height = max(style.BOARD_HEIGHT, below_bus + self.bus_below_top)
             # Incomer to the right of the name/info block in the corner.
             block = max(text_width(self.name_text, style.TEXT_BOARD_NAME),
                         text_width(self.info_text, style.TEXT_BOARD_INFO)) + 1.5
             self.incomer_offset = max(span / 2, block + 2.0)
-            self.width = max(style.BOARD_MIN_WIDTH, span, self.incomer_offset + 12.0)
+            # The load table sits bottom right, clear of the incomer label.
+            self.width = max(style.BOARD_MIN_WIDTH, span, self.incomer_offset + 12.0,
+                             self.incomer_offset + 9.0 + table_w)
         self.way_offsets = [first + i * style.WAY_PITCH for i in range(n)]
         self.left = 0.0
         self.bottom = 0.0
@@ -140,8 +153,7 @@ class BoardGeom(object):
         h = style.SPARE_HEIGHT + 8.0
         for w in self.board.ways:
             if w.kind == DB_BOX:
-                h = max(h, style.TERMINAL_BASE +
-                        max(style.DB_BOX_HEIGHT, symbols.vertical_length(w.name, style.TEXT_LOAD) + 4.0))
+                h = max(h, style.TERMINAL_BASE + symbols.db_box_height(w.name, w.loads()))
             elif w.kind == ISOLATOR:
                 h = max(h, style.TERMINAL_BASE + style.ISOLATOR_HEIGHT + style.ISOLATOR_HOOK +
                         0.8 + symbols.vertical_length(w.name, style.TEXT_LOAD))
@@ -158,14 +170,16 @@ class BoardGeom(object):
 
 
 class BoxGeom(object):
-    """A DB on a higher floor than its board: drawn as a DB box on its own
-    floor, fed by a riser (like UDB-FF-01 from USMDB-GF-M)."""
+    """A DB box on its own floor: a DB on a higher floor than its board, fed
+    by a riser (like UDB-FF-01 from USMDB-GF-M), or a DB fed from nothing in
+    the model (equipment, no way)."""
 
     width = 4.0
     incomer_offset = 2.0
 
-    def __init__(self, way):
+    def __init__(self, way=None, equipment=None):
         self.way = way
+        self.equipment = equipment
         self.left = 0.0
         self.bottom = 0.0       # board bottom of its row
         self.band = 0
@@ -173,11 +187,18 @@ class BoxGeom(object):
 
     @property
     def key(self):
+        if self.way is None:
+            return "db:%s" % self.equipment.id
         return "box:%s" % self.way.circuit.id
 
     @property
     def name(self):
-        return self.way.name
+        return self.way.name if self.way is not None else self.equipment.name
+
+    def loads(self):
+        if self.way is not None:
+            return self.way.loads()
+        return self.equipment.connected_kw, self.equipment.demand_kw
 
     @property
     def row(self):
@@ -200,8 +221,7 @@ class BoxGeom(object):
         return self.feed_y
 
     def content_height(self):
-        return max(style.DB_BOX_HEIGHT,
-                   symbols.vertical_length(self.name, style.TEXT_LOAD) + 4.0)
+        return symbols.db_box_height(self.name, self.loads())
 
 
 class Feed(object):
@@ -255,8 +275,12 @@ def layout_schematic(schematic, settings=None):
             _draw_board(d, g, settings)
     for f in feeds:
         _draw_feed(d, f, row_base)
+    for box in boxes:
+        if box.way is None:
+            symbols.db_box(d, box.incomer_x, box.feed_y, box.name, box.loads())
     for root in schematic.roots:
-        _draw_source(d, geoms[root.id], floor_ys[SUBSTATION_BAND], settings)
+        if root.is_main:
+            _draw_source(d, geoms[root.id], floor_ys[SUBSTATION_BAND], settings)
 
     x0, _, x1, _ = d.bounds()
     bands = []
@@ -283,14 +307,18 @@ def _assign_rows(schematic, geoms):
         for w in b.ways:
             if w.kind == DB_BOX and w.target is not None:
                 levels.setdefault(w.target.level_name, w.target.level_elevation)
+    for e in schematic.loose_dbs:
+        levels.setdefault(e.level_name, e.level_elevation)
     ordered = sorted(levels.items(), key=lambda kv: (kv[1], kv[0]))
     band_of_level = dict((name, i) for i, (name, _) in enumerate(ordered))
     band_names = dict((i, name.upper()) for i, (name, _) in enumerate(ordered))
 
     def visit(board, parent_geom):
         g = geoms[board.id]
-        if board.is_main or parent_geom is None:
+        if board.is_main:
             g.band, g.tier = SUBSTATION_BAND, 0
+        elif parent_geom is None:
+            g.band, g.tier = band_of_level[board.equipment.level_name], 0
         else:
             band = band_of_level[board.equipment.level_name]
             if band > parent_geom.band:
@@ -316,12 +344,18 @@ def _assign_rows(schematic, geoms):
                 box.band, box.tier = band, 0
                 boxes.append(box)
                 g.remote_ways.add(w)
+    for e in schematic.loose_dbs:
+        box = BoxGeom(equipment=e)
+        box.band, box.tier = band_of_level[e.level_name], 0
+        boxes.append(box)
     return band_names, boxes
 
 
 def _collect_feeds(schematic, geoms, boxes):
     feeds = []
     for box in boxes:
+        if box.way is None:
+            continue
         board = next(b for b in schematic.boards() if box.way in b.ways)
         feeds.append(Feed(geoms[board.id], box, way=box.way))
     for b in schematic.boards():
@@ -437,11 +471,12 @@ def _board_labels(board):
     """(name, info block) printed in the board's bottom-left corner."""
     e = board.equipment
     if board.is_main:
-        info = [e.form or style.DEFAULT_MAIN_FORM]
+        info = [e.supply_text(), e.form or style.DEFAULT_MAIN_FORM]
         if e.location:
             info.append("LOCATION: %s" % e.location)
     else:
-        info = ["%s, %s WAYS" % (e.form or style.DEFAULT_FORM, e.ways or len(board.ways))]
+        info = [e.supply_text(),
+                "%s, %s WAYS" % (e.form or style.DEFAULT_FORM, board.way_count())]
         if e.location:
             info.append("LOCATION: %s" % e.location)
         if e.level_name:
@@ -449,12 +484,37 @@ def _board_labels(board):
     return board.name, "\n".join(info)
 
 
+def _load_rows(board):
+    """Rows of the board's load table, [] when no way has a load."""
+    totals = board.load_totals()
+    if totals is None:
+        return []
+    cl, df, dl = totals
+    labels = style.LOAD_TABLE_ROWS
+    return [(labels[0], "%.2fkW" % cl),
+            (labels[1], "%.2f" % df if df is not None else "-"),
+            (labels[2], "%.2fkW" % dl)]
+
+
+def _draw_load_table(d, g):
+    if not g.load_rows:
+        return
+    margin = style.LOAD_TABLE_MARGIN
+    if g.board.is_main:
+        _, height = symbols.load_table_size(g.load_rows)
+        bottom = g.bus_y - 3.0 - height
+    else:
+        bottom = g.bottom + margin
+    symbols.load_table(d, g.right - margin, bottom, g.load_rows)
+
+
 def _draw_board(d, g, settings):
     b = g.board
     d.rect(g.left, g.bottom, g.right, g.top)
     xs = [g.way_x(w) for w in b.ways]
-    bus_l = min(xs + [g.incomer_x]) - 3.0
-    bus_r = max(xs + [g.incomer_x]) + 3.0
+    # the busbar runs the width of the board (office style)
+    bus_l = min(xs + [g.incomer_x, g.left + style.BUS_END_MARGIN + 3.0]) - 3.0
+    bus_r = max(xs + [g.incomer_x, g.right - style.BUS_END_MARGIN - 3.0]) + 3.0
     d.line(bus_l, g.bus_y, bus_r, g.bus_y)
 
     for w, x in zip(b.ways, xs):
@@ -462,15 +522,19 @@ def _draw_board(d, g, settings):
         d.line(x, g.bus_y, x, y_arc)
         top_arc = symbols.breaker(d, x, y_arc)
         d.line(x, top_arc, x, g.top)
-        d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
-        d.text(x + 0.5, g.bus_y + 0.4, style.WAY_DEVICE, style.TEXT_WAY, align=LEFT, valign=BOTTOM)
+        if w.label:
+            d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
+        symbols.breaker_label(d, x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS,
+                              w.breaker_lines(), style.TEXT_WAY)
         _draw_way_end(d, g, w, x, settings)
 
     for pt in b.pass_throughs:
         _draw_pass_through(d, g, pt)
+    _draw_load_table(d, g)
 
     if b.is_main:
-        symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right)
+        device = "\n".join(b.equipment.main_incomer_lines())
+        symbols.main_incomer(d, g.incomer_x, g.bus_y, g.bottom, g.right, device)
         d.text(g.left + 2.0, g.bottom + 2.0, g.name_text, style.TEXT_MAIN_NAME,
                align=LEFT, valign=BOTTOM)
         d.text(g.left + 2.0, g.bottom + 2.0 + style.TEXT_MAIN_NAME * style.LINE_SPACING,
@@ -481,8 +545,8 @@ def _draw_board(d, g, settings):
         d.line(xi, g.bus_y, xi, y_arc + 2 * style.BREAKER_RADIUS)
         symbols.breaker(d, xi, y_arc)
         d.line(xi, y_arc, xi, g.bottom)
-        d.text(xi + 2.0, y_arc + style.BREAKER_RADIUS, style.WAY_DEVICE, style.TEXT_WAY,
-               align=LEFT, valign=MIDDLE)
+        symbols.breaker_label(d, xi + 2.0, y_arc + style.BREAKER_RADIUS,
+                              b.equipment.incomer_lines(), style.TEXT_WAY)
         d.text(g.left + 1.0, g.bottom + 1.0, g.name_text, style.TEXT_BOARD_NAME,
                align=LEFT, valign=BOTTOM)
         d.text(g.left + 1.5, g.bottom + 1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING,
@@ -521,7 +585,7 @@ def _draw_way_end(d, g, w, x, settings):
         pass  # riser + box drawn by _draw_feed
     elif w.kind == DB_BOX:
         d.line(x, t, x, t + style.TERMINAL_BASE)
-        symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name)
+        symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name, w.loads())
     elif w.kind == ISOLATOR:
         d.line(x, t, x, t + style.TERMINAL_BASE)
         symbols.isolator(d, x, t + style.TERMINAL_BASE, w.name)
@@ -540,19 +604,25 @@ def _draw_way_end(d, g, w, x, settings):
 
     if settings.show_ratings:
         lines = w.rating_lines()
-        if w.kind == PFC:
-            lines = lines[:1]
         if lines:
             room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
             text = wrap("\n".join(lines), style.TEXT_RATING, room)
-            d.text(x - 0.4, t + style.RATING_START, text, style.TEXT_RATING,
-                   align=LEFT, valign=BOTTOM, rotation=symbols.VERTICAL)
+            # Reading up, centred on the way line (the office position): the
+            # first line (cable size) left of it, the rest (earth, L, V.D)
+            # right of it. A single line goes on the right.
+            first, _, rest = text.partition("\n")
+            y0 = t + style.RATING_START
+            if rest:
+                d.text(x - 0.3, y0, first, style.TEXT_RATING, align=LEFT, valign=BOTTOM,
+                       rotation=symbols.VERTICAL)
+            d.text(x + 0.3, y0, rest or first, style.TEXT_RATING, align=LEFT, valign=TOP,
+                   rotation=symbols.VERTICAL)
 
 
 def _draw_feed(d, f, row_base):
     xt, yt = f.target.incomer_x, f.target.feed_y
     if isinstance(f.target, BoxGeom):
-        symbols.db_box(d, xt, yt, f.target.name)
+        symbols.db_box(d, xt, yt, f.target.name, f.target.loads())
     points = [(f.source_x(), f.source_y())]
     for row, x0, x1, track in f.jogs:
         y = row_base[row] - style.JOG_FIRST - track * style.JOG_TRACK
@@ -590,12 +660,14 @@ def _draw_source(d, g, floor_y, settings):
 
 
 def _cable_label(cable):
-    """'(7 SC 630mm²\nCu/XLPE/AWA/PVC)': size on the first line, build on the next."""
-    if " + " in cable:
-        first, rest = cable.split(" + ", 1)
-        return "(%s\n+ %s)" % (first, rest)
+    """'(7 SC 630mm²\nCu/XLPE/AWA/PVC)': size on the first line, build on the
+    next; office text that has its own brackets is not bracketed again."""
+    wrap = (lambda t: t) if "(" in cable else (lambda t: "(%s)" % t)
+    lines = split_cable(cable)
+    if len(lines) > 1:
+        return wrap("\n".join(lines))
     tokens = cable.split()
     for i, tok in enumerate(tokens):
         if "/" in tok and i > 0:
-            return "(%s\n%s)" % (" ".join(tokens[:i]), " ".join(tokens[i:]))
-    return "(%s)" % cable
+            return wrap("%s\n%s" % (" ".join(tokens[:i]), " ".join(tokens[i:])))
+    return wrap(cable)

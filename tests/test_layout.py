@@ -87,19 +87,31 @@ def test_risers_never_cross_boards_on_other_floors():
 def test_main_board_details_present():
     lay = sample_layout()
     texts = [t.text for t in lay.drawing.texts]
-    for expected in ("MDB-1", "ACB", "SPD", "3NO", u"R<1Ω", "TR-01", "FROM TAQA",
-                     "MV CABLE FROM TAQA", "FORM4-TYPE6\nLOCATION: LV ROOM",
+    for expected in ("MDB-1", "1600AT", "1600AF\nACB", "SPD", "3NO", u"R<1Ω", "TR-01",
+                     "FROM TAQA", "MV CABLE FROM TAQA",
+                     "1600A,3PH+N+E,50kA FOR 1 SEC\nFORM4-TYPE6\nLOCATION: LV ROOM",
                      u"(7 SC 630mm²", "POWER FACTOR CORRECTION"):
         assert expected in texts, expected
-    assert "FORM 2b, 18 WAYS\nLOCATION: ELEC. ROOM GF-48\n@ GROUND FLOOR" in texts
+    assert ("250A,3PH+N+E,35kA FOR 1 SEC\nFORM 2b, 18 WAYS\nLOCATION: ELEC. ROOM GF-48"
+            "\n@ GROUND FLOOR") in texts
+    assert "200AT" in texts and "250AF\nMCCB" in texts   # sub-board incomer
 
 
 def test_utility_setting_and_ratings_toggle():
     lay = sample_layout(utility="DEWA", show_ratings=False)
     texts = [t.text for t in lay.drawing.texts]
     assert "FROM DEWA" in texts and "FROM TAQA" not in texts
-    assert not any(t.startswith("63A TP") for t in texts)
-    assert any(t.startswith("63A TP") for t in (x.text for x in sample_layout().drawing.texts))
+    assert not any(t.startswith(u"4Cx16mm²") for t in texts)
+    assert any(t.startswith(u"4Cx16mm²") for t in (x.text for x in sample_layout().drawing.texts))
+    assert "63AT" in texts and "100AF\nMCCB" in texts   # breakers stay either way
+
+
+def test_board_info_clear_of_busbar():
+    lay = sample_layout()
+    for g in lay.geoms.values():
+        if isinstance(g, BoardGeom) and not g.board.is_main:
+            info = next(t for t in lay.drawing.texts if t.text == g.info_text)
+            assert text_box(info)[3] < g.bus_y, g.name
 
 
 def test_load_names_are_vertical():
@@ -205,3 +217,71 @@ def test_no_overlaps_with_transformer_between_boards():
     for f in lay.feeds:
         for (x1, y1), (x2, y2) in zip(f.points, f.points[1:]):
             assert y2 >= y1 - 1e-6                # nothing runs downward
+
+
+def _texts(drawing):
+    return [t.text for t in drawing.texts]
+
+
+def test_db_boxes_show_connected_and_demand_load():
+    lay = sample_layout()
+    texts = _texts(lay.drawing)
+    g = dict((x.name, x) for x in lay.geoms.values())
+    way = next(w for w in g["SMDB-1ST-01"].board.ways if w.name == "LDB-FF-01")
+    cl, dl = way.loads()
+    assert "CL:%.1f kW" % cl in texts and "DL:%.1f kW" % dl in texts
+    box = g["UDB-FF-01"]                           # remote box on its own floor
+    assert "CL:%.1f kW" % box.way.loads()[0] in texts
+
+
+def test_board_has_load_table_with_its_totals():
+    lay = sample_layout()
+    g = dict((x.name, x) for x in lay.geoms.values())["SMDB-1ST-01"]
+    cl, df, dl = g.board.load_totals()
+    texts = dict((t.text, t) for t in lay.drawing.texts)
+    for label, value in (("CONNECTED LOAD", "%.2fkW" % cl), ("DIVERSITY FACTOR", "%.2f" % df),
+                         ("DEMAND LOAD", "%.2fkW" % dl)):
+        assert label in texts and value in texts
+    table = [texts[v] for v in ("%.2fkW" % cl, "%.2fkW" % dl)]
+    for t in table:                               # inside the board, right of the incomer
+        assert g.incomer_x < t.x <= g.right and g.bottom < t.y < g.bus_y
+
+
+def test_lengths_and_vd_along_the_ways():
+    lay = sample_layout()
+    assert any("V.D:" in t and "L:" in t for t in _texts(lay.drawing))
+    lay = sample_layout(show_ratings=False)
+    assert not any("V.D:" in t for t in _texts(lay.drawing))
+
+
+def test_board_info_prints_the_ways_drawn_with_spares():
+    from sld.layout import _board_labels
+    b = dict((b.name, b) for b in build_schematic(*sample_al_yasat.build()).boards())
+    assert "FORM 2b, 18 WAYS" in _board_labels(b["SMDB-RF-01"])[1]   # R/Y/B share a way
+    assert "FORM 2b, 12 WAYS" in _board_labels(b["SMDB-BB-01"])[1]   # 9 declared, 12 drawn
+
+
+def test_revit_numbering_draws_no_empty_way_labels():
+    s = build_schematic(*sample_al_yasat.build(), numbering="revit")
+    assert any(w.label == "" for b in s.boards() for w in b.ways)
+    assert all(t.text for t in layout_schematic(s).drawing.texts)
+
+
+def test_unconnected_boards_on_their_floor_and_only_mdb_from_utility():
+    from sld.model import EquipmentInfo, CircuitInfo
+    def eq(name, level, elev):
+        return EquipmentInfo(name, name, level_name=level, level_elevation=elev)
+    equipment = [eq("MDB-1", "Ground Floor", 0.0), eq("SMDB-FF-01", "First Floor", 4.0),
+                 eq("DB-FF-02", "First Floor", 4.0), eq("DB-SF-01", "Second Floor", 8.0)]
+    circuits = [CircuitInfo("c1", "DB-FF-02", "1", load_name="LIGHTS", start_slot=1)]
+    lay = layout_schematic(build_schematic(equipment, circuits), LayoutSettings(utility="TAQA"))
+    texts = _texts(lay.drawing)
+    assert sum("FROM TAQA" in t for t in texts) == 1
+    assert [label for label, _ in lay.bands] == ["SUBSTATION", "FIRST FLOOR", "SECOND FLOOR"]
+    g = dict((x.name, x) for x in lay.geoms.values())
+    assert g["SMDB-FF-01"].row == (0, 0)
+    assert isinstance(g["DB-FF-02"], BoxGeom) and g["DB-FF-02"].row == (0, 0)
+    assert isinstance(g["DB-SF-01"], BoxGeom) and g["DB-SF-01"].row == (1, 0)
+    assert "LIGHTS" not in texts                      # nothing inside a DB is drawn
+    assert "DB-SF-01" in texts
+    assert overlaps(lay.drawing) == []

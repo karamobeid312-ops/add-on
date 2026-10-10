@@ -28,7 +28,7 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | **Main boards** | `FORM4-TYPE6`, `LOCATION: LV ROOM`, CT with 3 ammeters, indicator lamps, withdrawable ACB, busbar mounted fuse, SPD to earth `R<1Ω`, incoming cable, transformer, `MV CABLE FROM TAQA`, `FROM TAQA`. |
 | **Final DBs** (LDB, PDB, DB-...) | Tall box with the name, at the end of the way. A DB on a higher floor than its board is drawn on its own floor, fed by a riser (like UDB-FF-01 from USMDB-GF-M). |
 | **Equipment** (AHU, VRF, pumps, EV...) | Local isolator with the load name. |
-| **Spare ways** | `SPARE`. |
+| **Spare ways** | `SPARE`. Every sub-main board (fed from another board, or named `SMDB`/`SMSB`) gets 3 spare ways when they fit in its ways, else 2; spare ways already in the model count. Added spares take the board's most common breaker rating and are drawn only (the Revit panel is not changed). A sub-main board is limited to 18 ways: one that cannot take 2 spares within 18 is reported in the warnings, to be split. |
 | **PFC** | Capacitor bank symbol, `POWER FACTOR CORRECTION`. |
 | **UPS** | Box across the ways that feed it; its output rises to the UPS board. |
 | **Transformer fed from a board** | Transformer symbol on the way, its output rises to the panel it feeds (e.g. SWB → T-2A → PP-2A). |
@@ -37,12 +37,48 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 
 Buttons on the **Electrical** tab → **SLD** panel:
 
-- **Generate SLD** – creates a new drafting view `LV Schematic Diagram`
-  (`LV Schematic Diagram 2`, ... on later runs; earlier diagrams are never
-  overwritten). The view is 1:1, so sizes match the printed sheet; place it
-  on your A1 title block sheet.
-- **SLD Settings** – utility name (`TAQA`), bottom band label (`SUBSTATION`),
-  ratings on/off, and way numbering (ways in order, or Revit circuit numbers).
+- **Generate SLD** – opens the **LV Schematic Editor**: the boards tree on
+  the left and the selected board's ways in a table you can edit: breaker AT /
+  AF / type, cable runs, cores, size, Cu/Al, insulation, armour, earth size
+  and length. The V.D % is worked out again with the Voltage Drop tool as you
+  type (red over the limit), and a preview line shows the cable as it prints:
+  `(4X120)mm² CU/XLPE/SWA/PVC +(1X70)mm² CU/PVC(E)`. Board fields: incomer,
+  fault level, ways and spares (count and breaker; drawn only, the Revit panel
+  schedule is not changed).
+  - **Auto Size** sizes the feeder cable and breaker of every SMDB and DB
+    (nothing else) from its connected load, by the office XLPE/SWA/PVC 4-core
+    table (`lib/sld/sizing.py`: e.g. 45 kW -> `(4X25)mm² CU/XLPE/SWA/PVC
+    +(1X16)mm² CU/PVC(E)`, 100AT/100AF MCCB; 350 kW -> 2 runs of 4X240,
+    800 A). Earth: phase size up to 16, 16 for 25/35, else half. Where the
+    table gives a breaker range (60-80, 225-250) the lower rating is used for
+    the lower half of the kW range. Sized rows turn green until saved; a V.D
+    over the limit is only flagged.
+  - **Fed from** (board fields): for a board no circuit in this model feeds
+    (its MDB is in another link), the board feeding it, saved to the panel's
+    `Fed_By`. A panel's `Fed_By` is only used when no circuit feeds it. A
+    board named there that is in this model feeds it through a way; a name
+    that is not in this model is drawn as that MDB in the substation band
+    (marked "in another model", from the utility), built from the boards it
+    feeds: one way each (their Upstream_Protection, Feeder_Size, length and
+    V.D), connected / demand load summed, incomer sized from the connected
+    load. The Voltage Drop tool counts the same feeds.
+  - **Save to Revit** writes the changes where the SLD and Voltage Drop tools
+    read them: `Upstream_Protection_Rating_A` / `_Type` on the fed panel (or
+    the circuit Rating, `SLD Frame`, `SLD Breaker Type`), `Feeder_Size` /
+    `Feeder_Type` (and `VD Cable` / `SLD Cable` where they exist), `Feeder_Length_m`, `Incomer_Rating_A` /
+    `Incomer_Type`, `SC_Rating_kA` / `No_Of_Ways` (or `SLD Fault Level` /
+    `SLD Ways`), `SLD Spares` / `SLD Spare Rating`. Only parameters already
+    in the model are written (nothing is added to the project); missing or
+    read-only (formula or type) ones are listed as not written. A board's
+    incomer is its `Upstream_Protection_Rating_A` / `_Type` (the breaker
+    feeding it), so changing it changes that way's breaker too.
+  - **Generate SLD** saves any changes and creates a new drafting view
+    `LV Schematic Diagram` (`LV Schematic Diagram 2`, ... on later runs;
+    earlier diagrams are never overwritten). The view is 1:1, so sizes match
+    the printed sheet; place it on your A1 title block sheet.
+- **SLD Settings** – opens the same editor; its **Settings** tab holds the
+  utility name (`TAQA`), bottom band label (`SUBSTATION`), ratings on/off and
+  way numbering (ways in order, or Revit circuit numbers).
 
 ## How the model is read
 
@@ -55,7 +91,7 @@ Buttons on the **Electrical** tab → **SLD** panel:
 | Location | The **room** the equipment is in (name + number). |
 | Ways | Power circuits of the board, in slot order. Spare circuits → `SPARE`; spaces are skipped. |
 | Load name | The circuit's **Load Name**. `PFC` / `POWER FACTOR` / `CAPACITOR` → PFC symbol. |
-| Number of ways | *Max #1 Pole Breakers* ÷ 3 for three-phase boards. |
+| Number of ways | `SLD Ways`, else `No_Of_Ways`, else *Max #1 Pole Breakers* ÷ 3 for three-phase boards; the ways drawn when there are more (spares added). |
 
 ### Optional parameters
 
@@ -404,7 +440,7 @@ For a panel's incoming cable:
 | MDL (kW) | `VD Load kW`, or Total Estimated Demand the same way (with MDL in VD Settings), else TCL |
 | MDL (kVA) | MDL (kW) / PF, with the PF below |
 | PF | 0.85 from VD Settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (VD Settings) the panel's own loads: true load / apparent load of its circuits |
-| Breaker rating | MCB Rating, else Mains, else the feeding circuit's Rating |
+| Breaker rating | the panel's `Upstream_Protection_Rating_A` / `Upstream_Protection_Type` only, e.g. `40AT/100AF` + `MCCB` (MCB Rating, Mains and the feeding circuit's Rating are not used) |
 | Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
 | Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
 
@@ -413,8 +449,8 @@ voltage, wire size), with the length from its loads.
 
 The cable tables are metric: with imperial wire sizes (`3-#4/0, 1-#4/0`)
 use a metric wire size table in Revit or type each cable in `VD Cable`.
-Set the **MCB Rating** (or Mains) of every panel: without it the breaker
-is the feeding circuit's Rating, which Revit sets to 20 A for new circuits.
+Fill in **Upstream_Protection_Rating_A** on every panel: without it the
+cable has no breaker and its breaker check is left out.
 
 ### How it is calculated
 

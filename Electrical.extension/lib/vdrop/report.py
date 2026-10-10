@@ -167,9 +167,9 @@ def to_fix(result, schedule="Voltage Drop Panels"):
         text = "%s below 1.1 x Ib" % _plural(len(small), "breaker is", "breakers are")
         default = sum(1 for r in small if r.feeder.breaker == REVIT_DEFAULT_RATING)
         if default:
-            text += (" (%s 20 A, Revit's default circuit Rating: set the MCB Rating of "
-                     "the panel)" % ("it is" if len(small) == 1 else
-                                     "all are" if default == len(small) else "%d are" % default))
+            text += (" (%s 20 A, Revit's default circuit Rating: set the circuit Rating)" % (
+                "it is" if len(small) == 1 else
+                "all are" if default == len(small) else "%d are" % default))
         lines.append(text + ".")
     n = sum(1 for r in rows if r.cable_ok is False)
     if n:
