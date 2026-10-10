@@ -2,6 +2,7 @@
 """User settings, saved per user in the pyRevit configuration."""
 from firealarm.layout import DEFAULT_CLEARANCE
 from firealarm.loops import MAX_DEVICES
+from firealarm.room_rules import BATH_HEAT_AREA, DEFAULT_RULES
 
 SECTION = "FireAlarmDetectors"
 
@@ -18,7 +19,9 @@ DEFAULTS = {
     "loop_gap": 2.0,            # mm on paper between a loop line and a device's centre, at least
     "riser_symbols": "",        # {'Family : Type': symbol code} chosen for the riser (JSON)
     "address_tag": "",          # 'Family : Type' of the address tag, NO_TAG, or '' (ask)
+    "bath_heat_area": BATH_HEAT_AREA,   # m2, Auto Detectors: bigger bathrooms get heat
 }
+DEFAULTS.update(DEFAULT_RULES)  # Auto Detectors room name keywords (comma separated)
 
 NO_TAG = "(no tag)"
 
