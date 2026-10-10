@@ -607,9 +607,16 @@ def _draw_way_end(d, g, w, x, settings):
         if lines:
             room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
             text = wrap("\n".join(lines), style.TEXT_RATING, room)
-            # Reading up, just right of the way line (the office position).
-            d.text(x + 0.4, t + style.RATING_START, text, style.TEXT_RATING,
-                   align=LEFT, valign=TOP, rotation=symbols.VERTICAL)
+            # Reading up, centred on the way line (the office position): the
+            # first line (cable size) left of it, the rest (earth, L, V.D)
+            # right of it. A single line goes on the right.
+            first, _, rest = text.partition("\n")
+            y0 = t + style.RATING_START
+            if rest:
+                d.text(x - 0.3, y0, first, style.TEXT_RATING, align=LEFT, valign=BOTTOM,
+                       rotation=symbols.VERTICAL)
+            d.text(x + 0.3, y0, rest or first, style.TEXT_RATING, align=LEFT, valign=TOP,
+                   rotation=symbols.VERTICAL)
 
 
 def _draw_feed(d, f, row_base):
