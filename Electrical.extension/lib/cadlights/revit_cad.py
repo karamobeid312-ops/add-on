@@ -59,16 +59,59 @@ def cad_label(cad):
     return name or "CAD"
 
 
+def _element_name(element):
+    """Name of any element; Element.Name is hidden on some element classes
+    (and under CPython), so try the property, its getter and the type name
+    parameters."""
+    if element is None:
+        return ""
+    try:
+        name = element.Name
+        if name:
+            return name
+    except Exception:
+        pass
+    from Autodesk.Revit.DB import BuiltInParameter, Element
+    for getter in (lambda: Element.Name.GetValue(element),        # IronPython
+                   lambda: Element.Name.__get__(element)):         # CPython
+        try:
+            name = getter()
+            if name:
+                return name
+        except Exception:
+            pass
+    for bip in (BuiltInParameter.SYMBOL_NAME_PARAM, BuiltInParameter.ALL_MODEL_TYPE_NAME):
+        try:
+            p = element.get_Parameter(bip)
+            if p is not None and p.AsString():
+                return p.AsString()
+        except Exception:
+            pass
+    return ""
+
+
 def _block_name(doc, geometry):
     """Raw name of the block a GeometryInstance is an insert of."""
     try:
-        symbol = doc.GetElement(geometry.GetSymbolGeometryId().SymbolId)   # Revit 2023+
-        if symbol is not None and symbol.Name:
-            return symbol.Name
+        symbol_id = geometry.GetSymbolGeometryId().SymbolId     # Revit 2023+
     except Exception:
-        pass
+        symbol_id = None
+    if symbol_id is not None:
+        docs = []
+        try:
+            docs.append(geometry.GetDocument())                  # the symbol's document
+        except Exception:
+            pass
+        docs.append(doc)
+        for source in docs:
+            try:
+                name = _element_name(source.GetElement(symbol_id))
+            except Exception:
+                name = ""
+            if name:
+                return name
     try:
-        return geometry.Symbol.Name                                        # older Revit
+        return _element_name(geometry.Symbol)                    # older Revit
     except Exception:
         return ""
 
