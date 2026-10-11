@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """CAD Lights button: pick the DWG, map its blocks to fixture types, place."""
+import time
+
 from Autodesk.Revit.DB import ElementId, ViewPlan
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
@@ -56,7 +58,9 @@ def run():
     cad = _pick_cad(doc, uidoc)
     if cad is None:
         return
+    started = time.time()
     blocks = read_blocks(doc, cad, view)
+    read_time = time.time() - started
     if not blocks:
         forms.alert("No blocks found in this CAD.\n\nThe lights must be blocks in the DWG "
                     "(lines and circles alone cannot be read). If the CAD was imported and "
@@ -83,9 +87,9 @@ def run():
         else:
             jobs.append((name, items, label, types[label]))
 
-    results, placed = place_lights(doc, level, jobs, values["height_mm"],
+    results, placed, timings = place_lights(doc, level, jobs, values["height_mm"],
                                    values["tolerance_mm"], "Place CAD Lights")
     if placed:
         uidoc.Selection.SetElementIds(List[ElementId](placed))
-    headline, details = summarize(results, skipped)
+    headline, details = summarize(results, skipped, [("read CAD", read_time)] + timings)
     forms.alert(headline, expanded=details, title=TITLE)

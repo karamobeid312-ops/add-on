@@ -50,3 +50,9 @@ def test_summary():
         in details
     assert "1 not placed: no ceiling above to host it" in details
     assert "Skipped blocks: NOTE" in details
+
+
+def test_summary_timings():
+    _, details = summarize([], [], [("read CAD", 0.25), ("place", 12.0)])
+    assert details.endswith("Time: read CAD 0.2 s, place 12.0 s") or \
+        details.endswith("Time: read CAD 0.3 s, place 12.0 s")

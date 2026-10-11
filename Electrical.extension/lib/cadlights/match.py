@@ -110,7 +110,7 @@ def _plural(n, word):
     return "%d %s%s" % (n, word, "" if n == 1 else "s")
 
 
-def summarize(results, skipped_names):
+def summarize(results, skipped_names, timings=()):
     """(headline, details) for the end-of-run message."""
     placed = sum(r.placed for r in results)
     already = sum(r.already for r in results)
@@ -136,4 +136,7 @@ def summarize(results, skipped_names):
     if skipped_names:
         lines.append(u"")
         lines.append(u"Skipped blocks: " + u", ".join(skipped_names))
+    if timings:
+        lines.append(u"")
+        lines.append(u"Time: " + u", ".join(u"%s %.1f s" % (step, sec) for step, sec in timings))
     return head, u"\n".join(lines)
