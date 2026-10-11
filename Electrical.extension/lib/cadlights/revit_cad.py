@@ -2,11 +2,12 @@
 """Revit side: read the block inserts of a linked or imported DWG and
 place lighting fixtures on them.
 
-The ceiling above each block is looked up in an index of the bottom faces
-of the ceilings (and floors/roofs, for the slab) on this floor, in this
-model and in linked models: read once, then each block is a quick
-lookup. (Shooting a ray per block, as the fire alarm detectors do, was
-far too slow for a whole floor of lights.) The fixture family can be
+The ceiling above each block is found like the fire alarm detectors do it
+(firealarm.revit_fa.CeilingFinder): a ray shot up from the plan's level
+through this model and linked models; the ceiling wins, and the slab is
+used only where there is no ceiling below it. A ray per light is slow, so
+each ceiling face a ray hits is remembered, and the next lights under the
+same face take it without a ray. The fixture family can be
   face-based       placed on the ceiling face (ceiling here or in a link)
   ceiling-hosted   hosted by the ceiling (ceiling in this model only)
   level-based      not hosted (Revit cannot attach it to anything): set at
@@ -23,18 +24,17 @@ import time
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, FamilyInstance, FamilySymbol, FilteredElementCollector,
-    GeometryInstance, ImportInstance, Options, PlanarFace, Solid, Transaction,
-    Transform, XYZ,
+    ElementId, GeometryInstance, ImportInstance, Options, PlanarFace, Transaction,
+    TransactionGroup, Transform, XYZ,
 )
 
 from cadlights.match import MM_PER_FOOT, Block, Result, clean_name, normal_angle, split_spots
-from firealarm.revit_fa import (HOSTED, LEVEL, Hit, _place, linked_models,
+from firealarm.revit_fa import (HOSTED, LEVEL, CeilingFinder, Hit, _place, _ray_view,
                                 placement_kind, type_label)
 
 LIGHT_CATEGORY = BuiltInCategory.OST_LightingFixtures
 ABOVE_LEVEL = 25.0          # ft above the level where existing lights still count
 RAY_START = 1.0             # ft above the level where a ceiling can start
-SLAB_MIN = 5.0              # ft: floors/roofs lower than this are not the slab above
 CELL = 10.0                 # ft, grid cell of the face index
 
 
@@ -189,8 +189,9 @@ def _existing(doc, level_z):
 class _Face(object):
     """Bottom face of a ceiling or slab, with what is needed to place on it."""
 
-    def __init__(self, face, transform, link, element):
+    def __init__(self, face, transform, link, element, reference):
         self.face = face
+        self.ref = reference        # the face's reference in this model (link reference)
         self.transform = transform
         self.inverse = transform.Inverse
         self.link = link
@@ -217,109 +218,79 @@ class _Face(object):
         result = self.face.Project(self.inverse.OfPoint(XYZ(x, y, z)))
         return result is not None and result.Distance < 0.01
 
-    def reference(self):
-        ref = self.face.Reference
-        return ref.CreateLinkReference(self.link) if self.link is not None else ref
 
 
-def _bottom_faces(element, options):
-    geometry = element.get_Geometry(options)
-    if geometry is None:
-        return
-    items = []
-    for obj in geometry:
-        if isinstance(obj, GeometryInstance):
-            items.extend(obj.GetInstanceGeometry())
-        else:
-            items.append(obj)
-    for obj in items:
-        if isinstance(obj, Solid) and obj.Faces.Size:
-            for face in obj.Faces:
-                if isinstance(face, PlanarFace) and face.FaceNormal.Z < -0.5:
-                    yield face
+def _face_of(doc, reference):
+    """(face, transform, link, element) of a ray hit's reference, or None."""
+    linked = _id_int(reference.LinkedElementId) != _id_int(ElementId.InvalidElementId)
+    try:
+        if not linked:
+            element = doc.GetElement(reference.ElementId)
+            return (element.GetGeometryObjectFromReference(reference), Transform.Identity,
+                    None, element)
+        link = doc.GetElement(reference.ElementId)
+        link_doc = link.GetLinkDocument()
+        inner = reference.CreateReferenceInLink()
+        element = link_doc.GetElement(inner.ElementId)
+        return (element.GetGeometryObjectFromReference(inner), link.GetTotalTransform(),
+                link, element)
+    except Exception:
+        return None
 
 
-class _FaceIndex(object):
-    """Bottom faces of the elements of some categories between two heights,
-    bucketed on a plan grid."""
+class CachedFinder(object):
+    """Ceiling (or slab, where there is no ceiling) above points of a floor:
+    the detector tool's rays, plus a memory of the ceiling faces hit."""
 
-    def __init__(self, sources, categories, z_low, z_high, extent):
+    def __init__(self, doc, view, level_z):
+        self.doc = doc
+        self.level_z = level_z
+        self.finder = CeilingFinder(doc, view)
         self.cells = {}
-        options = Options()
-        options.ComputeReferences = True
-        x0, y0, x1, y1 = extent
-        for link, source_doc, transform in sources:
-            for bic in categories:
-                for element in FilteredElementCollector(source_doc).OfCategory(bic) \
-                        .WhereElementIsNotElementType():
-                    box = element.get_BoundingBox(None)
-                    if box is None:
-                        continue
-                    lo, hi = transform.OfPoint(box.Min), transform.OfPoint(box.Max)
-                    if max(lo.Z, hi.Z) < z_low or min(lo.Z, hi.Z) > z_high:
-                        continue
-                    if max(lo.X, hi.X) < x0 or min(lo.X, hi.X) > x1 or \
-                            max(lo.Y, hi.Y) < y0 or min(lo.Y, hi.Y) > y1:
-                        continue
-                    try:
-                        faces = list(_bottom_faces(element, options))
-                    except Exception:
-                        continue
-                    for face in faces:
-                        if face.Reference is None:
-                            continue
-                        item = _Face(face, transform, link, element)
-                        if item.box is not None:
-                            self._add(item)
+        self.rays = 0
 
-    def _add(self, item):
+    def _remember(self, hit):
+        found = _face_of(self.doc, hit.reference)
+        if found is None or not isinstance(found[0], PlanarFace):
+            return
+        face, transform, link, element = found
+        try:
+            item = _Face(face, transform, link, element, hit.reference)
+        except Exception:
+            return
+        if item.box is None or abs(item.normal.Z) < 1e-6:
+            return
         b = item.box
         for i in range(int(math.floor(b[0] / CELL)), int(math.floor(b[2] / CELL)) + 1):
             for j in range(int(math.floor(b[1] / CELL)), int(math.floor(b[3] / CELL)) + 1):
                 self.cells.setdefault((i, j), []).append(item)
 
-    def lowest(self, x, y, z_min, z_max):
-        """(face, z) of the lowest face over (x, y) between the heights."""
+    def _cached(self, x, y):
         best = None
+        z0 = self.level_z
         for item in self.cells.get((int(math.floor(x / CELL)), int(math.floor(y / CELL))), ()):
             z = item.z_at(x, y)
-            if z_min <= z <= z_max and (best is None or z < best[1]) and item.contains(x, y, z):
+            if z0 + RAY_START <= z <= z0 + ABOVE_LEVEL and (best is None or z < best[1]) \
+                    and item.contains(x, y, z):
                 best = (item, z)
         return best
 
-
-class CeilingIndex(object):
-    """Ceiling (or slab, where there is no ceiling) above points of a floor."""
-
-    def __init__(self, doc, level_z, blocks):
-        sources = [(None, doc, Transform.Identity)] + \
-            [(link, link_doc, link.GetTotalTransform()) for link, link_doc in linked_models(doc)]
-        pad = 5.0
-        extent = (min(b.x for b in blocks) - pad, min(b.y for b in blocks) - pad,
-                  max(b.x for b in blocks) + pad, max(b.y for b in blocks) + pad)
-        self.level_z = level_z
-        top = level_z + ABOVE_LEVEL
-        self.ceilings = _FaceIndex(sources, (BuiltInCategory.OST_Ceilings,),
-                                   level_z + RAY_START, top, extent)
-        self.slabs = _FaceIndex(sources, (BuiltInCategory.OST_Floors, BuiltInCategory.OST_Roofs),
-                                level_z + SLAB_MIN, top, extent)
-
     def above(self, x, y):
-        z0 = self.level_z
-        slab = self.slabs.lowest(x, y, z0 + SLAB_MIN, z0 + ABOVE_LEVEL)
-        z_top = slab[1] + 1e-6 if slab is not None else z0 + ABOVE_LEVEL
-        ceiling = self.ceilings.lowest(x, y, z0 + RAY_START, z_top)
-        found, on_ceiling = (ceiling, True) if ceiling is not None else (slab, False)
-        if found is None:
-            return None
-        item, z = found
-        element = item.element if item.link is None else item.link
-        return Hit(item.reference(), XYZ(x, y, z), element, item.link is not None, on_ceiling)
+        cached = self._cached(x, y)
+        if cached is not None:
+            item, z = cached
+            element = item.link if item.link is not None else item.element
+            return Hit(item.ref, XYZ(x, y, z), element, item.link is not None, True)
+        self.rays += 1
+        hit = self.finder.above(x, y, self.level_z)
+        if hit is not None and hit.ceiling:
+            self._remember(hit)
+        return hit
 
 
-def _spot(index, kind, block, level, height):
+def _spot(finder, kind, block, level, height):
     """Hit to place on, or (None, reason)."""
-    hit = index.above(block.x, block.y)
+    hit = finder.above(block.x, block.y)
     if kind == LEVEL:
         # cannot be hosted: set at the ceiling's (or slab's) height, else the set height
         z = hit.point.Z if hit is not None else level.ProjectElevation + height
@@ -384,11 +355,15 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
     level_z = level.ProjectElevation
     results, placed_ids, timings = [], [], []
     started = time.time()
-    index = CeilingIndex(doc, level_z, [b for _, blocks, _, _ in jobs for b in blocks])
-    timings.append(("find ceilings", time.time() - started))
+    group = TransactionGroup(doc, title)
+    group.Start()
+    t = Transaction(doc, "CAD Lights ray view")
+    t.Start()
+    view = _ray_view(doc)
+    t.Commit()
+    finder = CachedFinder(doc, view, level_z)
     existing = _existing(doc, level_z)
     on_slab = []                # (instance, slab underside z, kind)
-    started = time.time()
     t = Transaction(doc, title)
     t.Start()
     try:
@@ -403,7 +378,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
             new, already = split_spots(blocks, existing, tol)
             result.already = len(already)
             for block in new:
-                hit, reason = _spot(index, kind, block, level, height)
+                hit, reason = _spot(finder, kind, block, level, height)
                 if hit is None:
                     result.fail(reason)
                     continue
@@ -424,10 +399,14 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
             signs = {}
             for instance, face_z, kind in on_slab:
                 _below_slab(doc, instance, face_z, kind, level_z, signs)
+        doc.Delete(view.Id)
         t.Commit()
+        group.Assimilate()
     except Exception:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()
+        if group.HasStarted() and not group.HasEnded():
+            group.RollBack()
         raise
-    timings.append(("place", time.time() - started))
+    timings.append(("place (%d ceiling searches)" % finder.rays, time.time() - started))
     return results, placed_ids, timings
