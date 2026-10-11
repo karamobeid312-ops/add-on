@@ -9,7 +9,9 @@ lookup. (Shooting a ray per block, as the fire alarm detectors do, was
 far too slow for a whole floor of lights.) The fixture family can be
   face-based       placed on the ceiling face (ceiling here or in a link)
   ceiling-hosted   hosted by the ceiling (ceiling in this model only)
-  level-based      placed at the height set in the window, above the level
+  level-based      not hosted (Revit cannot attach it to anything): set at
+                   the ceiling's height, or the height set in the window
+                   where there is no ceiling or slab above
 Where there is no ceiling the face-based lights go on the slab above.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
@@ -26,7 +28,7 @@ from Autodesk.Revit.DB import (
 )
 
 from cadlights.match import MM_PER_FOOT, Block, Result, clean_name, normal_angle, split_spots
-from firealarm.revit_fa import (FACE, HOSTED, LEVEL, Hit, _place, linked_models,
+from firealarm.revit_fa import (HOSTED, LEVEL, Hit, _place, linked_models,
                                 placement_kind, type_label)
 
 LIGHT_CATEGORY = BuiltInCategory.OST_LightingFixtures
@@ -274,10 +276,11 @@ class CeilingIndex(object):
 
 def _spot(index, kind, block, level, height):
     """Hit to place on, or (None, reason)."""
-    if kind == LEVEL:
-        point = XYZ(block.x, block.y, level.ProjectElevation + height)
-        return Hit(None, point, None, False, True), ""
     hit = index.above(block.x, block.y)
+    if kind == LEVEL:
+        # cannot be hosted: set at the ceiling's (or slab's) height, else the set height
+        z = hit.point.Z if hit is not None else level.ProjectElevation + height
+        return Hit(None, XYZ(block.x, block.y, z), None, False, hit is None or hit.ceiling), ""
     if hit is None:
         return None, "no ceiling or slab above"
     if kind == HOSTED:
@@ -299,9 +302,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
     level_z = level.ProjectElevation
     results, placed_ids, timings = [], [], []
     started = time.time()
-    index = None
-    if any(placement_kind(symbol) != LEVEL for _, _, _, symbol in jobs):
-        index = CeilingIndex(doc, level_z, [b for _, blocks, _, _ in jobs for b in blocks])
+    index = CeilingIndex(doc, level_z, [b for _, blocks, _, _ in jobs for b in blocks])
     timings.append(("find ceilings", time.time() - started))
     existing = _existing(doc, level_z)
     started = time.time()
@@ -315,6 +316,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
                 symbol.Activate()
                 doc.Regenerate()
             kind = placement_kind(symbol)
+            result.kind = kind
             new, already = split_spots(blocks, existing, tol)
             result.already = len(already)
             for block in new:
@@ -331,7 +333,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
                 placed_ids.append(instance.Id)
                 existing.append((block.x, block.y))
                 result.placed += 1
-                if kind == FACE and not hit.ceiling:
+                if kind != HOSTED and not hit.ceiling:
                     result.on_slab += 1
         t.Commit()
     except Exception:

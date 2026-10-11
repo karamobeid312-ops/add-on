@@ -97,6 +97,7 @@ class Result(object):
     def __init__(self, name, type_label):
         self.name = name
         self.type_label = type_label
+        self.kind = ""              # face-based / ceiling-hosted / level-based
         self.placed = 0
         self.on_slab = 0            # placed on the slab: no ceiling there
         self.already = 0
@@ -127,10 +128,14 @@ def summarize(results, skipped_names, timings=()):
     for r in results:
         line = u"%s -> %s: %d placed" % (r.name, r.type_label, r.placed)
         if r.on_slab:
-            line += u" (%d on the slab, no ceiling)" % r.on_slab
+            line += u" (%d at the slab, no ceiling)" % r.on_slab
         if r.already:
             line += u", %d already there" % r.already
         lines.append(line)
+        if r.kind == "level-based":
+            lines.append(u"    This family is level-based, so Revit cannot host it: the lights "
+                         u"are set at ceiling height but not attached. Use a face-based "
+                         u"family to have them on the ceiling.")
         for reason, count in sorted(r.failed.items()):
             lines.append(u"    %d not placed: %s" % (count, reason))
     if skipped_names:

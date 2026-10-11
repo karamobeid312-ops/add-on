@@ -46,7 +46,7 @@ def test_summary():
     r.fail("no ceiling above to host it")
     head, details = summarize([r], ["NOTE"])
     assert head == "Placed 10 lights. 2 spots already had a light, 1 could not be placed."
-    assert "LT-600 -> Panel : 600x600: 10 placed (1 on the slab, no ceiling), 2 already there" \
+    assert "LT-600 -> Panel : 600x600: 10 placed (1 at the slab, no ceiling), 2 already there" \
         in details
     assert "1 not placed: no ceiling above to host it" in details
     assert "Skipped blocks: NOTE" in details
@@ -56,3 +56,10 @@ def test_summary_timings():
     _, details = summarize([], [], [("read CAD", 0.25), ("place", 12.0)])
     assert details.endswith("Time: read CAD 0.2 s, place 12.0 s") or \
         details.endswith("Time: read CAD 0.3 s, place 12.0 s")
+
+
+def test_summary_level_based_note():
+    r = Result("LT", "Light : A")
+    r.kind = "level-based"
+    _, details = summarize([r], [])
+    assert "level-based, so Revit cannot host it" in details
