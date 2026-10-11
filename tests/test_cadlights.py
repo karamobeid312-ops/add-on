@@ -11,6 +11,17 @@ def test_clean_name_drops_dwg_prefix():
     assert clean_name("") == "(unnamed block)"
 
 
+def test_clean_name_drops_dynamic_block_variant():
+    assert clean_name("SEC-Lighting Fixture-600x600mm - 600x600mm-V457-L2") == \
+        "SEC-Lighting Fixture-600x600mm - 600x600mm"
+    assert clean_name("SEC-Lighting Fixture-Linear - LED 75w x82d Functional-V108-GROUND") == \
+        "SEC-Lighting Fixture-Linear - LED 75w x82d Functional"
+    assert clean_name("SEC-Lighting Fixture-Linear - LED 75w x82d Functional-V52-L2") == \
+        "SEC-Lighting Fixture-Linear - LED 75w x82d Functional"
+    assert clean_name("LT-V2") == "LT"
+    assert clean_name("DOWNLIGHT-VERTICAL") == "DOWNLIGHT-VERTICAL"
+
+
 def test_normal_angle():
     assert normal_angle(-math.pi / 2) == math.pi * 1.5
     assert normal_angle(2 * math.pi) == 0.0

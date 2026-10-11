@@ -16,6 +16,16 @@ XAML = u"""<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentat
         WindowStartupLocation="CenterScreen" ShowInTaskbar="False" FontSize="12">
   <DockPanel Margin="10">
     <TextBlock x:Name="Intro" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"/>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+      <TextBlock Text="Search:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+      <CheckBox x:Name="CheckedOnly" DockPanel.Dock="Right" Content="Show ticked only"
+                VerticalAlignment="Center" Margin="10,0,0,0"/>
+      <Button x:Name="UntickAll" DockPanel.Dock="Right" Content="Untick all" Width="80"
+              Margin="6,0,0,0"/>
+      <Button x:Name="TickShown" DockPanel.Dock="Right" Content="Tick shown" Width="80"
+              Margin="6,0,0,0"/>
+      <TextBox x:Name="SearchBox" VerticalContentAlignment="Center"/>
+    </DockPanel>
     <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
         <Button x:Name="CancelButton" Content="Cancel" Width="90" Margin="4,0"/>
@@ -76,13 +86,20 @@ class MappingWindow(object):
         f = self.win.FindName
         self.Rows, self.HeightBox, self.ToleranceBox = f("Rows"), f("HeightBox"), f("ToleranceBox")
         f("Intro").Text = (
-            u"%d block names found in %s. Pick the lighting fixture type to place on each "
-            u"block, or leave it on %s. Lights go on the ceiling above, on level %s."
-            % (len(rows), cad_name, SKIP, level_name))
+            u"%d block names found in %s. Tick the light blocks (search to find them) and "
+            u"pick the lighting fixture type for each. Unticked blocks are skipped. Lights go "
+            u"on the ceiling above, on level %s." % (len(rows), cad_name, level_name))
+        self.SearchBox, self.CheckedOnly = f("SearchBox"), f("CheckedOnly")
+        self.checks = {}
+        self.grids = {}
         self.HeightBox.Text = u"%g" % height_mm
         self.ToleranceBox.Text = u"%g" % tolerance_mm
         for name, count, layers in rows:
             self._add_row(name, count, layers, chosen.get(name, SKIP))
+        self.SearchBox.TextChanged += self.on_filter
+        self.CheckedOnly.Click += self.on_filter
+        f("TickShown").Click += self.on_tick_shown
+        f("UntickAll").Click += self.on_untick_all
         f("PlaceButton").Click += self.on_place
         f("CancelButton").Click += self.on_cancel
         self._set_owner()
@@ -97,28 +114,62 @@ class MappingWindow(object):
 
     def _add_row(self, name, count, layers, selected):
         from System.Windows import GridLength, GridUnitType, Thickness, VerticalAlignment
-        from System.Windows.Controls import ColumnDefinition, ComboBox, Grid, TextBlock
+        from System.Windows.Controls import CheckBox, ColumnDefinition, ComboBox, Grid
         grid = Grid()
         grid.Margin = Thickness(0, 2, 0, 2)
         for width in (GridLength(1, GridUnitType.Star), GridLength(320)):
             column = ColumnDefinition()
             column.Width = width
             grid.ColumnDefinitions.Add(column)
-        label = TextBlock()
-        label.Text = u"%s  × %d" % (name, count)
+        check = CheckBox()
+        text = u"%s  \u00d7 %d" % (name, count)
         if layers:
-            label.ToolTip = u"Layer: " + u", ".join(layers)
-            label.Text += u"   (%s)" % u", ".join(layers[:2])
-        label.VerticalAlignment = VerticalAlignment.Center
+            check.ToolTip = u"Layer: " + u", ".join(layers)
+            text += u"   (%s)" % u", ".join(layers[:2])
+        check.Content = text
+        check.VerticalAlignment = VerticalAlignment.Center
+        check.IsChecked = selected in self.types and selected != SKIP
         combo = ComboBox()
-        for text in self.types:
-            combo.Items.Add(text)
+        for item in self.types:
+            combo.Items.Add(item)
         combo.SelectedIndex = self.types.index(selected) if selected in self.types else 0
+        combo.IsEnabled = bool(check.IsChecked)
+        check.Click += lambda sender, args: self._ticked(name)
         Grid.SetColumn(combo, 1)
-        grid.Children.Add(label)
+        grid.Children.Add(check)
         grid.Children.Add(combo)
         self.Rows.Children.Add(grid)
         self.combos[name] = combo
+        self.checks[name] = check
+        self.grids[name] = grid
+
+    def _ticked(self, name):
+        self.combos[name].IsEnabled = bool(self.checks[name].IsChecked)
+        if self.CheckedOnly.IsChecked:
+            self.on_filter(None, None)
+
+    def _shown(self, name):
+        words = (u"%s" % (self.SearchBox.Text or u"")).lower().split()
+        if self.CheckedOnly.IsChecked and not self.checks[name].IsChecked:
+            return False
+        return all(w in name.lower() for w in words)
+
+    def on_filter(self, sender, args):
+        from System.Windows import Visibility
+        for name, grid in self.grids.items():
+            grid.Visibility = Visibility.Visible if self._shown(name) else Visibility.Collapsed
+
+    def on_tick_shown(self, sender, args):
+        for name in self.grids:
+            if self._shown(name):
+                self.checks[name].IsChecked = True
+                self.combos[name].IsEnabled = True
+
+    def on_untick_all(self, sender, args):
+        for name in self.grids:
+            self.checks[name].IsChecked = False
+            self.combos[name].IsEnabled = False
+        self.on_filter(None, None)
 
     def on_place(self, sender, args):
         from pyrevit import forms
@@ -129,9 +180,12 @@ class MappingWindow(object):
             return
         result = {}
         for name, combo in self.combos.items():
-            result[name] = u"%s" % (combo.SelectedItem or SKIP)
+            if self.checks[name].IsChecked:
+                result[name] = u"%s" % (combo.SelectedItem or SKIP)
+            else:
+                result[name] = SKIP
         if all(v == SKIP for v in result.values()):
-            forms.alert("Pick a fixture type for at least one block.", title=TITLE)
+            forms.alert("Tick at least one block and pick its fixture type.", title=TITLE)
             return
         self.height_mm, self.tolerance_mm = height, tolerance
         self.result = result

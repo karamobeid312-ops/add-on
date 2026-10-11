@@ -4,6 +4,7 @@ already have a light, and the summary text. Units are feet, like Revit."""
 from __future__ import division
 
 import math
+import re
 
 MM_PER_FOOT = 304.8
 SKIP = "(skip)"
@@ -20,14 +21,21 @@ class Block(object):
         self.layer = layer
 
 
+# Revit gives every insert of a dynamic block its own name, ending in a
+# variant number and the drawing: '...-600x600mm-V457-L2', '...-V108-GROUND'.
+_VARIANT = re.compile(r"-V\d+(-[^-\s]+)?$")
+
+
 def clean_name(raw):
     """Block name without the DWG file name Revit may put in front of it
-    ('Plan-L1.dwg.LT-600' -> 'LT-600')."""
+    ('Plan-L1.dwg.LT-600' -> 'LT-600') and without the dynamic block
+    variant suffix ('LT - 600x600mm-V457-L2' -> 'LT - 600x600mm')."""
     name = (raw or "").strip()
     lower = name.lower()
     i = lower.rfind(".dwg.")
     if i >= 0:
         name = name[i + 5:]
+    name = _VARIANT.sub("", name.strip())
     return name.strip() or "(unnamed block)"
 
 
