@@ -46,7 +46,7 @@ def test_summary():
     r.fail("no ceiling above to host it")
     head, details = summarize([r], ["NOTE"])
     assert head == "Placed 10 lights. 2 spots already had a light, 1 could not be placed."
-    assert "LT-600 -> Panel : 600x600: 10 placed (1 at the slab, no ceiling), 2 already there" \
+    assert "LT-600 -> Panel : 600x600: 10 placed (1 under the slab, no ceiling), 2 already there" \
         in details
     assert "1 not placed: no ceiling above to host it" in details
     assert "Skipped blocks: NOTE" in details

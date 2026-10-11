@@ -22,7 +22,7 @@ import math
 import time
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, FamilyInstance, FamilySymbol, FilteredElementCollector,
+    BuiltInCategory, BuiltInParameter, FamilyInstance, FamilySymbol, FilteredElementCollector,
     GeometryInstance, ImportInstance, Options, PlanarFace, Solid, Transaction,
     Transform, XYZ,
 )
@@ -292,6 +292,45 @@ def _spot(index, kind, block, level, height):
     return hit, ""
 
 
+def _set(instance, bip, value):
+    p = instance.get_Parameter(bip)
+    if p is not None and not p.IsReadOnly:
+        p.Set(value)
+        return True
+    return False
+
+
+def _below_slab(doc, instance, face_z, kind, level_z, signs):
+    """A light made for a ceiling (its body goes up into the ceiling void)
+    put on a bare slab ends up inside the slab: move it down, along its host
+    face, until its top touches the slab's underside. It stays hosted.
+
+    signs {type id: +1/-1}: which way the host offset moves it down, found
+    on the first light of each type."""
+    box = instance.get_BoundingBox(None)
+    if box is None:
+        return
+    inside = box.Max.Z - face_z
+    if inside <= 0.003:                     # ~1 mm: already below the slab
+        return
+    if kind == LEVEL:
+        _set(instance, BuiltInParameter.INSTANCE_ELEVATION_PARAM, face_z - inside - level_z)
+        return
+    p = instance.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM)
+    if p is None or p.IsReadOnly:
+        return
+    start = p.AsDouble()
+    key = _id_int(instance.GetTypeId())
+    if key not in signs:
+        p.Set(start + inside)
+        doc.Regenerate()
+        moved = instance.get_BoundingBox(None)
+        signs[key] = 1 if moved is None or moved.Max.Z <= face_z + 0.003 else -1
+        if signs[key] == 1:
+            return
+    p.Set(start + signs[key] * inside)
+
+
 def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
     """Place the lights in one undo.
 
@@ -305,6 +344,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
     index = CeilingIndex(doc, level_z, [b for _, blocks, _, _ in jobs for b in blocks])
     timings.append(("find ceilings", time.time() - started))
     existing = _existing(doc, level_z)
+    on_slab = []                # (instance, slab underside z, kind)
     started = time.time()
     t = Transaction(doc, title)
     t.Start()
@@ -335,6 +375,12 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
                 result.placed += 1
                 if kind != HOSTED and not hit.ceiling:
                     result.on_slab += 1
+                    on_slab.append((instance, hit.point.Z, kind))
+        if on_slab:
+            doc.Regenerate()
+            signs = {}
+            for instance, face_z, kind in on_slab:
+                _below_slab(doc, instance, face_z, kind, level_z, signs)
         t.Commit()
     except Exception:
         if t.HasStarted() and not t.HasEnded():
@@ -342,4 +388,3 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
         raise
     timings.append(("place", time.time() - started))
     return results, placed_ids, timings
-    return results, placed_ids

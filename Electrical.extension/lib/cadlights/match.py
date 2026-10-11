@@ -128,7 +128,7 @@ def summarize(results, skipped_names, timings=()):
     for r in results:
         line = u"%s -> %s: %d placed" % (r.name, r.type_label, r.placed)
         if r.on_slab:
-            line += u" (%d at the slab, no ceiling)" % r.on_slab
+            line += u" (%d under the slab, no ceiling)" % r.on_slab
         if r.already:
             line += u", %d already there" % r.already
         lines.append(line)
