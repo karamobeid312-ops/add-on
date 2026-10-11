@@ -38,27 +38,30 @@ def test_split_spots_existing_and_duplicates():
     tol = 50 / 304.8
     blocks = [Block("A", 10, 10), Block("A", 10.1, 10), Block("A", 20, 20),
               Block("A", 20 + tol * 0.5, 20)]
-    new, already = split_spots(blocks, [(10.0, 10.0 + tol * 0.9)], tol)
-    # 10,10 is near the existing light; 10.1,10 is 54 mm from it -> new;
-    # the last block sits on the 20,20 one -> already
+    new, already, dups = split_spots(blocks, [(10.0, 10.0 + tol * 0.9, 777)], tol)
+    # 10,10 is near light 777; 10.1,10 is 54 mm from it -> new;
+    # the last block sits on the 20,20 one -> duplicate in the CAD
     assert [(b.x, b.y) for b in new] == [(10.1, 10), (20, 20)]
-    assert len(already) == 2
+    assert [(b.x, tag) for b, tag in already] == [(10, 777)]
+    assert len(dups) == 1
 
 
 def test_split_spots_far_apart_all_new():
     blocks = [Block("A", i * 2.0, 0) for i in range(5)]
-    new, already = split_spots(blocks, [], 50 / 304.8)
-    assert len(new) == 5 and not already
+    new, already, dups = split_spots(blocks, [], 50 / 304.8)
+    assert len(new) == 5 and not already and not dups
 
 
 def test_summary():
     r = Result("LT-600", "Panel : 600x600")
     r.placed, r.already, r.on_slab = 10, 2, 1
+    r.blockers = [5, 6]
     r.fail("no ceiling above to host it")
     head, details = summarize([r], ["NOTE"])
     assert head == "Placed 10 lights. 2 spots already had a light, 1 could not be placed."
-    assert "LT-600 -> Panel : 600x600: 10 placed (1 under the slab, no ceiling), 2 already there" \
+    assert "LT-600 -> Panel : 600x600: 10 placed (1 under the slab, no ceiling), 2 already had a light in this model" \
         in details
+    assert "lights already there (element ids): 5, 6" in details
     assert "1 not placed: no ceiling above to host it" in details
     assert "Skipped blocks: NOTE" in details
 

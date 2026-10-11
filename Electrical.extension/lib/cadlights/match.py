@@ -69,34 +69,42 @@ class _Grid(object):
     def _cell(self, x, y):
         return int(math.floor(x / self.tol)), int(math.floor(y / self.tol))
 
-    def add(self, x, y):
-        self.cells.setdefault(self._cell(x, y), []).append((x, y))
+    def add(self, x, y, tag=None):
+        self.cells.setdefault(self._cell(x, y), []).append((x, y, tag))
 
     def near(self, x, y):
+        """(True, tag of the point found) or (False, None)."""
         cx, cy = self._cell(x, y)
         for i in (cx - 1, cx, cx + 1):
             for j in (cy - 1, cy, cy + 1):
-                for px, py in self.cells.get((i, j), ()):
+                for px, py, tag in self.cells.get((i, j), ()):
                     if math.hypot(px - x, py - y) <= self.tol:
-                        return True
-        return False
+                        return True, tag
+        return False, None
 
 
 def split_spots(blocks, existing, tol):
-    """(new, already) from `blocks`: `already` have a light within tol (ft)
-    in `existing` [(x, y)] or an earlier block at the same spot."""
+    """(new, already, duplicates) from `blocks`: `already` have a light
+    within tol (ft) in `existing` [(x, y, tag)], as (block, tag) pairs;
+    `duplicates` sit on an earlier block of this list (twice in the CAD)."""
     tol = max(tol, 1e-6)
     grid = _Grid(tol)
-    for x, y in existing:
-        grid.add(x, y)
-    new, already = [], []
+    for item in existing:
+        grid.add(item[0], item[1], item[2] if len(item) > 2 else None)
+    new, already, duplicates = [], [], []
     for block in blocks:
-        if grid.near(block.x, block.y):
-            already.append(block)
-        else:
+        found, tag = grid.near(block.x, block.y)
+        if not found:
             new.append(block)
-            grid.add(block.x, block.y)
-    return new, already
+            grid.add(block.x, block.y, _CAD)
+        elif tag is _CAD:
+            duplicates.append(block)
+        else:
+            already.append((block, tag))
+    return new, already, duplicates
+
+
+_CAD = object()                 # tag of a spot taken by a block of this run
 
 
 class Result(object):
@@ -109,6 +117,8 @@ class Result(object):
         self.placed = 0
         self.on_slab = 0            # placed on the slab: no ceiling there
         self.already = 0
+        self.blockers = []          # ids of the lights already at those spots
+        self.duplicates = 0         # blocks twice at the same spot in the CAD
         self.failed = {}            # reason -> count
 
     def fail(self, reason):
@@ -138,8 +148,14 @@ def summarize(results, skipped_names, timings=()):
         if r.on_slab:
             line += u" (%d under the slab, no ceiling)" % r.on_slab
         if r.already:
-            line += u", %d already there" % r.already
+            line += u", %d already had a light in this model" % r.already
+        if r.duplicates:
+            line += u", %d duplicate blocks in the CAD" % r.duplicates
         lines.append(line)
+        if r.blockers:
+            ids = [u"%s" % i for i in r.blockers[:15]]
+            more = u" ..." if len(r.blockers) > 15 else u""
+            lines.append(u"    lights already there (element ids): " + u", ".join(ids) + more)
         if r.kind == "level-based":
             lines.append(u"    This family is level-based, so Revit cannot host it: the lights "
                          u"are set at ceiling height but not attached. Use a face-based "

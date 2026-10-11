@@ -174,13 +174,14 @@ def light_types(doc):
 
 
 def _existing(doc, level_z):
-    """[(x, y)] of the lighting fixtures on this floor (any type)."""
+    """[(x, y, element id)] of the lighting fixtures of this model on this
+    floor (any type). Lights in linked models are not counted."""
     found = []
     for instance in FilteredElementCollector(doc).OfClass(FamilyInstance) \
             .OfCategory(LIGHT_CATEGORY).WhereElementIsNotElementType():
         point = getattr(instance.Location, "Point", None)
         if point is not None and level_z - RAY_START <= point.Z <= level_z + ABOVE_LEVEL:
-            found.append((point.X, point.Y))
+            found.append((point.X, point.Y, _id_int(instance.Id)))
     return found
 
 
@@ -375,8 +376,10 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
                 doc.Regenerate()
             kind = placement_kind(symbol)
             result.kind = kind
-            new, already = split_spots(blocks, existing, tol)
+            new, already, duplicates = split_spots(blocks, existing, tol)
             result.already = len(already)
+            result.blockers = sorted(set(tag for _, tag in already if tag is not None))
+            result.duplicates = len(duplicates)
             for block in new:
                 hit, reason = _spot(finder, kind, block, level, height)
                 if hit is None:
@@ -389,7 +392,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
                     result.fail(u"%s" % err)
                     continue
                 placed_ids.append(instance.Id)
-                existing.append((block.x, block.y))
+                existing.append((block.x, block.y, _id_int(instance.Id)))
                 result.placed += 1
                 if kind != HOSTED and not hit.ceiling:
                     result.on_slab += 1
