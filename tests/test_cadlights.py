@@ -74,3 +74,12 @@ def test_summary_level_based_note():
     r.kind = "level-based"
     _, details = summarize([r], [])
     assert "level-based, so Revit cannot host it" in details
+
+
+def test_settings_dumps_non_ascii_round_trip():
+    import json
+    from cadlights.settings import dumps
+    data = {u"LT Ø600 \"x\" \\ 1": u"Light : °A", u"B": u"C"}
+    text = dumps(data)
+    assert all(ord(c) < 128 for c in text)
+    assert json.loads(text) == data

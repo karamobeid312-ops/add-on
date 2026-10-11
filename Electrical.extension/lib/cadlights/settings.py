@@ -51,13 +51,43 @@ def mapping(values):
     return dict(data) if isinstance(data, dict) else {}
 
 
+def _quote(text):
+    """JSON string with every non-ASCII character escaped. IronPython's json
+    module chokes on names like 'Ø600' read from a DWG, so this is done by hand."""
+    out = [u'"']
+    for ch in u"%s" % text:
+        code = ord(ch)
+        if ch == u'"':
+            out.append(u'\\"')
+        elif ch == u"\\":
+            out.append(u"\\\\")
+        elif code < 32 or code > 126:
+            out.append(u"\\u%04x" % code)
+        else:
+            out.append(ch)
+    out.append(u'"')
+    return u"".join(out)
+
+
+def dumps(data):
+    """{text: text} as JSON (ASCII only)."""
+    items = sorted(data.items())
+    return u"{" + u", ".join(u"%s: %s" % (_quote(k), _quote(v)) for k, v in items) + u"}"
+
+
 def save(values, chosen):
-    """Save the settings; `chosen` {block: label} is merged into the saved mapping."""
-    from pyrevit import script
+    """Save the settings; `chosen` {block: label} is merged into the saved
+    mapping (a block set back to skip is forgotten)."""
+    from cadlights.match import SKIP
     data = mapping(values)
-    data.update(chosen)
-    values["mapping"] = json.dumps(data, sort_keys=True)
+    for name, label in chosen.items():
+        if label == SKIP:
+            data.pop(name, None)
+        else:
+            data[name] = label
     try:
+        values["mapping"] = dumps(data)
+        from pyrevit import script
         cfg = _config()
         for key in DEFAULTS:
             setattr(cfg, key, values[key])
