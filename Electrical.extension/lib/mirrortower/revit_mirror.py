@@ -528,6 +528,44 @@ def _mirror(doc, keys, elements, placement, about, result):
     return made
 
 
+def _own_name(board):
+    try:
+        return board.get_Parameter(BuiltInParameter.RBS_ELEC_PANEL_NAME).AsString() or u""
+    except Exception:
+        return u""
+
+
+def _rename(source, board, swap, result, by_name, new):
+    """Give Tower 2's `board` the name of Tower 1's `source` with the swap
+    (B1 -> B2). A board found in Tower 2 (new False) keeps a name of its own
+    that is not Tower 1's; a mirrored one with no swap in its name gets
+    Tower 1's name + " (2)" so it is not left unnamed."""
+    old = rc.panel_name(source)
+    p = board.get_Parameter(BuiltInParameter.RBS_ELEC_PANEL_NAME)
+    if p is None or p.IsReadOnly:
+        result.not_renamed.append(old)
+        return
+    has = _own_name(board)
+    if not new and has and has.strip().upper() != old.strip().upper():
+        return                      # Tower 2's own name
+    want = geometry.swap_name(old, swap[0], swap[1]) if swap and swap[0] else None
+    if want is None:
+        if new or not has:
+            want = old + u" (2)"
+            result.not_renamed.append(want)
+        else:
+            return
+    if want == has:
+        return
+    other = by_name.get(want.strip().upper())
+    if other is not None and id_int(other.Id) != id_int(board.Id):
+        result.not_renamed.append(u"%s (%s is taken)" % (old, want))
+        return
+    p.Set(want)
+    by_name[want.strip().upper()] = board
+    result.renamed.append((old, want))
+
+
 def mirror_floor(doc, side, placement, about, tolerance, swap, by_name):
     """Pass 1 on one floor: the copies found or made (side.copies). about:
     Tower 1's centre in plan."""
@@ -546,6 +584,19 @@ def mirror_floor(doc, side, placement, about, tolerance, swap, by_name):
             side.pool[t][1] if t in side.pool else _get(doc, t))))
     result.already = len([k for k in side.tower1 if k in copies])
     elements = dict((k, e) for k, (_, e) in side.tower1.items())
+    unnamed = [(k, t) for k, t in copies.items() if k in side.tower1 and k not in named and
+               k != t and is_board(elements[k]) and t in side.pool]
+    if unnamed and swap and swap[0]:
+        t = _transaction(doc, "Mirror Tower: board names, %s" % side.level.Name)
+        t.Start()
+        try:
+            for k, n in unnamed:
+                _rename(elements[k], side.pool[n][1], swap, result, by_name, new=False)
+            t.Commit()
+        except Exception:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+            raise
     if missing:
         del _ERRORS[:]
         t = _transaction(doc, "Mirror Tower: %s" % side.level.Name)
@@ -595,14 +646,7 @@ def mirror_floor(doc, side, placement, about, tolerance, swap, by_name):
             for k, n in made.items():
                 e = new[n][1]
                 if is_board(e):
-                    old = rc.panel_name(elements[k])
-                    want = geometry.swap_name(old, swap[0], swap[1]) if swap else None
-                    p = e.get_Parameter(BuiltInParameter.RBS_ELEC_PANEL_NAME)
-                    if want and p is not None and not p.IsReadOnly:
-                        p.Set(want)
-                        result.renamed.append((old, want))
-                    else:
-                        result.not_renamed.append(old)
+                    _rename(elements[k], e, swap, result, by_name, new=True)
             t.Commit()
         except Exception:
             if t.HasStarted() and not t.HasEnded():

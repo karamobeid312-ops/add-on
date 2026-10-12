@@ -193,12 +193,12 @@ def _show_mirror(output, m):
                             output.linkify(m.refused, "select them in Tower 1"),
                             "; ".join(m.errors[:3])))
     for old, new in m.renamed:
-        output.print_md("- Board %s mirrored as **%s**" % (old, new))
+        output.print_md("- Board %s: Tower 2's copy named **%s**" % (old, new))
     for old, new in m.by_name:
         output.print_md("- Board %s: Tower 2 has it already, **%s**" % (old, new))
     for old in m.not_renamed:
-        output.print_md("- Board %s mirrored but **not renamed** (the swap text is not "
-                        "in its name): rename it by hand." % old)
+        output.print_md("- Board **%s**: the swap text is not in its name (or the new name "
+                        "is taken): check its name by hand." % old)
 
 
 def run():

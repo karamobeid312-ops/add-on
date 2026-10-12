@@ -104,6 +104,19 @@ def test_swap_name():
     assert swap_name(u"DB-B1", u"", u"B2") is None
 
 
+def test_swap_name_with_a_separator_in_the_name():
+    # the user's boards: CBS-B/1-F1, PDB-B/1-F1, LDB-B/1-F1
+    assert swap_name(u"CBS-B/1-F1", u"B1", u"B2") == u"CBS-B/2-F1"
+    assert swap_name(u"LDB-B/1-F1", u"b1", u"B2") == u"LDB-B/2-F1"
+    assert swap_name(u"PDB-B-1-F1", u"B1", u"B2") == u"PDB-B-2-F1"
+    assert swap_name(u"CBS-B/1-F1", u"B/1", u"B/2") == u"CBS-B/2-F1"
+    assert swap_name(u"CBS-B/1-F1", u"B1", u"T2") == u"CBS-T/2-F1"
+    assert swap_name(u"CBS-B/1-F1", u"B1", u"TWR2") == u"CBS-TWR2-F1"
+    # not the B of a board type, nor B12
+    assert swap_name(u"LDB-1-F1", u"B1", u"B2") is None
+    assert swap_name(u"DB-B/12", u"B1", u"B2") is None
+
+
 # ---------------------------------------------------------------- pairing
 
 from mirrortower.pairing import BY_NAME, BY_SPOT, FALLBACK, ITSELF, board_for, pair_up  # noqa: E402

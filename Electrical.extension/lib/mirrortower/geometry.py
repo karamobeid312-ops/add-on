@@ -20,6 +20,7 @@ towers.
 from __future__ import division
 
 import math
+import re
 
 from copycircuits import placement as placing
 from copycircuits.placement import Placement
@@ -99,15 +100,43 @@ def centre(outline):
     return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
 
 
+_SEPARATORS = u"[-/_. ]?"
+
+
+def _respell(found, new):
+    """`new` written like `found`: B/1 with B2 -> B/2 (same letters and
+    digits count), else `new` as it is."""
+    slots = [i for i, ch in enumerate(found) if ch.isalnum()]
+    letters = [ch for ch in new if ch.isalnum()]
+    if len(slots) != len(letters) or len(letters) != len(new):
+        return new
+    out = list(found)
+    for i, ch in zip(slots, letters):
+        out[i] = ch
+    return u"".join(out)
+
+
 def swap_name(name, old, new):
     """`name` with `old` replaced by `new` (case does not matter), or None
-    when `old` is empty or not in it."""
+    when `old` is empty or not in it. When `old` is not in it as typed, it
+    is looked for with a separator between its letters and digits too
+    (B1 finds B/1, B-1, B_1, B 1 standing apart: not the B-1 of LDB-1), and
+    the new text keeps that separator (CBS-B/1-F1 -> CBS-B/2-F1)."""
     if not old or not name:
         return None
     low, find = name.lower(), old.lower()
     at = low.find(find)
     if at < 0:
-        return None
+        chars = [ch for ch in old if ch.isalnum()]
+        if not chars:
+            return None
+        pattern = u"(?<![A-Za-z0-9])" + _SEPARATORS.join(re.escape(ch) for ch in chars) + \
+            u"(?![0-9])"
+        found = re.search(pattern, name, re.IGNORECASE)
+        if found is None:
+            return None
+        return re.sub(pattern, lambda m: _respell(m.group(0), new), name,
+                      flags=re.IGNORECASE)
     out, start = [], 0
     while at >= 0:
         out.append(name[start:at])
