@@ -276,6 +276,13 @@ def run():
     for result, source in circuits:
         output.print_md("---")
         _show(output, result, source)
+        if result.onto_boards:
+            output.print_md("%s already in Tower 2 but on no board, now put on their board: "
+                            "%s" % (_count(len(result.onto_boards), "circuit"),
+                                    output.linkify(result.onto_boards, "select them")))
+        for label, error in result.onto_failed:
+            output.print_md("- Circuit copying %s is on no board, and Revit refused to put it "
+                            "on its board: %s" % (label, error))
     output.print_md("*The new elements are selected in Revit. Undo once to take the whole "
                     "run back. Run Circuit Description for Tower 2's room names, and check "
                     "the circuit numbers in the panel schedules.*")

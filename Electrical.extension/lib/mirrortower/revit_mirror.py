@@ -695,6 +695,43 @@ def _board_at(doc, board, placement, tolerance):
     return found.key if found is not None else None
 
 
+def _onto_boards(doc, circuits, copies, target, source, result):
+    """Tower 2 circuits left on no board (an earlier run, when the board
+    copy had no name): put on the board of the Tower 1 circuit they copy,
+    with its parameters. Their keys go in result.onto_boards, failures
+    in result.onto_failed."""
+    result.onto_boards, result.onto_failed = [], []
+    by_element = {}
+    for c in circuits:
+        for k in c.elements:
+            if k in copies:
+                by_element.setdefault((copies[k], c.kind), c)
+    seen = set()
+    for key, e in list(target.elements.items()):
+        for system in rc._member_of(e):
+            sid = id_int(system.Id)
+            if sid in seen:
+                continue
+            seen.add(sid)
+            try:
+                if system.BaseEquipment is not None:
+                    continue
+            except Exception:
+                continue
+            c = by_element.get((key, rc._kind(system)))
+            if c is None or c.panel is None or copies.get(c.panel) is None:
+                continue
+            board = target.elements.get(copies[c.panel])
+            if board is None:
+                continue
+            try:
+                system.SelectPanel(board)
+                rc.copy_parameters(source.systems[c.key], system)
+                result.onto_boards.append(system.Id)
+            except Exception as error:
+                result.onto_failed.append((c.label, rc._message(error)))
+
+
 def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
     """Pass 2 on one floor: Tower 1's circuits made on Tower 2's copies,
     and their wires drawn. Returns (copycircuits LevelResult, the source
@@ -759,6 +796,7 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
     t = _transaction(doc, "Mirror Tower circuits: %s" % side.level.Name)
     t.Start()
     try:
+        _onto_boards(doc, circuits, copies, target, source, result)
         jobs, result.skipped = plan.plan(circuits, copies, circuited)
         rc._make(doc, source, target, jobs, result)
         if wires_on:
