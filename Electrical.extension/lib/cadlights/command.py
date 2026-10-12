@@ -87,9 +87,10 @@ def run():
         else:
             jobs.append((name, items, label, types[label]))
 
-    results, placed, timings = place_lights(doc, level, jobs, values["height_mm"],
+    results, placed, timings, notes = place_lights(doc, level, jobs, values["height_mm"],
                                    values["tolerance_mm"], "Place CAD Lights")
     if placed:
         uidoc.Selection.SetElementIds(List[ElementId](placed))
-    headline, details = summarize(results, skipped, [("read CAD", read_time)] + timings)
+    headline, details = summarize(results, skipped, [("read CAD", read_time)] + timings,
+                                  notes)
     forms.alert(headline, expanded=details, title=TITLE)

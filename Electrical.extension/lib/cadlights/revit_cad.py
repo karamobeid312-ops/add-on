@@ -3,7 +3,7 @@
 place lighting fixtures on them.
 
 The ceiling above each block is found like the fire alarm detectors do it
-(firealarm.revit_fa.CeilingFinder): a ray shot up from the plan's level
+(firealarm.revit_fa.CeilingFinder, one search per ray here): a ray shot up from the plan's level
 through this model and linked models; the ceiling wins, and the slab is
 used only where there is no ceiling below it. A ray per light is slow, so
 each ceiling face a ray hits is remembered, and the next lights under the
@@ -29,7 +29,7 @@ from Autodesk.Revit.DB import (
 )
 
 from cadlights.match import MM_PER_FOOT, Block, Result, clean_name, normal_angle, split_spots
-from firealarm.revit_fa import (HOSTED, LEVEL, CeilingFinder, Hit, _place, _ray_view,
+from firealarm.revit_fa import (HOSTED, LEVEL, Hit, _place, _ray_view,
                                 linked_models, placement_kind, type_label)
 
 LIGHT_CATEGORY = BuiltInCategory.OST_LightingFixtures
@@ -248,6 +248,9 @@ class _FaceIndex(object):
 
     def __init__(self, sources, categories, z_low, z_high, extent, down_only):
         self.cells = {}
+        self.elements = 0           # elements found near the lights
+        self.faces = 0
+        self.errors = {}            # message -> count
         options = Options()
         options.ComputeReferences = True
         x0, y0, x1, y1 = extent
@@ -265,17 +268,29 @@ class _FaceIndex(object):
                         if max(lo.X, hi.X) < x0 or min(lo.X, hi.X) > x1 or \
                                 max(lo.Y, hi.Y) < y0 or min(lo.Y, hi.Y) > y1:
                             continue
+                        self.elements += 1
                         for face in list(_flat_faces(element, options, down_only)):
                             ref = face.Reference
                             if ref is None:
+                                self._error("face without reference")
                                 continue
                             if link is not None:
                                 ref = ref.CreateLinkReference(link)
                             item = _Face(face, transform, link, element, ref)
                             if item.box is not None:
                                 _bucket(self.cells, item)
-                    except Exception:
-                        continue
+                                self.faces += 1
+                    except Exception as err:
+                        self._error(u"%s" % err)
+
+    def _error(self, message):
+        self.errors[message] = self.errors.get(message, 0) + 1
+
+    def note(self, what):
+        text = u"%s read: %d faces from %d elements" % (what, self.faces, self.elements)
+        for message, count in sorted(self.errors.items())[:3]:
+            text += u"; %d x %s" % (count, message[:120])
+        return text
 
     def lowest(self, x, y, z_min, z_max):
         """(face, z) of the lowest face over (x, y) between the heights."""
@@ -317,6 +332,61 @@ def _face_of(doc, reference):
         return None
 
 
+class _OneRay(object):
+    """The detector tool's ceiling/slab choice with one ray per point
+    (ceilings, floors and roofs in one search instead of two)."""
+
+    def __init__(self, doc, view):
+        from System.Collections.Generic import List
+        from Autodesk.Revit.DB import (ElementMulticategoryFilter, FindReferenceTarget,
+                                       ReferenceIntersector)
+        self.doc = doc
+        cats = List[BuiltInCategory]()
+        for bic in (BuiltInCategory.OST_Ceilings, BuiltInCategory.OST_Floors,
+                    BuiltInCategory.OST_Roofs):
+            cats.Add(bic)
+        self.intersector = ReferenceIntersector(ElementMulticategoryFilter(cats),
+                                                FindReferenceTarget.Face, view)
+        self.intersector.FindReferencesInRevitLinks = True
+        self.ceiling_cat = _id_int(ElementId(BuiltInCategory.OST_Ceilings))
+        self.link_docs = {}
+
+    def _is_ceiling(self, reference):
+        try:
+            if _id_int(reference.LinkedElementId) == _id_int(ElementId.InvalidElementId):
+                element = self.doc.GetElement(reference.ElementId)
+            else:
+                key = _id_int(reference.ElementId)
+                if key not in self.link_docs:
+                    self.link_docs[key] = self.doc.GetElement(reference.ElementId).GetLinkDocument()
+                element = self.link_docs[key].GetElement(reference.LinkedElementId)
+            return _id_int(element.Category.Id) == self.ceiling_cat
+        except Exception:
+            return False
+
+    def above(self, x, y, floor_z):
+        origin = XYZ(x, y, floor_z + RAY_START)
+        ceiling = slab = None
+        for found in self.intersector.Find(origin, XYZ.BasisZ):
+            reference = found.GetReference()
+            if self._is_ceiling(reference):
+                if ceiling is None or found.Proximity < ceiling.Proximity:
+                    ceiling = found
+            elif found.Proximity >= SLAB_MIN - RAY_START and \
+                    (slab is None or found.Proximity < slab.Proximity):
+                slab = found
+        if ceiling is not None and (slab is None or ceiling.Proximity <= slab.Proximity + 1e-6):
+            found, on_ceiling = ceiling, True
+        elif slab is not None:
+            found, on_ceiling = slab, False
+        else:
+            return None
+        reference = found.GetReference()
+        point = reference.GlobalPoint or XYZ(x, y, origin.Z + found.Proximity)
+        linked = _id_int(reference.LinkedElementId) != _id_int(ElementId.InvalidElementId)
+        return Hit(reference, point, self.doc.GetElement(reference.ElementId), linked, on_ceiling)
+
+
 class CachedFinder(object):
     """Ceiling (or slab, where there is no ceiling) above points of a floor.
 
@@ -328,7 +398,7 @@ class CachedFinder(object):
     def __init__(self, doc, view, level_z, blocks):
         self.doc = doc
         self.level_z = level_z
-        self.finder = CeilingFinder(doc, view)
+        self.finder = _OneRay(doc, view)
         self.cells = {}             # ceiling faces found by rays
         self.rays = 0
         self.quick = 0
@@ -438,7 +508,7 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
     """Place the lights in one undo.
 
     jobs: [(block name, [Block], 'Family : Type', FamilySymbol)].
-    Returns ([Result], [new ElementId], [(step, seconds)])."""
+    Returns ([Result], [new ElementId], [(step, seconds)], [note])."""
     height = height_mm / MM_PER_FOOT
     tol = tolerance_mm / MM_PER_FOOT
     level_z = level.ProjectElevation
@@ -503,4 +573,5 @@ def place_lights(doc, level, jobs, height_mm, tolerance_mm, title):
         raise
     timings.append(("place (%d quick, %d ray searches)" % (finder.quick, finder.rays),
                     time.time() - started))
-    return results, placed_ids, timings
+    notes = [finder.ceilings.note("Ceilings"), finder.slabs.note("Slabs")]
+    return results, placed_ids, timings, notes
