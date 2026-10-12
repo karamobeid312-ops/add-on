@@ -4,7 +4,7 @@ from Autodesk.Revit.DB import ElementId, TransactionGroup
 from pyrevit import forms, revit, script
 from System.Collections.Generic import List
 
-from copycircuits import report, revit_copy, settings
+from copycircuits import plan, report, revit_copy, settings
 
 TITLE = "Copy Circuits"
 MM_PER_FOOT = 304.8
@@ -36,6 +36,50 @@ def _pick_levels(doc, view):
     if not targets:
         return None, None
     return by_name[source], [by_name[n] for n in names if n in targets]
+
+
+ONE_BY_ONE = "Pick circuits one by one..."
+
+
+def _pick_circuits(doc, source, view):
+    """Keys of the circuits to copy: by kind (Lighting, Power...), those shown
+    in the active plan, or picked one by one. None: cancelled."""
+    circuits = source.circuits
+    options, keys = [], {}
+    for group, count in plan.groups(circuits):
+        text = "%s circuits (%d)" % (group, count)
+        options.append(text)
+        keys[text] = set(c.key for c in circuits if c.group == group)
+    shown = revit_copy.shown_in(doc, view)
+    if shown is not None:
+        here = set(c.key for c in circuits if set(c.elements) & shown)
+        if here and len(here) < len(circuits):
+            text = "Circuits shown in this plan, %s (%d)" % (view.Name, len(here))
+            options.append(text)
+            keys[text] = here
+    if len(options) < 2:
+        return set(c.key for c in circuits)
+    options.append(ONE_BY_ONE)
+    picked = forms.SelectFromList.show(
+        options, title="%s: copy which circuits of %s?" % (TITLE, source.level.Name),
+        button_name="Next", multiselect=True)
+    if not picked:
+        return None
+    chosen = set()
+    for text in picked:
+        chosen |= keys.get(text, set())
+    if ONE_BY_ONE not in picked:
+        return chosen
+    listed = [c for c in circuits if not chosen or c.key in chosen]
+    listed.sort(key=lambda c: (c.group, c.panel_name, c.slot, c.key))
+    labels = dict((plan.circuit_label(c), c.key) for c in listed)
+    picked = forms.SelectFromList.show(
+        [plan.circuit_label(c) for c in listed],
+        title="%s: copy which circuits of %s?" % (TITLE, source.level.Name),
+        button_name="Next", multiselect=True)
+    if not picked:
+        return None
+    return set(labels[t] for t in picked)
 
 
 def _show(output, result, source):
@@ -104,6 +148,14 @@ def run():
         forms.alert("No circuits found with elements on %s%s." % (
             source_level.Name, " among the selected elements" if chosen else ""), title=TITLE)
         return
+    if not chosen:
+        keys = _pick_circuits(doc, source, doc.ActiveView)
+        if not keys:
+            return
+        if len(keys) < len(source.circuits):
+            source = revit_copy.read_source(doc, source_level, None, keys)
+    which = " (from the selection)" if chosen else " (%s)" % ", ".join(
+        g for g, _ in plan.groups(source.circuits))
     wires = revit_copy.Wires(doc, source_level) if values["wires"] else None
 
     results = []
@@ -128,7 +180,7 @@ def run():
                     "position within %s mm, at the same spot or mirrored, turned or moved "
                     "as a whole (another tower)." % (
                         len(source.circuits), "" if len(source.circuits) == 1 else "s",
-                        source_level.Name, " (from the selection)" if chosen else "",
+                        source_level.Name, which,
                         _number(values["tolerance"])))
     if source.by_height:
         output.print_md("%d of their elements have another Level than %s but are in its "

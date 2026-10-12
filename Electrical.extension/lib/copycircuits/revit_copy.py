@@ -188,9 +188,24 @@ class Source(object):
         self.panels = {}            # panel key -> panel, of every circuit read
 
 
-def read_source(doc, level, only=None):
+_LIGHTING = set()
+for _name in ("OST_LightingFixtures", "OST_LightingDevices"):
+    _bic = getattr(BuiltInCategory, _name, None)
+    if _bic is not None:
+        _LIGHTING.add(int(_bic))
+
+
+def _is_lighting(element):
+    try:
+        return id_int(element.Category.Id) in _LIGHTING
+    except Exception:
+        return False
+
+
+def read_source(doc, level, only=None, circuits=None):
     """Circuits with elements on `level`. only: element ids (ints) chosen in
-    Revit: then just the circuits that are, or have, or are fed by one of them."""
+    Revit: then just the circuits that are, or have, or are fed by one of them.
+    circuits: keys of the circuits picked (Lighting only...), None: all."""
     floor = Floor(level, levels(doc))
     source = Source(level)
     seen, odd = set(), set()
@@ -198,6 +213,8 @@ def read_source(doc, level, only=None):
         try:
             elements = list(system.Elements)
         except Exception:
+            continue
+        if circuits is not None and id_int(system.Id) not in circuits:
             continue
         panel = system.BaseEquipment
         if only is not None:
@@ -224,7 +241,9 @@ def read_source(doc, level, only=None):
         source.circuits.append(plan.Circuit(
             key, _kind(system), [id_int(e.Id) for e in on_floor],
             panel=id_int(panel.Id) if panel is not None else None, panel_here=panel_here,
-            slot=slot, panel_name=system.PanelName or "", number=system.CircuitNumber or ""))
+            slot=slot, panel_name=system.PanelName or "", number=system.CircuitNumber or "",
+            group=plan.circuit_group(_kind(system), [_is_lighting(e) for e in on_floor]),
+            load_name=_load_name(system)))
         source.systems[key] = system
         if panel is not None:
             source.panels[id_int(panel.Id)] = panel
@@ -238,6 +257,24 @@ def read_source(doc, level, only=None):
                     source.items.append(item)
     source.by_height = len(odd)
     return source
+
+
+def _load_name(system):
+    try:
+        return system.LoadName or ""
+    except Exception:
+        return ""
+
+
+def shown_in(doc, view):
+    """Keys of the elements the view shows, or None when it is not a plan."""
+    try:
+        if not isinstance(view, ViewPlan) or view.IsTemplate:
+            return None
+        return set(id_int(e.Id) for e in
+                   FilteredElementCollector(doc, view.Id).OfClass(FamilyInstance))
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------- target

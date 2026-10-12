@@ -102,8 +102,10 @@ class Circuit(object):
     """A circuit of the source model, as far as the plan needs it."""
 
     def __init__(self, key, kind, elements, panel=None, panel_here=False, slot=0,
-                 panel_name="", number=""):
+                 panel_name="", number="", group=None, load_name=""):
         self.key = key
+        self.group = group or kind      # what the user picks by: Lighting, Power, Data...
+        self.load_name = load_name      # e.g. "LIGHTING - BEDROOM 1"
         self.kind = kind                # system type: power, data, fire alarm...
         self.elements = list(elements)  # keys of its elements on the source floor
         self.panel = panel              # key of its panel, None: no panel
@@ -117,6 +119,37 @@ class Circuit(object):
         if not self.panel_name:
             return self.number or "(no panel)"
         return "%s / %s" % (self.panel_name, self.number) if self.number else self.panel_name
+
+
+LIGHTING = "Lighting"
+POWER = "Power"
+_KINDS = {"Data": "Data", "FireAlarm": "Fire alarm", "Telephone": "Telephone",
+          "Security": "Security", "NurseCall": "Nurse call", "Controls": "Controls",
+          "Communication": "Communication"}
+
+
+def circuit_group(kind, lighting):
+    """What a circuit is to pick it by. kind: its system type; lighting: for
+    each of its elements, whether it is a lighting fixture or device. A power
+    circuit of lighting elements only is Lighting, any other is Power."""
+    if "Power" in kind:
+        return LIGHTING if lighting and all(lighting) else POWER
+    return _KINDS.get(kind, kind)
+
+
+def groups(circuits):
+    """[(group, circuit count)]: Lighting, then Power, then the others by name."""
+    count = {}
+    for c in circuits:
+        count[c.group] = count.get(c.group, 0) + 1
+    first = [g for g in (LIGHTING, POWER) if g in count]
+    return [(g, count[g]) for g in first + sorted(g for g in count if g not in first)]
+
+
+def circuit_label(circuit):
+    """The circuit as listed for picking: Lighting | DB-F4-01 / 3 | load name."""
+    text = u"%s | %s" % (circuit.group, circuit.label)
+    return text + (u" | %s" % circuit.load_name if circuit.load_name else u"")
 
 
 class Job(object):

@@ -251,3 +251,17 @@ def test_report_of_a_copy_elsewhere():
     ]
     result.note = "No other copy of the circuits of L4 found on L4."
     assert headline(result) == result.note
+
+
+def test_circuit_groups_to_pick_by():
+    from copycircuits.plan import circuit_group, circuit_label, groups
+    assert circuit_group("PowerCircuit", [True, True]) == "Lighting"
+    assert circuit_group("PowerCircuit", [True, False]) == "Power"
+    assert circuit_group("PowerCircuit", []) == "Power"
+    assert circuit_group("FireAlarm", [False]) == "Fire alarm"
+    lights = Circuit(1, "PowerCircuit", [1], panel_name="DB-1", number="3", group="Lighting",
+                     load_name="LTG - LOBBY")
+    power = Circuit(2, "PowerCircuit", [2], group="Power")
+    data = Circuit(3, "Data", [3])
+    assert groups([data, power, lights, power]) == [("Lighting", 1), ("Power", 2), ("Data", 1)]
+    assert circuit_label(lights) == "Lighting | DB-1 / 3 | LTG - LOBBY"

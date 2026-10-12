@@ -557,8 +557,10 @@ The **Circuits** panel of the **Electrical** tab:
   circuit's load name, rating, wire type and sizes, notes and other
   writable parameters, in the source panel's slot order. The wires drawn
   in the source floor's plans are drawn again in the copied floor's plan
-  of the same kind. Select fixtures, circuits or panels first to copy
-  only their circuits. The new circuits are selected in Revit, and
+  of the same kind. Then pick which circuits to copy: Lighting,
+  Power, Data... (a circuit of lighting fixtures and devices only is
+  Lighting), those shown in the active plan, or one by one. Select
+  fixtures, circuits or panels first to copy only their circuits. The new circuits are selected in Revit, and
   pyRevit's output window lists, per floor, what was made and what was
   not, and why. One Undo takes it all back.
 - **Circuit Settings** – the tolerance: how near the source spot in plan
