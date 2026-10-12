@@ -1,0 +1,250 @@
+# -*- coding: utf-8 -*-
+"""Entry point for the Mirror Tower button."""
+from Autodesk.Revit.DB import CurveElement, ElementId, Grid, TransactionGroup
+from Autodesk.Revit.Exceptions import OperationCanceledException
+from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
+from pyrevit import forms, revit, script
+from System.Collections.Generic import List
+
+from copycircuits import revit_copy as rc
+from copycircuits import settings as copy_settings
+from copycircuits.command import _show
+from mirrortower import geometry, revit_mirror
+
+TITLE = "Mirror Tower"
+MM_PER_FOOT = 304.8
+SECTION = "ElectricalMirrorTower"
+
+LINE_HERE = "Pick a grid or line in this model"
+LINE_LINK = "Pick a grid or line in a linked model"
+LINE_POINTS = "Click two points on the mirror line"
+LINE_BOXES = "Halfway between Tower 1's and Tower 2's scope boxes"
+
+
+def _config():
+    return script.get_config(SECTION)
+
+
+def _remembered(name, default):
+    try:
+        value = _config().get_option(name, default)
+        return value if value is not None else default
+    except Exception:
+        return default
+
+
+def _remember(values):
+    try:
+        cfg = _config()
+        for k, v in values.items():
+            setattr(cfg, k, v)
+        script.save_config()
+    except Exception:
+        pass
+
+
+class _LinesOnly(ISelectionFilter):
+    __namespace__ = "ElectricalMirrorTower"       # needed by the CPython engine
+
+    def AllowElement(self, element):
+        return isinstance(element, (Grid, CurveElement))
+
+    def AllowReference(self, reference, point):
+        return False
+
+
+def _pick_box(doc, title, last):
+    boxes = revit_mirror.scope_boxes(doc)
+    if not boxes:
+        forms.alert("The model has no scope boxes. Draw one around Tower 1 first.", title=TITLE)
+        return None, None
+    names = [n for n, _ in boxes]
+    ordered = ([last] if last in names else []) + [n for n in names if n != last]
+    picked = forms.SelectFromList.show(ordered, title=title, button_name="Next",
+                                       multiselect=False)
+    if not picked:
+        return None, None
+    return picked, dict(boxes)[picked]
+
+
+def _pick_line(doc, uidoc, box_outline):
+    """((x, y), (x, y)) on the mirror line, or None when cancelled."""
+    how = forms.CommandSwitchWindow.show(
+        [LINE_HERE, LINE_LINK, LINE_POINTS, LINE_BOXES],
+        message="Mirror line between the towers:")
+    if not how:
+        return None
+    try:
+        if how == LINE_HERE:
+            ref = uidoc.Selection.PickObject(ObjectType.Element, _LinesOnly(),
+                                             "Pick the grid or line between the towers")
+            ends = revit_mirror.line_ends(doc.GetElement(ref.ElementId))
+        elif how == LINE_LINK:
+            ref = uidoc.Selection.PickObject(ObjectType.LinkedElement,
+                                             "Pick the grid or line between the towers "
+                                             "in the linked model")
+            link = doc.GetElement(ref.ElementId)
+            linked = link.GetLinkDocument().GetElement(ref.LinkedElementId)
+            ends = revit_mirror.line_ends(linked, link.GetTotalTransform())
+        elif how == LINE_POINTS:
+            a = uidoc.Selection.PickPoint("Click a point on the mirror line")
+            b = uidoc.Selection.PickPoint("Click a second point on the mirror line")
+            ends = (a.X, a.Y), (b.X, b.Y)
+        else:
+            _, box2 = _pick_box(doc, "%s: which scope box is Tower 2?" % TITLE, None)
+            if box2 is None:
+                return None
+            ends = geometry.halfway_line(geometry.centre(box_outline),
+                                         geometry.centre(revit_mirror.outline(box2)))
+    except OperationCanceledException:
+        return None
+    if ends is None or geometry.mirror_placement(*ends) is None:
+        forms.alert("That is not a straight line (a grid or line with two ends). "
+                    "Run Mirror Tower again and pick another.", title=TITLE)
+        return None
+    return ends
+
+
+def _pick_levels(doc, view):
+    all_levels = rc.levels(doc)
+    names = [l.Name for l in all_levels]
+    picked = forms.SelectFromList.show(
+        names, title="%s: mirror Tower 1 on which floors?" % TITLE,
+        button_name="Next", multiselect=True)
+    if not picked:
+        return None
+    return [l for l in all_levels if l.Name in picked]
+
+
+def _pick_swap():
+    old = forms.ask_for_string(
+        default=_remembered("swap_from", "B1"),
+        prompt="Text in Tower 1's board names that changes for Tower 2 "
+               "(DB-B1-L4-01 -> DB-B2-L4-01: B1). Leave empty to keep the names:",
+        title=TITLE)
+    if old is None:
+        return None
+    old = old.strip()
+    if not old:
+        return (u"", u"")
+    new = forms.ask_for_string(
+        default=_remembered("swap_to", "B2"),
+        prompt="Replace %s in Tower 2's board names with:" % old, title=TITLE)
+    if new is None:
+        return None
+    return (old, new.strip())
+
+
+def _count(n, word, plural=None):
+    return "%d %s" % (n, word if n == 1 else (plural or word + "s"))
+
+
+def _show_mirror(output, m):
+    output.print_md("## %s: elements" % m.floor)
+    if not m.tower1:
+        output.print_md("No electrical elements of Tower 1 on this floor.")
+        return
+    text = "%s of Tower 1: %d already in Tower 2, %d mirrored now" % (
+        _count(m.tower1, "element"), m.already, len(m.mirrored))
+    if m.refused:
+        text += ", %d not mirrored" % len(m.refused)
+    output.print_md(text + ".")
+    if m.mirrored:
+        output.print_md(output.linkify(m.mirrored, "Select the %d new elements"
+                                       % len(m.mirrored)))
+    if m.on_line:
+        output.print_md("%s on the mirror line, shared by both towers, not mirrored."
+                        % _count(m.on_line, "element"))
+    if m.refused:
+        output.print_md("**Not mirrored** (Revit refused, often a fixture hosted on a "
+                        "linked wall or ceiling): %s. %s" % (
+                            output.linkify(m.refused, "select them in Tower 1"),
+                            "; ".join(m.errors[:3])))
+    for old, new in m.renamed:
+        output.print_md("- Board %s mirrored as **%s**" % (old, new))
+    for old, new in m.by_name:
+        output.print_md("- Board %s: Tower 2 has it already, **%s**" % (old, new))
+    for old in m.not_renamed:
+        output.print_md("- Board %s mirrored but **not renamed** (the swap text is not "
+                        "in its name): rename it by hand." % old)
+
+
+def run():
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model to mirror a tower.", title=TITLE)
+        return
+    box_name, box = _pick_box(doc, "%s: which scope box is Tower 1?" % TITLE,
+                              _remembered("scope_box", None))
+    if box is None:
+        return
+    box_outline = revit_mirror.outline(box)
+    if len(box_outline) < 3:
+        forms.alert("Could not read the outline of scope box %s." % box_name, title=TITLE)
+        return
+    ends = _pick_line(doc, uidoc, box_outline)
+    if ends is None:
+        return
+    values = copy_settings.load()
+    tolerance = values["tolerance"] / MM_PER_FOOT
+    c = geometry.centre(box_outline)
+    if abs(geometry.side(ends[0], ends[1], c[0], c[1])) <= tolerance:
+        forms.alert("The mirror line goes through the middle of scope box %s. Pick the line "
+                    "between the towers, with Tower 1's scope box on one side." % box_name,
+                    title=TITLE)
+        return
+    targets = _pick_levels(doc, doc.ActiveView)
+    if not targets:
+        return
+    swap = _pick_swap()
+    if swap is None:
+        return
+    _remember({"scope_box": box_name, "swap_from": swap[0] or "", "swap_to": swap[1] or ""})
+    placement = geometry.mirror_placement(*ends)
+    all_levels = rc.levels(doc)
+
+    mirrored, circuits = [], []
+    group = TransactionGroup(doc, TITLE)
+    group.Start()
+    try:
+        sides = [revit_mirror.split(doc, level, all_levels, box_outline, ends[0], ends[1],
+                                    tolerance) for level in targets]
+        if not any(s.tower1 for s in sides):
+            group.RollBack()
+            forms.alert("No electrical elements found in scope box %s on Tower 1's side of "
+                        "the line, on the floors picked." % box_name, title=TITLE)
+            return
+        by_name = revit_mirror.boards_by_name(doc)
+        for side in sides:
+            mirrored.append(revit_mirror.mirror_floor(doc, side, placement, ends[0], ends[1],
+                                                      tolerance, swap, by_name))
+        by_name = revit_mirror.boards_by_name(doc)       # with the boards just made
+        for side in sides:
+            if side.tower1:
+                circuits.append(revit_mirror.circuit_floor(doc, side, placement, tolerance,
+                                                           swap, by_name, values["wires"]))
+        group.Assimilate()
+    except Exception:
+        if group.HasStarted() and not group.HasEnded():
+            group.RollBack()
+        raise
+
+    new = [i for m in mirrored for i in m.mirrored]
+    if new:
+        uidoc.Selection.SetElementIds(List[ElementId](new))
+    output = script.get_output()
+    output.set_title(TITLE)
+    output.print_md("# Tower 1 (%s) mirrored" % box_name)
+    output.print_md("Elements in scope box %s on Tower 1's side of the mirror line; a copy "
+                    "already in Tower 2 is the same family type at the mirrored spot "
+                    "(within %s mm) or, for a board, named with %s." % (
+                        box_name, ("%.1f" % values["tolerance"]).rstrip("0").rstrip("."),
+                        ("%s -> %s" % swap) if swap[0] else "the same name"))
+    for m in mirrored:
+        _show_mirror(output, m)
+    for result, source in circuits:
+        output.print_md("---")
+        _show(output, result, source)
+    output.print_md("*The new elements are selected in Revit. Undo once to take the whole "
+                    "run back. Run Circuit Description for Tower 2's room names, and check "
+                    "the circuit numbers in the panel schedules.*")

@@ -1,0 +1,460 @@
+# -*- coding: utf-8 -*-
+"""Revit side of Mirror Tower.
+
+Two passes over the chosen floors, in one undo:
+
+1. Elements. The electrical elements of Tower 1 (in its scope box, on
+   its side of the mirror line) are paired with Tower 2's (same family
+   type at the mirrored spot, or a board named like it with B1 -> B2).
+   Those Tower 2 has not got yet are mirrored with Revit's own Mirror
+   (ElementTransformUtils.MirrorElements: same types, same parameter
+   values, flipped); the mirrored boards are renamed (B1 -> B2).
+2. Circuits and wires. Each circuit of Tower 1 is made again on the
+   copies, on Tower 2's board (copycircuits.plan / _make), with the
+   source circuit's parameters, and its wires are drawn again mirrored
+   in the same plan (copycircuits copy_wires).
+
+No parameter is created: only existing ones are read and set.
+
+Works with pyRevit's IronPython 2.7 and CPython 3 engines.
+"""
+from __future__ import division
+
+from Autodesk.Revit.DB import (
+    BuiltInCategory, BuiltInParameter, CurveElement, ElementId, ElementTransformUtils,
+    FailureProcessingResult, FailureSeverity, FamilyInstance, FilteredElementCollector, Grid,
+    IFailuresPreprocessor, Line, Options, Plane, Transaction, XYZ,
+)
+from System.Collections.Generic import List
+
+from copycircuits import placement as placing
+from copycircuits import plan
+from copycircuits import revit_copy as rc
+from copycircuits.report import LevelResult
+from mirrortower import geometry, pairing
+
+id_int = rc.id_int
+
+CATEGORIES = ("OST_LightingFixtures", "OST_LightingDevices", "OST_ElectricalFixtures",
+              "OST_ElectricalEquipment", "OST_FireAlarmDevices", "OST_DataDevices",
+              "OST_CommunicationDevices", "OST_SecurityDevices", "OST_TelephoneDevices",
+              "OST_NurseCallDevices")
+_CATEGORY_IDS = set()
+for _name in CATEGORIES:
+    _bic = getattr(BuiltInCategory, _name, None)
+    if _bic is not None:
+        _CATEGORY_IDS.add(int(_bic))
+_EQUIPMENT = int(BuiltInCategory.OST_ElectricalEquipment)
+
+
+def _get(doc, key):
+    """The element with id `key` (an int), or None."""
+    try:
+        from System import Int64
+        return doc.GetElement(ElementId(Int64(key)))     # Revit 2024+
+    except Exception:
+        pass
+    try:
+        return doc.GetElement(ElementId(int(key)))
+    except Exception:
+        return None
+
+
+def _category(element):
+    try:
+        return id_int(element.Category.Id)
+    except Exception:
+        return None
+
+
+def is_board(element):
+    return _category(element) == _EQUIPMENT
+
+
+# ---------------------------------------------------------------- picking
+
+def scope_boxes(doc):
+    """[(name, scope box)] by name."""
+    found = []
+    for e in FilteredElementCollector(doc).OfCategory(
+            BuiltInCategory.OST_VolumeOfInterest).WhereElementIsNotElementType():
+        found.append((e.Name or u"(no name)", e))
+    found.sort(key=lambda p: p[0].lower())
+    return found
+
+
+def outline(box):
+    """The scope box's outline in plan: convex hull of its edges' ends."""
+    points = []
+    geom = box.get_Geometry(Options())
+    if geom is not None:
+        for obj in geom:
+            try:
+                for p in (obj.GetEndPoint(0), obj.GetEndPoint(1)):
+                    points.append((p.X, p.Y))
+            except Exception:
+                pass
+    if len(points) < 3:
+        b = box.get_BoundingBox(None)
+        if b is not None:
+            points = [(b.Min.X, b.Min.Y), (b.Max.X, b.Min.Y), (b.Max.X, b.Max.Y),
+                      (b.Min.X, b.Max.Y)]
+    return geometry.hull(points)
+
+
+def line_ends(element, transform=None):
+    """((x, y), (x, y)) of a grid or straight model/detail line, or None."""
+    curve = None
+    if isinstance(element, Grid):
+        curve = element.Curve
+    elif isinstance(element, CurveElement):
+        curve = element.GeometryCurve
+    if curve is None or not isinstance(curve, Line):
+        return None
+    a, b = curve.GetEndPoint(0), curve.GetEndPoint(1)
+    if transform is not None:
+        a, b = transform.OfPoint(a), transform.OfPoint(b)
+    return (a.X, a.Y), (b.X, b.Y)
+
+
+# ---------------------------------------------------------------- reading
+
+def _electrical_on(doc, floor):
+    """{key: (plan.Item, element)} of the electrical family instances on the floor."""
+    found = {}
+    for e in FilteredElementCollector(doc).OfClass(FamilyInstance):
+        if _category(e) not in _CATEGORY_IDS:
+            continue
+        try:
+            if e.SuperComponent is not None:
+                continue            # nested: goes with its parent
+        except Exception:
+            pass
+        if not floor.has(e)[0]:
+            continue
+        item = rc._item(e)
+        if item is not None:
+            found[item.key] = (item, e)
+    return found
+
+
+class Side(object):
+    """One floor split by tower."""
+
+    def __init__(self, level, floor):
+        self.level = level
+        self.floor = floor
+        self.tower1 = {}            # key -> (Item, element): Tower 1's, to mirror
+        self.on_line = {}           # key -> (Item, element): on the mirror line, shared
+        self.pool = {}              # key -> (Item, element): the rest (Tower 2's...)
+        self.copies = {}            # Tower 1 key -> Tower 2 key (on-line ones: themselves)
+        self.named = set()          # Tower 1 boards whose copy was found by name
+
+
+def split(doc, level, all_levels, box, p1, p2, tolerance):
+    floor = rc.Floor(level, all_levels)
+    side = Side(level, floor)
+    home = geometry.centre(box)
+    everything = _electrical_on(doc, floor)
+    boxed = [item for item, _ in everything.values() if geometry.inside(box, item.x, item.y,
+                                                                         tolerance)]
+    kinds = geometry.where(boxed, p1, p2, tolerance, home)
+    for key, pair in everything.items():
+        kind = kinds.get(key)
+        if kind == geometry.TOWER_1:
+            side.tower1[key] = pair
+        elif kind == geometry.ON_LINE:
+            side.on_line[key] = pair
+        else:
+            side.pool[key] = pair
+    return side
+
+
+def boards_by_name(doc):
+    return rc._panels_by_name(doc)
+
+
+def _name_twins(side, swap, by_name):
+    found = {}
+    if not swap or not swap[0]:
+        return found
+    for key, (item, e) in side.tower1.items():
+        if not is_board(e):
+            continue
+        want = geometry.swap_name(rc.panel_name(e), swap[0], swap[1])
+        other = by_name.get(want.strip().upper()) if want else None
+        if other is not None and id_int(other.Id) != key:
+            found[key] = id_int(other.Id)
+    return found
+
+
+# ---------------------------------------------------------------- failures
+
+_ERRORS = []
+
+
+class _Resolve(IFailuresPreprocessor):
+    """Warnings dismissed; an error Revit can resolve (an element it cannot
+    keep) is resolved its default way, so the rest still goes through."""
+    __namespace__ = "ElectricalMirrorTower"       # needed by the CPython engine
+
+    def PreprocessFailures(self, accessor):
+        resolved = False
+        for message in list(accessor.GetFailureMessages()):
+            if message.GetSeverity() == FailureSeverity.Warning:
+                accessor.DeleteWarning(message)
+            elif message.HasResolutions():
+                try:
+                    text = message.GetDescriptionText()
+                except Exception:
+                    text = u"refused by Revit"
+                if text not in _ERRORS:
+                    _ERRORS.append(text)
+                accessor.ResolveFailure(message)
+                resolved = True
+        if resolved:
+            return FailureProcessingResult.ProceedWithCommit
+        return FailureProcessingResult.Continue
+
+
+def _transaction(doc, name):
+    t = Transaction(doc, name)
+    options = t.GetFailureHandlingOptions()
+    options.SetFailuresPreprocessor(_Resolve())
+    t.SetFailureHandlingOptions(options)
+    return t
+
+
+# ---------------------------------------------------------------- pass 1
+
+class MirrorResult(object):
+    """Pass 1 on one floor."""
+
+    def __init__(self, level):
+        self.floor = level
+        self.tower1 = 0             # Tower 1 elements
+        self.already = 0            # of them, with a copy in Tower 2 already
+        self.on_line = 0            # on the mirror line (not mirrored)
+        self.mirrored = []          # new element ids
+        self.refused = []           # Tower 1 element ids Revit did not mirror
+        self.errors = []            # what Revit said
+        self.renamed = []           # (Tower 1 board name, Tower 2 board name)
+        self.not_renamed = []       # Tower 2 board names without the swap text
+        self.by_name = []           # (Tower 1 board, Tower 2 board found by name)
+
+
+def _plane(p1, p2):
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    return Plane.CreateByNormalAndOrigin(XYZ(-dy, dx, 0).Normalize(), XYZ(p1[0], p1[1], 0))
+
+
+def _ids(keys, elements):
+    found = List[ElementId]()
+    for k in keys:
+        found.Add(elements[k].Id)
+    return found
+
+
+def _mirror(doc, keys, elements, plane, result):
+    """Mirror copies of the elements. Returns the new ElementIds."""
+    wanted = list(keys)
+    keys = [k for k in wanted if ElementTransformUtils.CanMirrorElements(
+        doc, _ids([k], elements))]
+    cant = [k for k in wanted if k not in keys]
+    made = []
+    try:
+        new = ElementTransformUtils.MirrorElements(doc, _ids(keys, elements), plane, True)
+        made = list(new) if new is not None else []
+        if new is None:
+            raise TypeError("no ids back")      # older Revit: one by one, to know them
+    except Exception:
+        made = []
+        before = set(id_int(e.Id) for e in FilteredElementCollector(doc).OfClass(FamilyInstance))
+        for k in keys:
+            try:
+                new = ElementTransformUtils.MirrorElements(doc, _ids([k], elements), plane, True)
+                if new is not None:
+                    made.extend(new)
+            except Exception as error:
+                cant.append(k)
+                text = rc._message(error)
+                if text not in result.errors:
+                    result.errors.append(text)
+        if not made:
+            made = [e.Id for e in FilteredElementCollector(doc).OfClass(FamilyInstance)
+                    if id_int(e.Id) not in before]
+    for k in cant:
+        result.refused.append(elements[k].Id)
+    return made
+
+
+def mirror_floor(doc, side, placement, p1, p2, tolerance, swap, by_name):
+    """Pass 1 on one floor: the copies found or made (side.copies)."""
+    result = MirrorResult(side.level.Name)
+    result.tower1 = len(side.tower1)
+    result.on_line = len(side.on_line)
+    named = _name_twins(side, swap, by_name)
+    side.named = set(named)
+    items = [i for i, _ in side.tower1.values()]
+    copies, missing = pairing.pair_up(items, [i for i, _ in side.pool.values()], placement,
+                                      tolerance, rc.Z_TOLERANCE, named)
+    for key in side.on_line:
+        copies[key] = key
+    for k, t in named.items():
+        result.by_name.append((rc.panel_name(side.tower1[k][1]), rc.panel_name(
+            side.pool[t][1] if t in side.pool else _get(doc, t))))
+    result.already = len([k for k in side.tower1 if k in copies])
+    elements = dict((k, e) for k, (_, e) in side.tower1.items())
+    if missing:
+        del _ERRORS[:]
+        t = _transaction(doc, "Mirror Tower: %s" % side.level.Name)
+        t.Start()
+        try:
+            new_ids = _mirror(doc, missing, elements, _plane(p1, p2), result)
+            doc.Regenerate()
+            new = {}
+            for i in new_ids:
+                e = doc.GetElement(i)
+                if isinstance(e, FamilyInstance):
+                    item = rc._item(e)
+                    if item is not None:
+                        new[item.key] = (item, e)
+            lost = [side.tower1[k][0] for k in missing]
+            made = plan.match(placing.moved(lost, placement), [i for i, _ in new.values()],
+                              tolerance, 0.0, rc.Z_TOLERANCE)
+            for k, n in made.items():
+                e = new[n][1]
+                if is_board(e):
+                    old = rc.panel_name(elements[k])
+                    want = geometry.swap_name(old, swap[0], swap[1]) if swap else None
+                    p = e.get_Parameter(BuiltInParameter.RBS_ELEC_PANEL_NAME)
+                    if want and p is not None and not p.IsReadOnly:
+                        p.Set(want)
+                        result.renamed.append((old, want))
+                    else:
+                        result.not_renamed.append(old)
+            t.Commit()
+        except Exception:
+            if t.HasStarted() and not t.HasEnded():
+                t.RollBack()
+            raise
+        for e in _ERRORS:
+            if e not in result.errors:
+                result.errors.append(e)
+        refused = set(id_int(i) for i in result.refused)
+        for k, n in made.items():
+            e = _get(doc, n)
+            if e is None or not e.IsValidObject:
+                if k not in refused:            # Revit took it back on commit
+                    result.refused.append(elements[k].Id)
+                continue
+            copies[k] = n
+            side.pool[n] = (new[n][0], e)
+            result.mirrored.append(e.Id)
+        for k in missing:
+            if k not in made and id_int(elements[k].Id) not in refused:
+                result.refused.append(elements[k].Id)
+    side.copies = copies
+    return result
+
+
+# ---------------------------------------------------------------- pass 2
+
+class _Target(object):
+    def __init__(self):
+        self.elements = {}
+
+
+def _board_at(doc, board, placement, tolerance):
+    """Key of the board of the same type (else family) at `board`'s mirrored
+    spot, about at its height, anywhere in the model; or None."""
+    mine = rc._item(board)
+    if mine is None:
+        return None
+    candidates = [i for i, _ in rc._equipment(
+        doc, set([mine.type_key]), set([mine.family_key]) if mine.family_key else set())]
+    x, y = placement.apply(mine.x, mine.y)
+    found = rc._at(candidates, mine, x, y, tolerance, mine.z, rc.STOREY / 2)
+    return found.key if found is not None else None
+
+
+def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
+    """Pass 2 on one floor: Tower 1's circuits made on Tower 2's copies,
+    and their wires drawn. Returns (copycircuits LevelResult, the source
+    read: Tower 1's circuits)."""
+    result = LevelResult(side.level.Name, u"mirrored")
+    tower1 = set(side.tower1)
+    only = tower1 | set(side.on_line)
+    source = rc.read_source(doc, side.level, only)
+    circuits = []
+    for c in source.circuits:
+        c.elements = [k for k in c.elements if k in only]
+        if any(k in tower1 for k in c.elements):
+            circuits.append(c)
+    source.circuits = circuits
+    copies = dict(side.copies)
+    target = _Target()
+    for key, t in copies.items():
+        found = side.pool.get(t) or side.on_line.get(t) or side.tower1.get(t)
+        e = found[1] if found is not None else _get(doc, t)
+        if e is not None:
+            target.elements[t] = e
+
+    boards, counts = {}, {}
+    for c in circuits:
+        if c.panel is not None:
+            boards[c.panel] = source.panels.get(c.panel)
+            counts[c.panel] = counts.get(c.panel, 0) + 1
+    names = dict((id_int(l.Id), l.Name) for l in rc.levels(doc))
+    for key in sorted(boards, key=lambda k: rc.panel_name(boards[k])):
+        board = boards[key]
+        name = rc.panel_name(board)
+        named = None
+        want = geometry.swap_name(name, swap[0], swap[1]) if swap and swap[0] else None
+        if key not in copies and want:
+            other = by_name.get(want.strip().upper())
+            named = id_int(other.Id) if other is not None else None
+        spot = None
+        if key not in copies and named is None:
+            spot = _board_at(doc, board, placement, tolerance)
+        t, how = pairing.board_for(key, copies, named, spot, side.named)
+        copies[key] = t
+        if t not in target.elements:
+            target.elements[t] = _get(doc, t)
+        on = None if key in side.tower1 or key in side.on_line else names.get(rc.level_key(board))
+        result.panels.append(plan.PanelMatch(name, how, rc.panel_name(target.elements[t]),
+                                             want, circuits=counts[key], where=u"mirrored",
+                                             level=on))
+    for c in circuits:
+        c.panel_here = True          # every board is in `copies` now
+    source.elements = dict((k, e) for k, e in source.elements.items()
+                           if k in only or k in boards)
+    for k, b in boards.items():
+        source.elements[k] = b
+
+    circuited = set()
+    for t, e in target.elements.items():
+        for system in rc._member_of(e):
+            circuited.add((t, rc._kind(system)))
+    result.found = len([k for k in tower1 if k in copies and not is_board(side.tower1[k][1])])
+    result.total = len([k for k in tower1 if not is_board(side.tower1[k][1])])
+
+    t = _transaction(doc, "Mirror Tower circuits: %s" % side.level.Name)
+    t.Start()
+    try:
+        jobs, result.skipped = plan.plan(circuits, copies, circuited)
+        rc._make(doc, source, target, jobs, result)
+        if wires_on:
+            for made in result.made:
+                for k in made.job.elements:
+                    circuited.add((k, made.job.circuit.kind))
+            wires = rc.Wires(doc, side.level)
+            skip = set(k for k in side.pool if k not in set(copies.values()))
+            rc.copy_wires(wires, copies, target.elements, side.level, tolerance, result,
+                          source, set(k for k, _ in circuited), placement, skip)
+        t.Commit()
+    except Exception:
+        if t.HasStarted() and not t.HasEnded():
+            t.RollBack()
+        raise
+    return result, source

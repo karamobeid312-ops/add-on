@@ -334,6 +334,17 @@ def circuit_settings(c, ink):
     settings_gear(c, ink, AMBER, glyph)
 
 
+def mirror_tower(c, ink):
+    c.fill([rect(3, 6, 12, 29)], ink)                    # Tower 1
+    stroke(c, rect(20, 6, 29, 29), 1.6, AMBER, closed=True)   # Tower 2, its mirror
+    for x, y in ((5.5, 9), (9.5, 9), (5.5, 15), (9.5, 15), (5.5, 21), (9.5, 21)):
+        c.fill([rect(x - 1, y - 1.2, x + 1, y + 1.2)], WHITE)
+    for x, y in ((22.5, 9), (26.5, 9), (22.5, 15), (26.5, 15), (22.5, 21), (26.5, 21)):
+        c.fill([rect(x - 1, y - 1.2, x + 1, y + 1.2)], AMBER)
+    for y in (3, 8, 13, 18, 23, 28):                     # mirror line
+        c.fill([rect(15.3, y, 16.7, y + 2.6)], GRAY)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -353,6 +364,7 @@ ICONS = [
     (TAB + "Model Check.panel/Settings.pushbutton", check_settings),
     (TAB + "Circuits.panel/Copy Circuits.pushbutton", copy_circuits),
     (TAB + "Circuits.panel/Settings.pushbutton", circuit_settings),
+    (TAB + "Circuits.panel/Mirror Tower.pushbutton", mirror_tower),
 ]
 
 
