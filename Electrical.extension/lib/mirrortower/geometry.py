@@ -126,3 +126,24 @@ def own_images(items, placement, tolerance):
         if math.hypot(x - i.x, y - i.y) <= tolerance:
             found.add(i.key)
     return found
+
+
+WALL_REACH = 1.0        # ft: a wall face this near the mirrored spot hosts the copy
+FACING = 0.9            # cosine: the face looks the way the copy faces
+
+
+def wall_faces(candidates, point, facing, reach=WALL_REACH, align=FACING):
+    """The candidate wall faces for a copy at `point` (x, y, z) facing
+    `facing` (x, y, z: its host face's normal, mirrored), nearest first:
+    [(distance from the face's plane, candidate)]. candidates: objects
+    with .origin and .normal (x, y, z tuples, normal of length 1)."""
+    found = []
+    for c in candidates:
+        n, o = c.normal, c.origin
+        if n[0] * facing[0] + n[1] * facing[1] + n[2] * facing[2] < align:
+            continue
+        d = (point[0] - o[0]) * n[0] + (point[1] - o[1]) * n[1] + (point[2] - o[2]) * n[2]
+        if abs(d) <= reach:
+            found.append((d, c))
+    found.sort(key=lambda p: abs(p[0]))
+    return found

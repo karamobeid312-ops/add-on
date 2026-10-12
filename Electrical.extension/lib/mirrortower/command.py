@@ -162,19 +162,26 @@ def _show_mirror(output, m):
         return
     text = "%s of Tower 1: %d already in Tower 2, %d mirrored now" % (
         _count(m.tower1, "element"), m.already, len(m.mirrored))
-    if m.refused:
-        text += ", %d not mirrored" % len(m.refused)
+    if m.refused or m.no_wall:
+        text += ", %d not mirrored" % (len(m.refused) + len(m.no_wall))
     output.print_md(text + ".")
     if m.mirrored:
         output.print_md(output.linkify(m.mirrored, "Select the %d new elements"
                                        % len(m.mirrored)))
+    if m.rehosted:
+        output.print_md("%s on walls placed again on Tower 2's walls (%d wall faces read "
+                        "there)." % (_count(m.rehosted, "element"), m.wall_faces))
+    if m.no_wall:
+        output.print_md("**No wall at their Tower 2 spot** (within 300 mm, facing the same "
+                        "way): %s, not placed. %d wall faces read there." % (
+                            output.linkify(m.no_wall, "select them in Tower 1"),
+                            m.wall_faces))
     if m.on_line:
         output.print_md("%s whose mirrored spot is themselves (on the mirror line), shared "
                         "by both towers, not mirrored."
                         % _count(m.on_line, "element"))
     if m.refused:
-        output.print_md("**Not mirrored** (Revit refused, often a fixture hosted on a "
-                        "linked wall or ceiling): %s. %s" % (
+        output.print_md("**Not mirrored** (Revit refused): %s. %s" % (
                             output.linkify(m.refused, "select them in Tower 1"),
                             "; ".join(m.errors[:3])))
     for old, new in m.renamed:

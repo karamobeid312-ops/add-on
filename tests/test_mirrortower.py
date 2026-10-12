@@ -140,3 +140,23 @@ def test_board_for():
     assert board_for(5, {}, None, 80) == (80, BY_SPOT)
     assert board_for(5, {}, None, 5) == (5, ITSELF)
     assert board_for(5, {}, None, None) == (5, FALLBACK)
+
+
+# ---------------------------------------------------------------- wall faces
+
+from mirrortower.geometry import wall_faces  # noqa: E402
+
+
+class _Face(object):
+    def __init__(self, name, origin, normal):
+        self.name, self.origin, self.normal = name, origin, normal
+
+
+def test_wall_faces_nearest_facing_the_same_way():
+    faces = [_Face("back of wall", (0, 0.66, 0), (0, 1, 0)),   # faces away from the room
+             _Face("room side", (0, 0, 0), (0, -1, 0)),
+             _Face("far wall", (0, -5, 0), (0, -1, 0)),
+             _Face("side wall", (0.2, 0, 0), (-1, 0, 0))]
+    found = wall_faces(faces, (3, -0.02, 1.0), (0, -1, 0))
+    assert [c.name for _, c in found] == ["room side"]
+    assert abs(found[0][0] - 0.02) < 1e-9
