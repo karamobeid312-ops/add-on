@@ -3,12 +3,12 @@
 
 Two passes over the chosen floors, in one undo:
 
-1. Elements. The electrical elements of Tower 1 (in its scope box, on
-   its side of the mirror line) are paired with Tower 2's (same family
-   type at the mirrored spot, or a board named like it with B1 -> B2).
-   Those Tower 2 has not got yet are mirrored with Revit's own Mirror
-   (ElementTransformUtils.MirrorElements: same types, same parameter
-   values, flipped); the mirrored boards are renamed (B1 -> B2).
+1. Elements. The electrical elements of Tower 1 (in its scope box) are
+   paired with Tower 2's (same family type at the mirrored spot, or a
+   board named like it with B1 -> B2). Those Tower 2 has not got yet are
+   mirrored with Revit's own Mirror (ElementTransformUtils.MirrorElements:
+   same types, same parameter values, flipped) and moved into Tower 2;
+   the mirrored boards are renamed (B1 -> B2).
 2. Circuits and wires. Each circuit of Tower 1 is made again on the
    copies, on Tower 2's board (copycircuits.plan / _make), with the
    source circuit's parameters, and its wires are drawn again mirrored
@@ -19,6 +19,8 @@ No parameter is created: only existing ones are read and set.
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 """
 from __future__ import division
+
+import math
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, CurveElement, ElementId, ElementTransformUtils,
@@ -151,20 +153,19 @@ class Side(object):
         self.named = set()          # Tower 1 boards whose copy was found by name
 
 
-def split(doc, level, all_levels, box, p1, p2, tolerance):
+def split(doc, level, all_levels, box, placement, tolerance):
     floor = rc.Floor(level, all_levels)
     side = Side(level, floor)
-    home = geometry.centre(box)
     everything = _electrical_on(doc, floor)
-    boxed = [item for item, _ in everything.values() if geometry.inside(box, item.x, item.y,
-                                                                         tolerance)]
-    kinds = geometry.where(boxed, p1, p2, tolerance, home)
+    boxed = [item for item, _ in everything.values()
+             if geometry.inside(box, item.x, item.y, tolerance)]
+    shared = geometry.own_images(boxed, placement, tolerance)
+    boxed = set(i.key for i in boxed)
     for key, pair in everything.items():
-        kind = kinds.get(key)
-        if kind == geometry.TOWER_1:
-            side.tower1[key] = pair
-        elif kind == geometry.ON_LINE:
+        if key in shared:
             side.on_line[key] = pair
+        elif key in boxed:
+            side.tower1[key] = pair
         else:
             side.pool[key] = pair
     return side
@@ -243,9 +244,11 @@ class MirrorResult(object):
         self.by_name = []           # (Tower 1 board, Tower 2 board found by name)
 
 
-def _plane(p1, p2):
-    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-    return Plane.CreateByNormalAndOrigin(XYZ(-dy, dx, 0).Normalize(), XYZ(p1[0], p1[1], 0))
+def _plane(placement, about):
+    """The mirror plane doing `placement` (through `about`) and the move after it."""
+    angle, (ax, ay), (dx, dy) = geometry.revit_steps(placement, about)
+    normal = XYZ(-math.sin(angle), math.cos(angle), 0)
+    return Plane.CreateByNormalAndOrigin(normal, XYZ(ax, ay, 0)), XYZ(dx, dy, 0)
 
 
 def _ids(keys, elements):
@@ -255,8 +258,10 @@ def _ids(keys, elements):
     return found
 
 
-def _mirror(doc, keys, elements, plane, result):
-    """Mirror copies of the elements. Returns the new ElementIds."""
+def _mirror(doc, keys, elements, placement, about, result):
+    """Mirror copies of the elements, moved where `placement` puts them.
+    Returns the new ElementIds."""
+    plane, move = _plane(placement, about)
     wanted = list(keys)
     keys = [k for k in wanted if ElementTransformUtils.CanMirrorElements(
         doc, _ids([k], elements))]
@@ -285,11 +290,17 @@ def _mirror(doc, keys, elements, plane, result):
                     if id_int(e.Id) not in before]
     for k in cant:
         result.refused.append(elements[k].Id)
+    if made and move.GetLength() > 1e-9:
+        ids = List[ElementId]()
+        for i in made:
+            ids.Add(i)
+        ElementTransformUtils.MoveElements(doc, ids, move)
     return made
 
 
-def mirror_floor(doc, side, placement, p1, p2, tolerance, swap, by_name):
-    """Pass 1 on one floor: the copies found or made (side.copies)."""
+def mirror_floor(doc, side, placement, about, tolerance, swap, by_name):
+    """Pass 1 on one floor: the copies found or made (side.copies). about:
+    Tower 1's centre in plan."""
     result = MirrorResult(side.level.Name)
     result.tower1 = len(side.tower1)
     result.on_line = len(side.on_line)
@@ -310,7 +321,7 @@ def mirror_floor(doc, side, placement, p1, p2, tolerance, swap, by_name):
         t = _transaction(doc, "Mirror Tower: %s" % side.level.Name)
         t.Start()
         try:
-            new_ids = _mirror(doc, missing, elements, _plane(p1, p2), result)
+            new_ids = _mirror(doc, missing, elements, placement, about, result)
             doc.Regenerate()
             new = {}
             for i in new_ids:

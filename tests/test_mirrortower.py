@@ -3,8 +3,7 @@ import math
 
 from copycircuits.plan import Item
 from mirrortower.geometry import (
-    ON_LINE, OTHER_SIDE, TOWER_1, centre, halfway_line, hull, inside, mirror_placement, side,
-    swap_name, where,
+    centre, from_points, hull, inside, mirror_placement, own_images, revit_steps, swap_name,
 )
 
 
@@ -40,21 +39,49 @@ def test_mirror_turns_directions():
 
 def test_same_points_give_no_line():
     assert mirror_placement((1, 1), (1, 1)) is None
-    assert halfway_line((2, 2), (2, 2)) is None
+    assert from_points((2, 2), (2, 2), (5, 5), (6, 6)) == (None, 0.0)
 
 
-def test_halfway_line_takes_one_centre_to_the_other():
-    a, b = (0, 0), (30, 10)
-    p1, p2 = halfway_line(a, b)
-    p = mirror_placement(p1, p2)
-    assert close(p.apply(*a), b)
-    assert close(p.apply(*b), a)
+def _mirror_then_move(placement, x, y, about=(12.0, -7.0)):
+    """What Revit does: mirror about the line through `about`, then move."""
+    angle, (ax, ay), (dx, dy) = revit_steps(placement, about)
+    line = mirror_placement((ax, ay), (ax + math.cos(angle), ay + math.sin(angle)))
+    mx, my = line.apply(x, y)
+    return mx + dx, my + dy
 
 
-def test_side_sign():
-    assert side((0, 0), (0, 1), -2, 5) > 0
-    assert side((0, 0), (0, 1), 3, 5) < 0
-    assert abs(side((0, 0), (0, 1), 3, 5) + 3) < 1e-9
+def test_diagonal_tower_from_two_point_pairs():
+    # Tower 2 is Tower 1 flipped left-right, then moved up and right (the
+    # user's site: no single mirror line does it)
+    def tower2(x, y):
+        return 200 - x + 30, y + 60
+    s1, s2 = (10, 5), (40, 12)
+    t1, t2 = tower2(*s1), tower2(*s2)
+    p, stretch = from_points(s1, s2, t1, t2)
+    assert abs(stretch) < 1e-9
+    for x, y in [(0, 0), (25, 18), (55, -3)]:
+        assert close(p.apply(x, y), tower2(x, y))
+        assert close(_mirror_then_move(p, x, y), tower2(x, y))
+    # facing directions flip left-right too
+    assert close(p.turn(1, 0), (-1, 0))
+    assert close(p.turn(0, 1), (0, 1))
+
+
+def test_revit_steps_for_a_plain_mirror():
+    p = mirror_placement((1, 1), (4, 3))
+    for x, y in [(0, 0), (7, -2), (3.5, 9)]:
+        assert close(_mirror_then_move(p, x, y), p.apply(x, y))
+
+
+def test_points_not_the_same_distance_apart():
+    _, stretch = from_points((0, 0), (10, 0), (100, 0), (88, 0))
+    assert abs(stretch - 2) < 1e-9
+
+
+def test_own_images_are_on_a_plain_mirror_line():
+    p = mirror_placement((0, 0), (0, 10))
+    items = [Item(1, "a", -5, 0), Item(2, "a", 0.01, 3), Item(3, "a", 4, 0)]
+    assert own_images(items, p, 0.16) == set([2])
 
 
 def test_hull_and_inside_rotated_box():
@@ -75,14 +102,6 @@ def test_swap_name():
     assert swap_name(u"DB-B1-B1", u"b1", u"B2") == u"DB-B2-B2"
     assert swap_name(u"DB-L4-01", u"B1", u"B2") is None
     assert swap_name(u"DB-B1", u"", u"B2") is None
-
-
-def test_where_by_side_of_line():
-    items = [Item(1, "a", -5, 0), Item(2, "a", 0.01, 3), Item(3, "a", 4, 0)]
-    found = where(items, (0, 0), (0, 10), 0.16, home=(-20, 5))
-    assert found == {1: TOWER_1, 2: ON_LINE, 3: OTHER_SIDE}
-    # the same with the line drawn the other way
-    assert where(items, (0, 10), (0, 0), 0.16, home=(-20, 5)) == found
 
 
 # ---------------------------------------------------------------- pairing

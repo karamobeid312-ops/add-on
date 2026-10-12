@@ -2,20 +2,26 @@
 """Plan geometry of Mirror Tower (no Revit needed).
 
 Tower 1 is the area of a scope box (any shape it has in plan: its corners'
-outline). Tower 2 is Tower 1 mirrored about a line in plan: a grid or line
-picked in Revit, two points, or the line halfway between Tower 1's and
-Tower 2's scope boxes. The mirror is a copycircuits Placement (mirrored,
-turned and shifted), so Copy Circuits' matching and wire drawing take it
-as they are.
+outline). Tower 2 is Tower 1 mirrored, and usually also shifted: towers
+that sit diagonally from each other are not the mirror of each other about
+any one line. The user shows where Tower 2 is with two points of Tower 1
+and the same two points of Tower 2 (two core corners), or, for a plain
+mirror, with a grid or line. Either way the result is a copycircuits
+Placement (mirrored, turned and shifted), so Copy Circuits' matching and
+wire drawing take it as they are.
 
-Elements of Tower 1 are those in the scope box on Tower 1's side of the
-line. Those on the line itself (a shared riser board in the core) are
-their own mirror: they are not mirrored, and feed both towers.
+In Revit it is done as a mirror about a line through Tower 1's centre at
+half the placement's angle, then a move (`revit_steps`).
+
+An element whose mirrored spot is itself (on the mirror line of a plain
+mirror: a shared riser board in the core) is not mirrored; it feeds both
+towers.
 """
 from __future__ import division
 
 import math
 
+from copycircuits import placement as placing
 from copycircuits.placement import Placement
 
 
@@ -31,21 +37,23 @@ def mirror_placement(p1, p2):
     return Placement(angle, True, p1[0] - x, p1[1] - y)
 
 
-def halfway_line(c1, c2):
-    """Two points of the line halfway between c1 and c2 (the mirror line
-    that takes one to the other), or None when they are the same point."""
-    dx, dy = c2[0] - c1[0], c2[1] - c1[1]
-    if math.hypot(dx, dy) < 1e-9:
-        return None
-    mx, my = (c1[0] + c2[0]) / 2, (c1[1] + c2[1]) / 2
-    return (mx, my), (mx - dy, my + dx)
+def from_points(s1, s2, t1, t2):
+    """The mirrored Placement taking Tower 1's points s1, s2 to Tower 2's
+    t1, t2 ((x, y) each), and how much longer t1-t2 is than s1-s2 (0 when
+    they are the same two points). None when s1 and s2 are the same point."""
+    a = math.hypot(s2[0] - s1[0], s2[1] - s1[1])
+    if a < 1e-9:
+        return None, 0.0
+    b = math.hypot(t2[0] - t1[0], t2[1] - t1[1])
+    return placing.from_pairs(s1, s2, t1, t2, True), b - a
 
 
-def side(p1, p2, x, y):
-    """Signed distance of (x, y) from the line p1-p2 (+ on its left)."""
-    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-    length = math.hypot(dx, dy)
-    return (dx * (y - p1[1]) - dy * (x - p1[0])) / length
+def revit_steps(placement, about):
+    """(angle of the mirror line, the line's point, (dx, dy) move after it)
+    doing `placement` in Revit. The line goes through `about` (Tower 1's
+    centre), so the mirrored copies stay near the model until moved."""
+    x, y = placement.apply(about[0], about[1])
+    return placement.angle / 2, about, (x - about[0], y - about[1])
 
 
 def hull(points):
@@ -110,17 +118,11 @@ def swap_name(name, old, new):
     return u"".join(out)
 
 
-ON_LINE = "line"        # on the mirror line: its own mirror, shared by both towers
-TOWER_1 = "tower1"
-OTHER_SIDE = "other"    # in the box but past the line: Tower 2's
-
-
-def where(items, p1, p2, tolerance, home):
-    """{key: ON_LINE / TOWER_1 / OTHER_SIDE} of plan.Items, by the side of
-    the line they are on. home: a point on Tower 1's side (its box centre)."""
-    sign = 1 if side(p1, p2, home[0], home[1]) >= 0 else -1
-    found = {}
+def own_images(items, placement, tolerance):
+    """Keys of the plan.Items whose mirrored spot is themselves."""
+    found = set()
     for i in items:
-        d = side(p1, p2, i.x, i.y) * sign
-        found[i.key] = ON_LINE if abs(d) <= tolerance else (TOWER_1 if d > 0 else OTHER_SIDE)
+        x, y = placement.apply(i.x, i.y)
+        if math.hypot(x - i.x, y - i.y) <= tolerance:
+            found.add(i.key)
     return found

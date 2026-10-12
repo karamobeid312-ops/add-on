@@ -15,10 +15,10 @@ TITLE = "Mirror Tower"
 MM_PER_FOOT = 304.8
 SECTION = "ElectricalMirrorTower"
 
-LINE_HERE = "Pick a grid or line in this model"
-LINE_LINK = "Pick a grid or line in a linked model"
-LINE_POINTS = "Click two points on the mirror line"
-LINE_BOXES = "Halfway between Tower 1's and Tower 2's scope boxes"
+BY_POINTS = "Click 2 points in Tower 1, then the same 2 points in Tower 2"
+LINE_HERE = "Plain mirror about a grid or line in this model"
+LINE_LINK = "Plain mirror about a grid or line in a linked model"
+STRETCH = 0.3 / 0.3048      # ft: the two pairs of points must be this near the same apart
 
 
 def _config():
@@ -67,42 +67,58 @@ def _pick_box(doc, title, last):
     return picked, dict(boxes)[picked]
 
 
-def _pick_line(doc, uidoc, box_outline):
-    """((x, y), (x, y)) on the mirror line, or None when cancelled."""
+def _point(uidoc, prompt):
+    p = uidoc.Selection.PickPoint(prompt)
+    return p.X, p.Y
+
+
+def _pick_placement(doc, uidoc):
+    """The Placement taking Tower 1 to Tower 2 (mirrored), or None."""
     how = forms.CommandSwitchWindow.show(
-        [LINE_HERE, LINE_LINK, LINE_POINTS, LINE_BOXES],
-        message="Mirror line between the towers:")
+        [BY_POINTS, LINE_HERE, LINE_LINK],
+        message="Where is Tower 2? (towers that sit diagonally: click points)")
     if not how:
         return None
     try:
+        if how == BY_POINTS:
+            forms.alert("Click 2 points of Tower 1 that are easy to find again, like two "
+                        "corners of the core. Then click the SAME 2 points in Tower 2 "
+                        "(its mirrored corners), in the same order.\n\nSnaps to the "
+                        "linked model work.", title=TITLE)
+            s1 = _point(uidoc, "Tower 1: first point (e.g. a core corner)")
+            s2 = _point(uidoc, "Tower 1: second point (e.g. the core corner across)")
+            t1 = _point(uidoc, "Tower 2: the same first point")
+            t2 = _point(uidoc, "Tower 2: the same second point")
+            placement, stretch = geometry.from_points(s1, s2, t1, t2)
+            if placement is None:
+                forms.alert("The two Tower 1 points are the same point. Run Mirror Tower "
+                            "again.", title=TITLE)
+                return None
+            if abs(stretch) > STRETCH:
+                forms.alert("The Tower 2 points are %.2f m %s apart than the Tower 1 points, "
+                            "so they are not the same two points. Run Mirror Tower again."
+                            % (abs(stretch) * 0.3048, "further" if stretch > 0 else "nearer"),
+                            title=TITLE)
+                return None
+            return placement
         if how == LINE_HERE:
             ref = uidoc.Selection.PickObject(ObjectType.Element, _LinesOnly(),
                                              "Pick the grid or line between the towers")
             ends = revit_mirror.line_ends(doc.GetElement(ref.ElementId))
-        elif how == LINE_LINK:
+        else:
             ref = uidoc.Selection.PickObject(ObjectType.LinkedElement,
                                              "Pick the grid or line between the towers "
                                              "in the linked model")
             link = doc.GetElement(ref.ElementId)
             linked = link.GetLinkDocument().GetElement(ref.LinkedElementId)
             ends = revit_mirror.line_ends(linked, link.GetTotalTransform())
-        elif how == LINE_POINTS:
-            a = uidoc.Selection.PickPoint("Click a point on the mirror line")
-            b = uidoc.Selection.PickPoint("Click a second point on the mirror line")
-            ends = (a.X, a.Y), (b.X, b.Y)
-        else:
-            _, box2 = _pick_box(doc, "%s: which scope box is Tower 2?" % TITLE, None)
-            if box2 is None:
-                return None
-            ends = geometry.halfway_line(geometry.centre(box_outline),
-                                         geometry.centre(revit_mirror.outline(box2)))
     except OperationCanceledException:
         return None
-    if ends is None or geometry.mirror_placement(*ends) is None:
+    placement = geometry.mirror_placement(*ends) if ends is not None else None
+    if placement is None:
         forms.alert("That is not a straight line (a grid or line with two ends). "
                     "Run Mirror Tower again and pick another.", title=TITLE)
-        return None
-    return ends
+    return placement
 
 
 def _pick_levels(doc, view):
@@ -153,7 +169,8 @@ def _show_mirror(output, m):
         output.print_md(output.linkify(m.mirrored, "Select the %d new elements"
                                        % len(m.mirrored)))
     if m.on_line:
-        output.print_md("%s on the mirror line, shared by both towers, not mirrored."
+        output.print_md("%s whose mirrored spot is themselves (on the mirror line), shared "
+                        "by both towers, not mirrored."
                         % _count(m.on_line, "element"))
     if m.refused:
         output.print_md("**Not mirrored** (Revit refused, often a fixture hosted on a "
@@ -182,16 +199,15 @@ def run():
     if len(box_outline) < 3:
         forms.alert("Could not read the outline of scope box %s." % box_name, title=TITLE)
         return
-    ends = _pick_line(doc, uidoc, box_outline)
-    if ends is None:
+    placement = _pick_placement(doc, uidoc)
+    if placement is None:
         return
     values = copy_settings.load()
     tolerance = values["tolerance"] / MM_PER_FOOT
-    c = geometry.centre(box_outline)
-    if abs(geometry.side(ends[0], ends[1], c[0], c[1])) <= tolerance:
-        forms.alert("The mirror line goes through the middle of scope box %s. Pick the line "
-                    "between the towers, with Tower 1's scope box on one side." % box_name,
-                    title=TITLE)
+    if geometry.inside(box_outline, *placement.apply(*geometry.centre(box_outline))):
+        forms.alert("That puts Tower 2 on top of Tower 1 (inside scope box %s). Run Mirror "
+                    "Tower again: the points or line should take Tower 1 to the other tower."
+                    % box_name, title=TITLE)
         return
     targets = _pick_levels(doc, doc.ActiveView)
     if not targets:
@@ -200,23 +216,23 @@ def run():
     if swap is None:
         return
     _remember({"scope_box": box_name, "swap_from": swap[0] or "", "swap_to": swap[1] or ""})
-    placement = geometry.mirror_placement(*ends)
     all_levels = rc.levels(doc)
 
     mirrored, circuits = [], []
     group = TransactionGroup(doc, TITLE)
     group.Start()
     try:
-        sides = [revit_mirror.split(doc, level, all_levels, box_outline, ends[0], ends[1],
+        sides = [revit_mirror.split(doc, level, all_levels, box_outline, placement,
                                     tolerance) for level in targets]
         if not any(s.tower1 for s in sides):
             group.RollBack()
-            forms.alert("No electrical elements found in scope box %s on Tower 1's side of "
-                        "the line, on the floors picked." % box_name, title=TITLE)
+            forms.alert("No electrical elements found in scope box %s on the floors "
+                        "picked." % box_name, title=TITLE)
             return
         by_name = revit_mirror.boards_by_name(doc)
         for side in sides:
-            mirrored.append(revit_mirror.mirror_floor(doc, side, placement, ends[0], ends[1],
+            mirrored.append(revit_mirror.mirror_floor(doc, side, placement,
+                                                      geometry.centre(box_outline),
                                                       tolerance, swap, by_name))
         by_name = revit_mirror.boards_by_name(doc)       # with the boards just made
         for side in sides:
@@ -235,7 +251,7 @@ def run():
     output = script.get_output()
     output.set_title(TITLE)
     output.print_md("# Tower 1 (%s) mirrored" % box_name)
-    output.print_md("Elements in scope box %s on Tower 1's side of the mirror line; a copy "
+    output.print_md("Elements in scope box %s, mirrored and moved to Tower 2; a copy "
                     "already in Tower 2 is the same family type at the mirrored spot "
                     "(within %s mm) or, for a board, named with %s." % (
                         box_name, ("%.1f" % values["tolerance"]).rstrip("0").rstrip("."),
