@@ -240,24 +240,35 @@ WALL_CATEGORIES = ("OST_Walls", "OST_Columns", "OST_StructuralColumns")
 CELL = 10.0                 # ft, plan grid of the wall face index
 
 
+def _facing_out(element):
+    """(x, y, z) the element faces out of its host: its work plane normal for
+    a face-based family, else its facing. None when not known."""
+    try:
+        kind = element.Symbol.Family.FamilyPlacementType
+        v = element.GetTotalTransform().BasisZ if kind == FamilyPlacementType.WorkPlaneBased \
+            else element.FacingOrientation
+        return v.X, v.Y, v.Z
+    except Exception:
+        return None
+
+
 def on_wall(element):
-    """The element sits on a wall: a face-based family on a vertical face,
-    or a wall-hosted family. Revit's Mirror + Move cannot carry these to
-    Tower 2 (a move off the wall's plane is dropped), so they are placed
-    again on Tower 2's wall (_rehost)."""
+    """The element sits on a wall: a face-based family on a vertical face
+    (wall here or in a link), or a wall-hosted family. Revit's Mirror +
+    Move cannot carry these to Tower 2 (a move off the wall's plane is
+    dropped), so they are placed again on Tower 2's wall (_rehost)."""
     try:
         kind = element.Symbol.Family.FamilyPlacementType
     except Exception:
         return False
+    host = getattr(element, "Host", None)
+    if isinstance(host, Wall):
+        return True
     if kind == FamilyPlacementType.WorkPlaneBased:
         try:
-            if element.HostFace is None:
-                return False
             return abs(element.GetTotalTransform().BasisZ.Z) < 0.3
         except Exception:
             return False
-    if kind == FamilyPlacementType.OneLevelBasedHosted:
-        return isinstance(getattr(element, "Host", None), Wall)
     return False
 
 
@@ -342,10 +353,17 @@ class WallIndex(object):
         for i in (-1, 0, 1):
             for j in (-1, 0, 1):
                 candidates.extend(self.cells.get((cell[0] + i, cell[1] + j), ()))
-        for d, face in geometry.wall_faces(set(candidates), (point.X, point.Y, point.Z), facing):
+        found = geometry.wall_faces(set(candidates), (point.X, point.Y, point.Z), facing)
+        spots = []
+        for d, face in found:
             n = face.normal
             on = XYZ(point.X - d * n[0], point.Y - d * n[1], point.Z - d * n[2])
             if face.contains(on):
+                return face, on
+            spots.append((face, on))
+        for face, on in spots:       # just off the face (at its edge, an opening...)
+            b = face.box
+            if b[0] - 0.5 <= on.X <= b[2] + 0.5 and b[1] - 0.5 <= on.Y <= b[3] + 0.5:
                 return face, on
         return None, None
 
@@ -367,6 +385,29 @@ def _vertical_faces(element, options):
                     yield face
 
 
+def _walls_for(doc, keys, side, placement):
+    """The wall faces around the Tower 2 spots of these Tower 1 elements."""
+    spots = [placement.apply(side.tower1[k][0].x, side.tower1[k][0].y) for k in keys]
+    pad = 5.0
+    extent = (min(x for x, _ in spots) - pad, min(y for _, y in spots) - pad,
+              max(x for x, _ in spots) + pad, max(y for _, y in spots) + pad)
+    floor = side.floor
+    return WallIndex(doc, extent, floor.low,
+                     floor.high if floor.high is not None else floor.low + 30.0)
+
+
+def _label(element):
+    try:
+        return u"%s : %s" % (element.Symbol.Family.Name, element.Name)
+    except Exception:
+        return u"(unknown type)"
+
+
+def _why(result, element, reason):
+    key = (_label(element), reason)
+    result.why[key] = result.why.get(key, 0) + 1
+
+
 def _rehost(doc, keys, elements, placement, walls, level, result):
     """Place the wall elements again on Tower 2's walls, at their mirrored
     spot. Returns {Tower 1 key: new element}."""
@@ -376,16 +417,17 @@ def _rehost(doc, keys, elements, placement, walls, level, result):
         try:
             t = e.GetTotalTransform()
             p = e.Location.Point
-            if e.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased:
-                normal = t.BasisZ
-            else:
-                normal = e.FacingOrientation
-            fx, fy = placement.turn(normal.X, normal.Y)
+            normal = _facing_out(e)
+            if normal is None:
+                result.no_wall.append(e.Id)
+                continue
+            fx, fy = placement.turn(normal[0], normal[1])
             hx, hy = placement.turn(t.BasisX.X, t.BasisX.Y)
             x, y = placement.apply(p.X, p.Y)
-            face, on = walls.find(XYZ(x, y, p.Z), (fx, fy, normal.Z))
+            face, on = walls.find(XYZ(x, y, p.Z), (fx, fy, normal[2]))
             if face is None:
                 result.no_wall.append(e.Id)
+                _why(result, e, u"no wall face at its Tower 2 spot")
                 continue
             symbol = e.Symbol
             if not symbol.IsActive:
@@ -396,7 +438,8 @@ def _rehost(doc, keys, elements, placement, walls, level, result):
                 new = doc.Create.NewFamilyInstance(on, symbol, face.element, level,
                                                    StructuralType.NonStructural)
             else:
-                result.no_wall.append(e.Id)     # wall-hosted family, wall in a link
+                result.no_wall.append(e.Id)
+                _why(result, e, u"wall-hosted family, and Tower 2's wall is in a link")
                 continue
             rc.copy_parameters(e, new)
             made[k] = new
@@ -427,6 +470,8 @@ class MirrorResult(object):
         self.rehosted = 0           # of the mirrored, placed again on Tower 2's walls
         self.no_wall = []           # Tower 1 element ids with no wall at their Tower 2 spot
         self.wall_faces = 0         # wall faces read around Tower 2
+        self.why = {}               # (family : type, why not placed) -> count
+        self.moved_off = 0          # mirrored but not where they should be: removed
 
 
 def _plane(placement, about):
@@ -507,16 +552,9 @@ def mirror_floor(doc, side, placement, about, tolerance, swap, by_name):
         t.Start()
         try:
             walled = [k for k in missing if on_wall(elements[k])]
-            rehosted = {}
+            rehosted, walls = {}, None
             if walled:
-                spots = [placement.apply(side.tower1[k][0].x, side.tower1[k][0].y)
-                         for k in walled]
-                pad = 5.0
-                extent = (min(x for x, _ in spots) - pad, min(y for _, y in spots) - pad,
-                          max(x for x, _ in spots) + pad, max(y for _, y in spots) + pad)
-                floor = side.floor
-                walls = WallIndex(doc, extent, floor.low,
-                                  floor.high if floor.high is not None else floor.low + 30.0)
+                walls = _walls_for(doc, walled, side, placement)
                 result.wall_faces = walls.faces
                 rehosted = _rehost(doc, walled, elements, placement, walls, side.level,
                                    result)
@@ -526,13 +564,29 @@ def mirror_floor(doc, side, placement, about, tolerance, swap, by_name):
             new = {}
             for i in new_ids:
                 e = doc.GetElement(i)
-                if isinstance(e, FamilyInstance):
+                if isinstance(e, FamilyInstance) and getattr(e, "SuperComponent", None) is None:
                     item = rc._item(e)
                     if item is not None:
                         new[item.key] = (item, e)
             lost = [side.tower1[k][0] for k in rest]
             made = plan.match(placing.moved(lost, placement), [i for i, _ in new.values()],
                               tolerance, 0.0, rc.Z_TOLERANCE)
+            # copies that did not land where they should (Revit kept them on their
+            # host's plane): removed, and placed again on Tower 2's wall
+            stray = [n for n in new if n not in set(made.values())]
+            if stray:
+                result.moved_off = len(stray)
+                for n in stray:
+                    doc.Delete(new.pop(n)[1].Id)
+                again = [k for k in rest if k not in made and _facing_out(elements[k])
+                         is not None and abs(_facing_out(elements[k])[2]) < 0.3]
+                if again:
+                    if walls is None:
+                        walls = _walls_for(doc, again, side, placement)
+                        result.wall_faces = walls.faces
+                    rehosted.update(_rehost(doc, again, elements, placement, walls,
+                                            side.level, result))
+                    doc.Regenerate()
             for k, e in rehosted.items():
                 item = rc._item(e)
                 if item is not None:

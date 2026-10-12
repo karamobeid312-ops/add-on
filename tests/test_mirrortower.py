@@ -158,5 +158,7 @@ def test_wall_faces_nearest_facing_the_same_way():
              _Face("far wall", (0, -5, 0), (0, -1, 0)),
              _Face("side wall", (0.2, 0, 0), (-1, 0, 0))]
     found = wall_faces(faces, (3, -0.02, 1.0), (0, -1, 0))
-    assert [c.name for _, c in found] == ["room side"]
+    # nearest plane first; the wall's back face counts (normals into the wall)
+    # but is further; walls across its facing and out of reach do not
+    assert [c.name for _, c in found] == ["room side", "back of wall"]
     assert abs(found[0][0] - 0.02) < 1e-9

@@ -171,11 +171,19 @@ def _show_mirror(output, m):
     if m.rehosted:
         output.print_md("%s on walls placed again on Tower 2's walls (%d wall faces read "
                         "there)." % (_count(m.rehosted, "element"), m.wall_faces))
+    if m.moved_off:
+        output.print_md("%s mirrored but kept off their Tower 2 spot by Revit (still on "
+                        "their Tower 1 host's plane): removed, and placed again on Tower 2's "
+                        "walls where one is found." % _count(m.moved_off, "copy", "copies"))
     if m.no_wall:
         output.print_md("**No wall at their Tower 2 spot** (within 300 mm, facing the same "
                         "way): %s, not placed. %d wall faces read there." % (
                             output.linkify(m.no_wall, "select them in Tower 1"),
                             m.wall_faces))
+    if m.why:
+        output.print_table(
+            table_data=[[label, why, n] for (label, why), n in sorted(m.why.items())],
+            columns=["Family : type", "Not placed because", "Count"])
     if m.on_line:
         output.print_md("%s whose mirrored spot is themselves (on the mirror line), shared "
                         "by both towers, not mirrored."

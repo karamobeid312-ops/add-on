@@ -135,13 +135,15 @@ FACING = 0.9            # cosine: the face looks the way the copy faces
 def wall_faces(candidates, point, facing, reach=WALL_REACH, align=FACING):
     """The candidate wall faces for a copy at `point` (x, y, z) facing
     `facing` (x, y, z: its host face's normal, mirrored), nearest first:
-    [(distance from the face's plane, candidate)]. candidates: objects
-    with .origin and .normal (x, y, z tuples, normal of length 1)."""
+    [(distance from the face's plane, candidate)]. A face looking the
+    other way counts too (a family whose normal goes into the wall); the
+    nearest plane is the face it is on. candidates: objects with .origin
+    and .normal (x, y, z tuples, normal of length 1)."""
     found = []
     for c in candidates:
         n, o = c.normal, c.origin
-        if n[0] * facing[0] + n[1] * facing[1] + n[2] * facing[2] < align:
-            continue
+        if abs(n[0] * facing[0] + n[1] * facing[1] + n[2] * facing[2]) < align:
+            continue                # a wall across the copy's facing
         d = (point[0] - o[0]) * n[0] + (point[1] - o[1]) * n[1] + (point[2] - o[2]) * n[2]
         if abs(d) <= reach:
             found.append((d, c))
