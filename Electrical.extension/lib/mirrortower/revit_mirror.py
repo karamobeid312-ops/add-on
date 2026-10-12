@@ -44,6 +44,7 @@ except Exception:                       # pragma: no cover
         return []
 
 id_int = rc.id_int
+_INVALID_ID = id_int(ElementId.InvalidElementId)
 
 CATEGORIES = ("OST_LightingFixtures", "OST_LightingDevices", "OST_ElectricalFixtures",
               "OST_ElectricalEquipment", "OST_FireAlarmDevices", "OST_DataDevices",
@@ -695,6 +696,43 @@ def _board_at(doc, board, placement, tolerance):
     return found.key if found is not None else None
 
 
+_DIST = getattr(BuiltInParameter, "RBS_FAMILY_CONTENT_DISTRIBUTION_SYSTEM", None)
+
+
+def _system_name(board):
+    """Name of the board's distribution system, or u"none"."""
+    try:
+        sid = board.get_Parameter(_DIST).AsElementId()
+        e = board.Document.GetElement(sid)
+        return e.Name if e is not None else u"none"
+    except Exception:
+        return u"none"
+
+
+def _match_board(source, board):
+    """Give Tower 2's board Tower 1's electrical settings: its distribution
+    system first (a circuit goes on a board only when they match: "The panel
+    and circuit do not match"), then its other writable values but the name.
+    Returns (board name, system set) when the system changed, else None."""
+    changed = None
+    try:
+        src = source.get_Parameter(_DIST)
+        dst = board.get_Parameter(_DIST)
+        if src is not None and dst is not None and not dst.IsReadOnly and \
+                id_int(src.AsElementId()) != _INVALID_ID and \
+                id_int(src.AsElementId()) != id_int(dst.AsElementId()):
+            dst.Set(src.AsElementId())
+            changed = (rc.panel_name(board), _system_name(source))
+    except Exception:
+        pass
+    keep = _own_name(board)
+    rc.copy_parameters(source, board)
+    p = board.get_Parameter(BuiltInParameter.RBS_ELEC_PANEL_NAME)
+    if p is not None and not p.IsReadOnly and keep and p.AsString() != keep:
+        p.Set(keep)
+    return changed
+
+
 def _onto_boards(doc, circuits, copies, target, source, result):
     """Tower 2 circuits left on no board (an earlier run, when the board
     copy had no name): put on the board of the Tower 1 circuit they copy,
@@ -729,7 +767,11 @@ def _onto_boards(doc, circuits, copies, target, source, result):
                 rc.copy_parameters(source.systems[c.key], system)
                 result.onto_boards.append(system.Id)
             except Exception as error:
-                result.onto_failed.append((c.label, rc._message(error)))
+                result.onto_failed.append((c.label, u"%s (circuit board %s: %s; Tower 2 "
+                                           u"board %s: %s)" % (
+                                               rc._message(error),
+                                               c.panel_name, _system_name(source.panels[c.panel]),
+                                               rc.panel_name(board), _system_name(board))))
 
 
 def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
@@ -760,6 +802,7 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
             boards[c.panel] = source.panels.get(c.panel)
             counts[c.panel] = counts.get(c.panel, 0) + 1
     names = dict((id_int(l.Id), l.Name) for l in rc.levels(doc))
+    pairs = []                      # (Tower 1 board, its Tower 2 board)
     for key in sorted(boards, key=lambda k: rc.panel_name(boards[k])):
         board = boards[key]
         name = rc.panel_name(board)
@@ -775,6 +818,8 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
         copies[key] = t
         if t not in target.elements:
             target.elements[t] = _get(doc, t)
+        if t != key and target.elements[t] is not None:
+            pairs.append((board, target.elements[t]))
         on = None if key in side.tower1 or key in side.on_line else names.get(rc.level_key(board))
         result.panels.append(plan.PanelMatch(name, how, rc.panel_name(target.elements[t]),
                                              want, circuits=counts[key], where=u"mirrored",
@@ -796,9 +841,20 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
     t = _transaction(doc, "Mirror Tower circuits: %s" % side.level.Name)
     t.Start()
     try:
+        result.boards_set = [_match_board(a, b) for a, b in pairs]
+        result.boards_set = [x for x in result.boards_set if x]
+        doc.Regenerate()
         _onto_boards(doc, circuits, copies, target, source, result)
         jobs, result.skipped = plan.plan(circuits, copies, circuited)
         rc._make(doc, source, target, jobs, result)
+        for made in result.made:
+            if made.panel_error and made.job.panel is not None:
+                c = made.job.circuit
+                made.panel_error = u"%s (Tower 1 board %s: %s; Tower 2 board %s: %s)" % (
+                    made.panel_error, c.panel_name,
+                    _system_name(source.panels.get(c.panel)),
+                    rc.panel_name(target.elements.get(made.job.panel)),
+                    _system_name(target.elements.get(made.job.panel)))
         if wires_on:
             for made in result.made:
                 for k in made.job.elements:

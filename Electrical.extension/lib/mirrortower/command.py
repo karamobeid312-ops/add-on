@@ -276,6 +276,8 @@ def run():
     for result, source in circuits:
         output.print_md("---")
         _show(output, result, source)
+        for name, system in getattr(result, "boards_set", []):
+            output.print_md("- Board %s given Tower 1's distribution system, %s." % (name, system))
         if result.onto_boards:
             output.print_md("%s already in Tower 2 but on no board, now put on their board: "
                             "%s" % (_count(len(result.onto_boards), "circuit"),
