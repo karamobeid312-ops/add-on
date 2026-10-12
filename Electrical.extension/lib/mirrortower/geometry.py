@@ -1,0 +1,180 @@
+# -*- coding: utf-8 -*-
+"""Plan geometry of Mirror Tower (no Revit needed).
+
+Tower 1 is the area of a scope box (any shape it has in plan: its corners'
+outline). Tower 2 is Tower 1 mirrored, and usually also shifted: towers
+that sit diagonally from each other are not the mirror of each other about
+any one line. The user shows where Tower 2 is with two points of Tower 1
+and the same two points of Tower 2 (two core corners), or, for a plain
+mirror, with a grid or line. Either way the result is a copycircuits
+Placement (mirrored, turned and shifted), so Copy Circuits' matching and
+wire drawing take it as they are.
+
+In Revit it is done as a mirror about a line through Tower 1's centre at
+half the placement's angle, then a move (`revit_steps`).
+
+An element whose mirrored spot is itself (on the mirror line of a plain
+mirror: a shared riser board in the core) is not mirrored; it feeds both
+towers.
+"""
+from __future__ import division
+
+import math
+import re
+
+from copycircuits import placement as placing
+from copycircuits.placement import Placement
+
+
+def mirror_placement(p1, p2):
+    """The Placement mirroring plan points about the line through p1 and p2
+    ((x, y) each). None when the points are the same."""
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    if math.hypot(dx, dy) < 1e-9:
+        return None
+    angle = 2 * math.atan2(dy, dx)      # reflection = turn(2 * line angle) after a Y flip
+    p = Placement(angle, True)
+    x, y = p.apply(p1[0], p1[1])
+    return Placement(angle, True, p1[0] - x, p1[1] - y)
+
+
+def from_points(s1, s2, t1, t2):
+    """The mirrored Placement taking Tower 1's points s1, s2 to Tower 2's
+    t1, t2 ((x, y) each), and how much longer t1-t2 is than s1-s2 (0 when
+    they are the same two points). None when s1 and s2 are the same point."""
+    a = math.hypot(s2[0] - s1[0], s2[1] - s1[1])
+    if a < 1e-9:
+        return None, 0.0
+    b = math.hypot(t2[0] - t1[0], t2[1] - t1[1])
+    return placing.from_pairs(s1, s2, t1, t2, True), b - a
+
+
+def revit_steps(placement, about):
+    """(angle of the mirror line, the line's point, (dx, dy) move after it)
+    doing `placement` in Revit. The line goes through `about` (Tower 1's
+    centre), so the mirrored copies stay near the model until moved."""
+    x, y = placement.apply(about[0], about[1])
+    return placement.angle / 2, about, (x - about[0], y - about[1])
+
+
+def hull(points):
+    """Convex outline (counter-clockwise) of plan points (x, y)."""
+    pts = sorted(set((round(x, 6), round(y, 6)) for x, y in points))
+    if len(pts) < 3:
+        return pts
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower, upper = [], []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
+
+
+def inside(outline, x, y, pad=0.0):
+    """(x, y) is in the convex outline, or within `pad` of it."""
+    if len(outline) < 3:
+        return False
+    n = len(outline)
+    for i in range(n):
+        a, b = outline[i], outline[(i + 1) % n]
+        ex, ey = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(ex, ey)
+        if length < 1e-12:
+            continue
+        if (ex * (y - a[1]) - ey * (x - a[0])) / length < -pad:
+            return False
+    return True
+
+
+def centre(outline):
+    xs = [p[0] for p in outline]
+    ys = [p[1] for p in outline]
+    return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+
+
+_SEPARATORS = u"[-/_. ]?"
+
+
+def _respell(found, new):
+    """`new` written like `found`: B/1 with B2 -> B/2 (same letters and
+    digits count), else `new` as it is."""
+    slots = [i for i, ch in enumerate(found) if ch.isalnum()]
+    letters = [ch for ch in new if ch.isalnum()]
+    if len(slots) != len(letters) or len(letters) != len(new):
+        return new
+    out = list(found)
+    for i, ch in zip(slots, letters):
+        out[i] = ch
+    return u"".join(out)
+
+
+def swap_name(name, old, new):
+    """`name` with `old` replaced by `new` (case does not matter), or None
+    when `old` is empty or not in it. When `old` is not in it as typed, it
+    is looked for with a separator between its letters and digits too
+    (B1 finds B/1, B-1, B_1, B 1 standing apart: not the B-1 of LDB-1), and
+    the new text keeps that separator (CBS-B/1-F1 -> CBS-B/2-F1)."""
+    if not old or not name:
+        return None
+    low, find = name.lower(), old.lower()
+    at = low.find(find)
+    if at < 0:
+        chars = [ch for ch in old if ch.isalnum()]
+        if not chars:
+            return None
+        pattern = u"(?<![A-Za-z0-9])" + _SEPARATORS.join(re.escape(ch) for ch in chars) + \
+            u"(?![0-9])"
+        found = re.search(pattern, name, re.IGNORECASE)
+        if found is None:
+            return None
+        return re.sub(pattern, lambda m: _respell(m.group(0), new), name,
+                      flags=re.IGNORECASE)
+    out, start = [], 0
+    while at >= 0:
+        out.append(name[start:at])
+        out.append(new)
+        start = at + len(old)
+        at = low.find(find, start)
+    out.append(name[start:])
+    return u"".join(out)
+
+
+def own_images(items, placement, tolerance):
+    """Keys of the plan.Items whose mirrored spot is themselves."""
+    found = set()
+    for i in items:
+        x, y = placement.apply(i.x, i.y)
+        if math.hypot(x - i.x, y - i.y) <= tolerance:
+            found.add(i.key)
+    return found
+
+
+WALL_REACH = 1.0        # ft: a wall face this near the mirrored spot hosts the copy
+FACING = 0.9            # cosine: the face looks the way the copy faces
+
+
+def wall_faces(candidates, point, facing, reach=WALL_REACH, align=FACING):
+    """The candidate wall faces for a copy at `point` (x, y, z) facing
+    `facing` (x, y, z: its host face's normal, mirrored), nearest first:
+    [(distance from the face's plane, candidate)]. A face looking the
+    other way counts too (a family whose normal goes into the wall); the
+    nearest plane is the face it is on. candidates: objects with .origin
+    and .normal (x, y, z tuples, normal of length 1)."""
+    found = []
+    for c in candidates:
+        n, o = c.normal, c.origin
+        if abs(n[0] * facing[0] + n[1] * facing[1] + n[2] * facing[2]) < align:
+            continue                # a wall across the copy's facing
+        d = (point[0] - o[0]) * n[0] + (point[1] - o[1]) * n[1] + (point[2] - o[2]) * n[2]
+        if abs(d) <= reach:
+            found.append((d, c))
+    found.sort(key=lambda p: abs(p[0]))
+    return found
