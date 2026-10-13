@@ -21,7 +21,8 @@ import time
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, FamilyInstance, FamilySymbol, FilteredElementCollector,
-    GeometryInstance, ImportInstance, Options, PlanarFace, Solid, Transaction, Transform, XYZ,
+    Curve, GeometryInstance, ImportInstance, Options, PlanarFace, Point, PolyLine, Solid,
+    Transaction, Transform, XYZ,
 )
 
 from cadlights.match import MM_PER_FOOT, Block, Result, clean_name, normal_angle, split_spots
@@ -123,6 +124,37 @@ def _layer(doc, geometry):
         return ""
 
 
+def _points(geometry, transform, out, depth=0):
+    """Collect the points of a block's drawing (lines, arcs, polylines,
+    nested blocks) into `out`, in the coordinates `transform` maps to."""
+    for obj in geometry:
+        try:
+            if isinstance(obj, GeometryInstance):
+                if depth < 3:
+                    _points(obj.GetSymbolGeometry(), transform.Multiply(obj.Transform), out,
+                            depth + 1)
+            elif isinstance(obj, PolyLine):
+                out.extend(transform.OfPoint(p) for p in obj.GetCoordinates())
+            elif isinstance(obj, Curve):
+                out.extend(transform.OfPoint(p) for p in obj.Tessellate())
+            elif isinstance(obj, Point):
+                out.append(transform.OfPoint(obj.Coord))
+        except Exception:
+            pass
+
+
+def _centre(item, t):
+    """Middle (in plan) of a block insert's drawing, or None when it has
+    none. A block's insertion point can be far from what it draws."""
+    pts = []
+    _points(item.GetSymbolGeometry(), t, pts)
+    if not pts:
+        return None
+    xs = [p.X for p in pts]
+    ys = [p.Y for p in pts]
+    return (min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0
+
+
 def _inserts(doc, cad, view):
     options = Options()
     if view is not None:
@@ -143,7 +175,9 @@ def _inserts(doc, cad, view):
             layer = _layer(doc, item)
             raw = _block_name(doc, item)
             name = clean_name(raw) if raw else u"(block on layer %s)" % (layer or "?")
-            found.append(Block(name, t.Origin.X, t.Origin.Y, normal_angle(angle), layer))
+            centre = _centre(item, t)
+            x, y = centre if centre is not None else (t.Origin.X, t.Origin.Y)
+            found.append(Block(name, x, y, normal_angle(angle), layer))
     return found
 
 
