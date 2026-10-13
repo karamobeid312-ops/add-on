@@ -1,6 +1,7 @@
 layout:
   - SLD
   - Fire Alarm
+  - Lighting
   - Voltage Drop
   - Dimensions
   - Model Check

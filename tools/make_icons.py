@@ -314,6 +314,17 @@ def check_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def cad_lights(c, ink):
+    stroke(c, [(3, 26), (3, 4), (25, 4)], 1.4, GRAY)          # CAD sheet edges
+    for x, y in ((9, 10), (19, 10), (9, 20)):                 # light blocks
+        c.fill([rect(x - 3.2, y - 3.2, x + 3.2, y + 3.2)], AMBER)
+        stroke(c, [(x - 3.2, y - 3.2), (x + 3.2, y + 3.2)], 0.9, ink)
+        stroke(c, [(x + 3.2, y - 3.2), (x - 3.2, y + 3.2)], 0.9, ink)
+    badge(c, BLUE)
+    stroke(c, [(20.5, 24), (27.5, 24)], 1.8, WHITE)           # arrow into Revit
+    stroke(c, [(24.5, 21), (27.5, 24), (24.5, 27)], 1.8, WHITE)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -324,6 +335,7 @@ ICONS = [
     (TAB + "Fire Alarm.panel/Address Devices.pushbutton", address_devices),
     (TAB + "Fire Alarm.panel/FA Riser.pushbutton", fa_riser),
     (TAB + "Fire Alarm.panel/Settings.pushbutton", fa_settings),
+    (TAB + "Lighting.panel/CAD Lights.pushbutton", cad_lights),
     (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
     (TAB + "Voltage Drop.panel/VD Report.pushbutton", vd_report),
     (TAB + "Voltage Drop.panel/Settings.pushbutton", vd_settings),
