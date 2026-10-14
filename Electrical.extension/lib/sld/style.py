@@ -8,20 +8,21 @@ look of every generated diagram.
 """
 
 # ---------------------------------------------------------------- text sizes
-TEXT_FLOOR_LABEL = 4.0      # ROOF FLOOR, GROUND FLOOR ...
+TEXT_FLOOR_LABEL = 2.5      # ROOF FLOOR, GROUND FLOOR ...
 TEXT_BOARD_NAME = 2.5       # SMDB-RF-01
-TEXT_BOARD_INFO = 1.5       # FORM 2b, 18 WAYS / LOCATION / @ FLOOR
-TEXT_MAIN_NAME = 5.0        # MDB-1
-TEXT_MAIN_INFO = 2.5        # FORM4-TYPE6 / LOCATION:LV ROOM
+TEXT_BOARD_INFO = 1.2       # FORM 2b, 18 WAYS / LOCATION / @ FLOOR
+TEXT_MAIN_NAME = 3.0        # MDB-1
+TEXT_MAIN_INFO = 1.5        # FORM4-TYPE6 / LOCATION:LV ROOM
 TEXT_WAY = 1.2              # way numbers and breaker ratings (40AT/100AF/MCCB)
-TEXT_LOAD = 1.8             # load / DB names, SPARE
+TEXT_LOAD = 1.8             # load / DB names
+TEXT_SPARE = 1.2            # SPARE, the size of the cable text (office SLD)
 TEXT_RATING = 1.2           # breaker rating and cable along a way
 TEXT_DB_LOAD = 1.2          # CL / DL beside a DB box
-TEXT_LOAD_TABLE = 1.5       # connected / demand load table in a board
-TEXT_SMALL = 1.5            # labels inside the main board (ACB, SPD...)
-TEXT_TRANSFORMER_NAME = 3.5
-TEXT_TRANSFORMER_INFO = 2.0
-TEXT_CABLE = 2.0            # incoming / MV cable labels
+TEXT_LOAD_TABLE = 1.2       # connected / demand load table in a board
+TEXT_SMALL = 1.2            # labels inside the main board (ACB, SPD...)
+TEXT_TRANSFORMER_NAME = 2.5
+TEXT_TRANSFORMER_INFO = 1.5
+TEXT_CABLE = 1.5            # incoming / MV cable labels
 TEXT_FONT = "Arial"
 
 # Text height is the capital letter height (as Revit's Text Size); widths

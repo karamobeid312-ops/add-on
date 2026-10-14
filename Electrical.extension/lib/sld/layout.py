@@ -163,7 +163,7 @@ class BoardGeom(object):
                 h = max(h, style.TERMINAL_BASE + style.ISOLATOR_HEIGHT + style.ISOLATOR_HOOK +
                         0.8 + symbols.vertical_length(w.name, style.TEXT_LOAD))
             elif w.kind == SPARE:
-                h = max(h, style.SPARE_HEIGHT + 0.8 + symbols.vertical_length("SPARE", style.TEXT_LOAD))
+                h = max(h, style.SPARE_HEIGHT + 0.8 + symbols.vertical_length("SPARE", style.TEXT_SPARE))
             elif w.kind == TO_UPS:
                 h = max(h, style.UPS_ABOVE_BOARD + style.UPS_HEIGHT + 4.0,
                         style.UPS_ABOVE_BOARD + 3.4 * style.PT_TRANSFORMER_RADIUS + 4.0,

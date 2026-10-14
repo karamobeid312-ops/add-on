@@ -106,8 +106,8 @@ def isolator(d, x, y0, name):
 
 def spare(d, x, y_end):
     y_text = y_end + 0.8
-    vertical_text(d, x, y_text, "SPARE", style.TEXT_LOAD, center=True)
-    return y_text + vertical_length("SPARE", style.TEXT_LOAD)
+    vertical_text(d, x, y_text, "SPARE", style.TEXT_SPARE, center=True)
+    return y_text + vertical_length("SPARE", style.TEXT_SPARE)
 
 
 def pfc(d, x, y0):
