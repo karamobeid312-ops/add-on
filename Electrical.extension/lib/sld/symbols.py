@@ -270,8 +270,8 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
     d.arc(xi, bus_y - 12.0, 1.0, HALF_PI, 3 * HALF_PI)
     y_lower = bus_y - 15.8
     chevrons(d, xi, y_lower, up=False)
-    breaker_label(d, xi + 2.5, y_lower + 0.4 + 0.5 * small * style.LINE_SPACING,
-                  (device or "").split("\n"), small)
+    # rating beside the ACB body, clear of the busbar fuse text below it
+    breaker_label(d, xi + 2.5, bus_y - 11.5, (device or "").split("\n"), small)
     # busbar mounted fuse feeding the indicator lamps
     y_fuse = bus_y - 21.0
     d.line(xi, y_lower, xi, y_fuse + 1.1)
