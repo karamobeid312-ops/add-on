@@ -747,9 +747,14 @@ def render(doc, drawing, view_name=VIEW_NAME, new_view=False):
     return view
 
 
-def generate(doc, settings=None, numbering="slots", new_view=False):
-    """Build and draw the schematic. Returns (view or None, schematic)."""
+def generate(doc, settings=None, numbering="slots", new_view=False, spares=None):
+    """Build and draw the schematic. Returns (view or None, schematic).
+    spares: {board name: (count, rating)} kept by Power Studio, used where
+    the panel has no SLD Spares value."""
     equipment, circuits, phases_of, warnings = extract(doc)
+    if spares:
+        from sld.settings import apply_spares
+        apply_spares(equipment, spares)
     schematic = build_schematic(equipment, circuits, phases_of, numbering)
     schematic.warnings = warnings + schematic.warnings
     if schematic.is_empty():

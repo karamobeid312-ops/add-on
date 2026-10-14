@@ -138,3 +138,17 @@ def test_balance_settings_read_as_numbers():
                                              "new_view": True})
     assert sld["balance_warn"] == 12.5 and sld["balance_bad"] == 20.0 and sld["new_view"] is True
     assert len(errors) == 1
+
+
+def test_stored_spares_reach_the_sld_of_a_main_board():
+    from sld.model import CircuitInfo, EquipmentInfo, SPARE, build_schematic
+    equipment = [EquipmentInfo("MDB", "MDB-01"),
+                 EquipmentInfo("SMDB", "SMDB-01", spares="2")]
+    circuits = [CircuitInfo("c1", "MDB", "1", rating="40 A", poles="3", start_slot=1,
+                            fed_equipment_ids=["SMDB"])]
+    sld_settings.apply_spares(equipment, {"MDB-01": ("3", "40AT/100AF MCCB"),
+                                          "SMDB-01": ("5", "")})
+    assert equipment[0].spares == "3" and equipment[1].spares == "2"   # the panel's own value wins
+    mdb = build_schematic(equipment, circuits).roots[0]
+    assert sum(1 for w in mdb.ways if w.kind == SPARE) == 3
+    assert sld_settings._spares_key("C:\\Jobs\\Al Yasat.rvt") == "spares_C_Jobs_Al_Yasat_rvt"

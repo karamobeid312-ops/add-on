@@ -8,12 +8,17 @@ from pyrevit import forms, revit
 from sld import settings
 
 
+def _project(doc):
+    return doc.PathName or doc.Title
+
+
 def _editor(doc, values):
     from sld.editor import Editor
     from sld.model import build_schematic
     from sld.revit_sld import extract
     live = {}
     equipment, circuits, phases_of, warnings = extract(doc, live)
+    settings.apply_spares(equipment, settings.load_spares(_project(doc)))
     schematic = build_schematic(equipment, circuits, phases_of, values["numbering"])
     schematic.warnings = warnings + schematic.warnings
     return Editor(schematic, live or None, values["numbering"])
@@ -25,6 +30,17 @@ def _save(doc, editor):
     from vdrop import revit_vd
     changes = editor.changes()
     lines = []
+    spares = [c for c in changes if c.kind == "spares"]
+    if spares:
+        # kept here too: most models have no SLD Spares parameter to hold them
+        stored = settings.load_spares(_project(doc))
+        for c in spares:
+            stored[editor.board(c.element_id).name] = (c.values["count"], c.values["rating"])
+        try:
+            settings.save_spares(_project(doc), stored)
+            lines.append("Spare ways kept for the SLD (drawn only, the Revit panels are not changed).")
+        except Exception as error:
+            lines.append("Spares not kept: %s" % error)
     if changes:
         written, skipped, _ = revit_edit.save(doc, changes)
         editor.mark_saved()
@@ -138,7 +154,8 @@ def run():
 
     from sld.revit_sld import generate
     view, schematic = generate(doc, settings.layout_settings(sld_values),
-                               sld_values["numbering"], bool(sld_values.get("new_view")))
+                               sld_values["numbering"], bool(sld_values.get("new_view")),
+                               spares=settings.load_spares(_project(doc)))
     if view is None:
         forms.alert("No electrical equipment was found in this model.", exitscript=True)
     revit.uidoc.ActiveView = view

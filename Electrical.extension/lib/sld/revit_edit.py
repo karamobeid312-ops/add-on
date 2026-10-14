@@ -103,11 +103,13 @@ class _Writer(object):
     def element(self, unique_id):
         return self.doc.GetElement(unique_id) if unique_id else None
 
-    def write(self, element, name, value, what):
+    def write(self, element, name, value, what, quiet=False):
         p = _param(element, name)
         if _set(p, value):
             self.written += 1
             return True
+        if quiet and p is None:
+            return False
         reason = "not in the model" if p is None else "read-only"
         self.skipped.append(u"%s: %s %s" % (what, name, reason))
         return False
@@ -266,8 +268,10 @@ def _apply(w, change):
         w.write(panel, "Fed_By", v["text"], what)
 
     elif change.kind == "spares":
-        w.write(panel, "SLD Spares", v["count"], what)
-        w.write(panel, "SLD Spare Rating", v["rating"] or "", what)
+        # spares are drawn only: without these parameters Power Studio keeps
+        # them itself (sld.settings spares store), so a missing one is no error
+        w.write(panel, "SLD Spares", v["count"], what, quiet=True)
+        w.write(panel, "SLD Spare Rating", v["rating"] or "", what, quiet=True)
 
 
 def save(doc, changes):

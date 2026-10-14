@@ -44,3 +44,39 @@ def layout_settings(values):
     return LayoutSettings(utility=values["utility"],
                           substation_label=values["substation_label"],
                           show_ratings=values["show_ratings"])
+
+
+# ---------------------------------------------------------------- spares
+# Spare ways typed in Power Studio, per project, for models without the
+# 'SLD Spares' / 'SLD Spare Rating' parameters (no parameter is ever added).
+
+def _spares_key(project):
+    import re
+    return "spares_" + (re.sub(r"[^A-Za-z0-9]+", "_", project or "").strip("_") or "model")
+
+
+def load_spares(project):
+    """{board name: (spare count text, spare rating text)}"""
+    import json
+    try:
+        text = _config().get_option(_spares_key(project), "")
+        data = json.loads(text) if text else {}
+        return dict((k, tuple(v)) for k, v in data.items())
+    except Exception:
+        return {}
+
+
+def save_spares(project, spares):
+    import json
+    from pyrevit import script
+    cfg = _config()
+    setattr(cfg, _spares_key(project), json.dumps(spares, ensure_ascii=True, sort_keys=True))
+    script.save_config()
+
+
+def apply_spares(equipment, spares):
+    """Put stored spares on boards whose panel has no SLD Spares value."""
+    for e in equipment:
+        stored = spares.get(e.name)
+        if stored and e.spares in (None, ""):
+            e.spares, e.spare_rating = stored[0], stored[1] or e.spare_rating
