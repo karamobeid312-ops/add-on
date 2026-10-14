@@ -152,6 +152,11 @@ class BoardGeom(object):
         """Height of everything drawn above the box top."""
         h = style.SPARE_HEIGHT + 8.0
         for w in self.board.ways:
+            text = _rating_text(w)
+            if text:
+                # cable text on a riser must end below the next floor line
+                h = max(h, style.RATING_START + style.RATING_CLEAR +
+                        symbols.vertical_length(text, style.TEXT_RATING) * style.FLOOR_LABEL_SLACK)
             if w.kind == DB_BOX:
                 h = max(h, style.TERMINAL_BASE + symbols.db_box_height(w.name, w.loads()))
             elif w.kind == ISOLATOR:
@@ -581,6 +586,15 @@ _RATING_ROOM = {
 }
 
 
+def _rating_text(w):
+    """Breaker rating and cable text along a way, wrapped to its room."""
+    lines = w.rating_lines()
+    if not lines:
+        return ""
+    room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
+    return wrap("\n".join(lines), style.TEXT_RATING, room)
+
+
 def _draw_way_end(d, g, w, x, settings):
     t = g.top
     if w in g.remote_ways:
@@ -605,10 +619,8 @@ def _draw_way_end(d, g, w, x, settings):
     # FEEDER: the riser is drawn by _draw_feed.
 
     if settings.show_ratings:
-        lines = w.rating_lines()
-        if lines:
-            room = _RATING_ROOM.get(w.kind, style.TERMINAL_BASE) - style.RATING_START - 1.5
-            text = wrap("\n".join(lines), style.TEXT_RATING, room)
+        text = _rating_text(w)
+        if text:
             # Reading up, centred on the way line (the office position): the
             # first line (cable size) left of it, the rest (earth, L, V.D)
             # right of it. A single line goes on the right.

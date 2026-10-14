@@ -285,3 +285,25 @@ def test_unconnected_boards_on_their_floor_and_only_mdb_from_utility():
     assert "LIGHTS" not in texts                      # nothing inside a DB is drawn
     assert "DB-SF-01" in texts
     assert overlaps(lay.drawing) == []
+
+
+def test_feeder_cable_text_ends_below_the_next_floor_line():
+    """A main board with only a feeder way: its cable text stays under the
+    floor line of the board it feeds (user screenshot, MDB-01 -> SMDB-01)."""
+    from sld import style
+    from sld.model import CircuitInfo, EquipmentInfo
+    equipment = [EquipmentInfo("MDB", "MDB-01", "Substation", -1.0),
+                 EquipmentInfo("SMDB", "SMDB-01", "Ground Floor Level", 0.0)]
+    circuits = [CircuitInfo("c1", "MDB", "1,3,5", rating="40 A", poles="3", start_slot=1,
+                            wire_size="(4X10)mm² CU/XLPE/SWA/PVC +(1X10)mm² CU/PVC(E)",
+                            fed_equipment_ids=["SMDB"])]
+    lay = layout_schematic(build_schematic(equipment, circuits))
+    g = dict((x.name, x) for x in lay.geoms.values())
+    mdb = g["MDB-01"]
+    floor_y = min(y for _, y in lay.bands if y > mdb.top)
+    x = mdb.way_x(mdb.board.ways[0])
+    ups = [text_box(t)[3] for t in lay.drawing.texts
+           if t.rotation and abs(t.x - x) < 1.0 and mdb.top < t.y < floor_y]
+    assert ups
+    for top in ups:
+        assert mdb.top + (top - mdb.top) * style.FLOOR_LABEL_SLACK < floor_y

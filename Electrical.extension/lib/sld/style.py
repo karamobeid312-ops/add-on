@@ -113,6 +113,7 @@ PFC_SIZE = 5.0
 PFC_ABOVE_BOARD = 22.0      # board top -> bottom vertex of the PFC symbol
 PFC_LABEL = "POWER FACTOR\nCORRECTION"
 RATING_START = 2.0          # board top -> start of rating/cable text
+RATING_CLEAR = 3.0          # end of rating/cable text -> next row's floor line
 
 # ---------------------------------------------------------------- load table
 LOAD_TABLE_ROWS = ("CONNECTED LOAD", "DIVERSITY FACTOR", "DEMAND LOAD")
