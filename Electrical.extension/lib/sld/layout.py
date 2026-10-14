@@ -287,11 +287,13 @@ def layout_schematic(schematic, settings=None):
     for band, y in sorted(floor_ys.items()):
         label = settings.substation_label if band == SUBSTATION_BAND else band_names[band]
         bands.append((label, y))
-        d.dashed_line(x0 - style.FLOOR_MARGIN, x1 + style.FLOOR_MARGIN, y,
-                      style.FLOOR_DASH, style.FLOOR_GAP)
+    # floor labels sit left of every board, so no board or cable text is drawn over them
+    widest = max([text_width(label, style.TEXT_FLOOR_LABEL) for label, _ in bands if label] or [0])
+    label_x = min(x0 - style.FLOOR_MARGIN, x0 - style.FLOOR_LABEL_GAP - widest * style.FLOOR_LABEL_SLACK)
+    for label, y in bands:
+        d.dashed_line(label_x, x1 + style.FLOOR_MARGIN, y, style.FLOOR_DASH, style.FLOOR_GAP)
         if label:
-            d.text(x0 - style.FLOOR_MARGIN, y + 1.5, label, style.TEXT_FLOOR_LABEL,
-                   align=LEFT, valign=BOTTOM)
+            d.text(label_x, y + 1.5, label, style.TEXT_FLOOR_LABEL, align=LEFT, valign=BOTTOM)
     return Layout(d, geoms, bands, feeds)
 
 

@@ -35,6 +35,8 @@ TEXT_BORDER_OFFSET = 0.3
 FLOOR_DASH = 15.0
 FLOOR_GAP = 5.0
 FLOOR_MARGIN = 15.0         # dashed line overhang left/right of the diagram
+FLOOR_LABEL_GAP = 5.0       # floor label end -> leftmost board or text
+FLOOR_LABEL_SLACK = 1.2     # Revit text runs wider than the estimate
 SUBSTATION_LABEL = "SUBSTATION"
 
 # ---------------------------------------------------------------- boards
