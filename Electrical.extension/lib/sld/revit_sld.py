@@ -423,7 +423,8 @@ def _vd_results(doc, live=None):
         result = calc.calculate(model.feeders, calc_settings)
         if live is not None:
             live.update(feeders=model.feeders, settings=calc_settings,
-                        kinds=dict((k, e.kind) for k, e in model.equipment.items()))
+                        kinds=dict((k, e.kind) for k, e in model.equipment.items()),
+                        elements=model.elements)
     except Exception as error:
         return {}, {}, {}, u"Lengths and voltage drops not read: %s" % error
 

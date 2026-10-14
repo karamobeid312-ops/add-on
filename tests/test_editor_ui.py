@@ -47,3 +47,37 @@ def test_small_helpers():
     assert ui.spare_count("", 1) == "1"
     assert ui.warnings_text([]) == ""
     assert "(+1 more)" in ui.warnings_text(["a", "b", "c"])
+
+
+def test_themed_window_resolves_every_resource():
+    text = ui.themed_xaml()
+    assert "__ACCENT" not in text and "<!--THEME-->" not in text
+    root = ET.fromstring(text.encode("utf-8"))
+    names = set(el.get(X + "Name") for el in root.iter() if el.get(X + "Name"))
+    assert set(ui.NAMES) <= names
+    keys = set(el.get(X + "Key") for el in root.iter() if el.get(X + "Key"))
+    for key in re.findall(r"\{StaticResource ([^}{]+)\}", text):
+        assert key in keys, key
+    for key in re.findall(r"\{DynamicResource ([^}]+)\}", text):
+        assert key in keys or key.startswith("ch_"), key
+    # the theme's own brushes for the status chips and dots
+    assert {"OkBrush", "WarnBrush", "BadBrush", "NoneBrush", "AccentBrush"} <= keys
+
+
+def test_vd_grid_columns():
+    from sld import studio
+    text = ui.window_xaml()
+    assert "\nVDCOLUMNS\n" not in text and "\nCOLUMNS\n" not in text
+    assert text.count('CellTemplate="{StaticResource StatusChip}"') == 1
+    assert text.count('CellTemplate="{StaticResource VdChip}"') == 1
+    assert all(('Binding="{Binding %s}"' % f) in text
+               for f, _, _ in studio.VD_COLUMNS if f != "status")
+
+
+def test_way_state_and_overall_state():
+    editor = small()
+    lights = editor.ways("SMDB-1")[0]
+    assert ui.row_values(lights)["vd_state"] == "ok"
+    editor.set_way(lights.key, "length", "900")
+    assert lights.vd_over and ui.row_values(lights)["vd_state"] == "bad"
+    assert ui.overall_state(editor) == "bad"

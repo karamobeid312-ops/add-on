@@ -1,24 +1,27 @@
 # -*- coding: utf-8 -*-
-"""The LV Schematic Editor window (WPF).
+"""The Power Studio window (WPF): boards and ways, the voltage drop of
+every cable, and the settings, in the Electrical tab's shared look (ui).
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines: the XAML is
 loaded with XamlReader (pyrevit.forms.WPFWindow is IronPython only), events
-are wired here, and the grid shows a System.Data.DataTable of text columns
+are wired here, and the grids show System.Data.DataTables of text columns
 (WPF cannot bind to Python objects under CPython). The data and rules live
-in sld/editor.py; this module only shows them.
+in sld/editor.py and sld/studio.py; this module only shows them.
 """
 from __future__ import division
 
 import os
 
+import elecui as ui
 from sld import editor as ed
+from sld import studio
 
 XAML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor.xaml")
-TITLE = "LV Schematic Editor"
-NUMBERING = (("slots", "Ways numbered in order (1, 2, R9, Y9, B9)"),
-             ("revit", "Revit circuit numbers"))
+TITLE = "Power Studio"
+ACCENT = "power"
+NUMBERING = studio.NUMBERING
 
-# grid columns: (data column, header, width, kind) kind: ro / combo / text
+# ways grid: (data column, header, width, kind) kind: ro / combo / text / vd
 COLUMNS = (
     ("label", "Way", 45, "ro"), ("feeds", "Feeds", 170, "ro"),
     ("at", "AT", 60, "combo"), ("af", "AF", 60, "combo"), ("device", "Type", 70, "combo"),
@@ -26,34 +29,41 @@ COLUMNS = (
     ("cores", "Cores", 50, "combo"), ("size", u"Size mm²", 70, "combo"),
     ("material", "Cu/Al", 55, "combo"), ("insulation", "Insulation", 75, "combo"),
     ("armour", "Armour", 65, "combo"), ("earth", u"Earth mm²", 75, "combo"),
-    ("length", "Length m", 70, "text"), ("vd", "V.D %", 60, "vd"),
+    ("length", "Length m", 70, "text"), ("vd", "V.D %", 75, "vd"),
 )
-HIDDEN = ("key",)
+HIDDEN = ("key", "vd_state")
 FLAGS = ("vd_over", "locked", "sized")
 BOARD_CONTROLS = (("IncomerAT", "incomer_at"), ("IncomerAF", "incomer_af"),
                   ("IncomerDevice", "incomer_device"), ("FaultLevel", "fault_level"),
                   ("WaysCount", "ways"), ("SpareCount", "spares"), ("SpareAT", "spare_at"),
                   ("SpareAF", "spare_af"), ("SpareDevice", "spare_device"),
                   ("FedBy", "fed_by"))
-NAMES = ("BoardsTree", "BoardTitle", "WaysGrid", "PreviewText", "WarningsText", "SaveButton",
-         "AutoSizeButton",
-         "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare", "SetUtility",
-         "SetSubstation", "SetShowRatings", "SetNumbering") + tuple(n for n, _ in BOARD_CONTROLS)
+NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
+         "BoardsTree", "BoardTitle", "BoardChip", "BoardChipText", "BoardWays",
+         "KpiConnected", "KpiDemand", "KpiIncomer", "KpiVd",
+         "WaysGrid", "PreviewText", "WarningsText", "SaveButton", "AutoSizeButton",
+         "ReportButton", "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare",
+         "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
+         "VdWorstWhere", "VdFixes", "VdProblemsOnly", "VdSearch", "VdGrid",
+         "SldSettingsPanel", "VdSettingsPanel", "ApplySettings", "SettingsNote") + \
+    tuple(n for n, _ in BOARD_CONTROLS)
+STATE_TEXT = {studio.OK: u"OK", studio.WARN: u"Check", studio.BAD: u"Problem"}
 
 
 def column_xaml(field, header, width, kind):
-    """XAML of one grid column; combos are editable (free text allowed)."""
+    """XAML of one ways grid column; combos are editable (free text allowed)."""
     header = header.replace(u"²", "&#178;")
-    if kind in ("ro", "vd", "text"):
-        extra = ' IsReadOnly="True"' if kind != "text" else ""
-        if kind == "vd":
-            extra += ' CellStyle="{StaticResource VdCell}"'
+    if kind == "vd":
+        return ('<DataGridTemplateColumn IsReadOnly="True" Header="%s" Width="%d" '
+                'CellTemplate="{StaticResource VdChip}"/>' % (header, width))
+    if kind in ("ro", "text"):
+        extra = ' IsReadOnly="True"' if kind == "ro" else ""
         return ('<DataGridTextColumn Header="%s" Width="%d" Binding="{Binding %s}"%s/>'
                 % (header, width, field, extra))
     return (
         '<DataGridTemplateColumn Header="%(h)s" Width="%(w)d">'
         '<DataGridTemplateColumn.CellTemplate><DataTemplate>'
-        '<TextBlock Text="{Binding %(f)s}" Padding="2,0"/>'
+        '<TextBlock Text="{Binding %(f)s}" Padding="2,0" VerticalAlignment="Center"/>'
         '</DataTemplate></DataGridTemplateColumn.CellTemplate>'
         '<DataGridTemplateColumn.CellEditingTemplate><DataTemplate>'
         '<ComboBox Style="{StaticResource EditCombo}" ItemsSource="{DynamicResource ch_%(f)s}" '
@@ -62,17 +72,35 @@ def column_xaml(field, header, width, kind):
         '</DataGridTemplateColumn>' % {"h": header, "w": width, "f": field})
 
 
+def vd_column_xaml(field, header, width):
+    """XAML of one voltage drop grid column (the result is a chip)."""
+    if field == "status":
+        return ('<DataGridTemplateColumn IsReadOnly="True" Header="%s" Width="%d" '
+                'CellTemplate="{StaticResource StatusChip}" SortMemberPath="status"/>'
+                % (header, width))
+    return ('<DataGridTextColumn Header="%s" Width="%d" Binding="{Binding %s}"/>'
+            % (header, width, field))
+
+
 def window_xaml():
+    """The window's XAML with its columns, before the theme goes in."""
     with open(XAML_FILE, "rb") as f:
         text = f.read().decode("utf-8")
     columns = "\n".join(column_xaml(*c) for c in COLUMNS)
-    return text.replace("\nCOLUMNS\n", "\n" + columns + "\n", 1)
+    vd_columns = "\n".join(vd_column_xaml(*c) for c in studio.VD_COLUMNS)
+    text = text.replace("\nCOLUMNS\n", "\n" + columns + "\n", 1)
+    return text.replace("\nVDCOLUMNS\n", "\n" + vd_columns + "\n", 1)
+
+
+def themed_xaml():
+    """What XamlReader loads: the window with the shared theme in amber."""
+    return ui.window_xaml(window_xaml(), ACCENT)
 
 
 def row_values(way):
-    """{data column: text} for a grid row."""
+    """{data column: text} for a ways grid row."""
     values = {"key": way.key, "label": way.label, "feeds": way.feeds, "poles": way.poles,
-              "vd": way.vd}
+              "vd": way.vd, "vd_state": studio.way_state(way)}
     for field in ed.FIELDS:
         values[field] = way.values.get(field, "")
     return values
@@ -87,10 +115,20 @@ def row_flags(way):
 def warnings_text(warnings, limit=2):
     if not warnings:
         return u""
-    text = u"⚠ " + u"   ⚠ ".join(warnings[:limit])
+    text = u"   ·   ".join(warnings[:limit])
     if len(warnings) > limit:
         text += u"   (+%d more)" % (len(warnings) - limit)
     return text
+
+
+def overall_state(editor):
+    """Colour of the footer dot: red, amber or green."""
+    states = [studio.board_state(editor, b.id) for b in editor.boards]
+    if studio.BAD in states:
+        return studio.BAD
+    if studio.WARN in states or editor.warnings():
+        return studio.WARN
+    return studio.OK
 
 
 def auto_size_message(changed, messages):
@@ -114,82 +152,136 @@ def spare_count(text, step):
     return str(max(n + step, 0))
 
 
+def _same(a, b):
+    if a is b:
+        return True
+    try:
+        return a is not None and a.Equals(b)
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------- window
 
 class EditorWindow(object):
     """Plain controller around the XamlReader window (no .NET subclass, so
-    nothing to register under CPython)."""
+    nothing to register under CPython).
 
-    def __init__(self, editor, settings_values, on_save):
-        import clr
-        for name in ("PresentationFramework", "PresentationCore", "WindowsBase",
-                     "System.Xaml", "System.Data", "System.Data.Common"):
-            try:
-                clr.AddReference(name)
-            except Exception:
-                pass
-        from System.Windows.Markup import XamlReader
+    actions: dict of callbacks from sld.command:
+      save(editor) -> message           write the changes to Revit
+      settings(sld values, vd values)   keep the settings
+      report(editor, path) -> message   save the V.D report (Excel + PDF)
+      report_name -> default file name of the report
+    """
+
+    def __init__(self, editor, sld_values, vd_values, actions, model_text=u""):
         self.editor = editor
-        self.settings = dict(settings_values)
-        self.on_save = on_save
+        self.sld_values = dict(sld_values)
+        self.vd_values = dict(vd_values)
+        self.actions = actions
         self.action = "close"
         self.current = None
         self.table = None
         self.rows = {}
+        self.tree_items, self.tree_dots = {}, {}
+        self.setting_controls = {}
         self._busy = False
-        self.win = XamlReader.Parse(window_xaml())
+        self._vd_stale = True
+        self.win = ui.load_window(window_xaml(), ACCENT)
         for name in NAMES:
             setattr(self, name, self.win.FindName(name))
-        self._set_owner()
+        self.ModelText.Text = model_text
         self._fill_choices()
         self._fill_settings()
         self._fill_tree()
         self._wire()
-        self._show_warnings()
+        self._show_states()
+        self._fill_vd()
 
     # ------------------------------------------------------------ setup
 
-    def _set_owner(self):
-        try:
-            from pyrevit import HOST_APP
-            from System.Windows.Interop import WindowInteropHelper
-            WindowInteropHelper(self.win).Owner = HOST_APP.proc_window
-        except Exception:
-            pass
-
-    def _strings(self, values):
-        from System import String
-        from System.Collections.Generic import List
-        out = List[String]()
-        for v in values:
-            out.Add(u"%s" % v)
-        return out
-
     def _fill_choices(self):
         for key, values in ed.CHOICES.items():
-            self.win.Resources["ch_%s" % key] = self._strings(values)
-        self.win.Resources["ch_fed_by"] = self._strings(self.editor.board_names())
+            self.win.Resources["ch_%s" % key] = ui.strings(values)
+        self.win.Resources["ch_fed_by"] = ui.strings(self.editor.board_names())
+
+    def _setting_row(self, key, label, unit, kind, value):
+        from System.Windows import (GridLength, HorizontalAlignment, TextWrapping, Thickness,
+                                    VerticalAlignment)
+        from System.Windows.Controls import (CheckBox, ColumnDefinition, ComboBox, Grid,
+                                             TextBlock, TextBox)
+        row = Grid()
+        row.Margin = Thickness(0, 3, 0, 3)
+        first, second = ColumnDefinition(), ColumnDefinition()
+        first.Width = GridLength(300)
+        row.ColumnDefinitions.Add(first)
+        row.ColumnDefinitions.Add(second)
+        if kind == "check":
+            control = CheckBox()
+            control.Content = label
+            control.IsChecked = bool(value)
+            Grid.SetColumnSpan(control, 2)
+            row.Children.Add(control)
+            return row, control
+        text = TextBlock()
+        text.Text = label + (u" (%s)" % unit if unit else u"")
+        text.TextWrapping = TextWrapping.Wrap
+        text.VerticalAlignment = VerticalAlignment.Center
+        text.Foreground = ui.brush(self.win, "MutedBrush")
+        text.Margin = Thickness(0, 0, 10, 0)
+        row.Children.Add(text)
+        if kind == "choice":
+            control = ComboBox()
+            for _, shown in studio.choices(key):
+                control.Items.Add(shown)
+            control.SelectedItem = studio.shown(key, value)
+        else:
+            control = TextBox()
+            control.Text = studio.shown(key, value)
+            if kind == "number":
+                control.Width = 90
+                control.HorizontalAlignment = HorizontalAlignment.Left
+        Grid.SetColumn(control, 1)
+        row.Children.Add(control)
+        return row, control
 
     def _fill_settings(self):
-        s = self.settings
-        self.SetUtility.Text = s.get("utility", "")
-        self.SetSubstation.Text = s.get("substation_label", "")
-        self.SetShowRatings.IsChecked = bool(s.get("show_ratings", True))
-        for _, label in NUMBERING:
-            self.SetNumbering.Items.Add(label)
-        keys = [k for k, _ in NUMBERING]
-        self.SetNumbering.SelectedIndex = keys.index(s.get("numbering", "slots")) \
-            if s.get("numbering") in keys else 0
+        panels = {studio.SLD: self.SldSettingsPanel, studio.VD: self.VdSettingsPanel}
+        values = {studio.SLD: self.sld_values, studio.VD: self.vd_values}
+        for group, key, label, unit, kind in studio.SETTINGS:
+            row, control = self._setting_row(key, label, unit, kind, values[group].get(key))
+            panels[group].Children.Add(row)
+            self.setting_controls[key] = (kind, control)
+
+    def _tree_header(self, board):
+        from System.Windows import FontWeights, Thickness, VerticalAlignment
+        from System.Windows.Controls import Orientation, StackPanel, TextBlock
+        from System.Windows.Shapes import Ellipse
+        panel = StackPanel()
+        panel.Orientation = Orientation.Horizontal
+        dot = Ellipse()
+        dot.Width = dot.Height = 9
+        dot.Margin = Thickness(0, 0, 7, 0)
+        dot.VerticalAlignment = VerticalAlignment.Center
+        text = TextBlock()
+        text.Text = board.name + (u"  (other model)" if board.virtual else u"")
+        if board.depth == 0:
+            text.FontWeight = FontWeights.SemiBold
+        panel.Children.Add(dot)
+        panel.Children.Add(text)
+        self.tree_dots[board.id] = dot
+        return panel
 
     def _fill_tree(self):
         from System.Windows.Controls import TreeViewItem
 
         def add(items, board):
             item = TreeViewItem()
-            item.Header = board.name
+            item.Header = self._tree_header(board)
             item.Tag = board.id
             item.IsExpanded = True
             items.Add(item)
+            self.tree_items[board.id] = item
             for child in board.children:
                 add(item.Items, child)
             return item
@@ -207,12 +299,18 @@ class EditorWindow(object):
         self.WaysGrid.BeginningEdit += self.on_beginning_edit
         self.WaysGrid.CellEditEnding += self.on_cell_edit_ending
         self.WaysGrid.CurrentCellChanged += self.on_current_cell
+        self.Steps.SelectionChanged += self.on_step
+        self.VdProblemsOnly.Click += self.on_vd_filter
+        self.VdSearch.TextChanged += self.on_vd_filter
+        self.VdGrid.MouseDoubleClick += self.on_vd_open
         self.SaveButton.Click += self.on_save_click
         self.AutoSizeButton.Click += self.on_auto_size
+        self.ReportButton.Click += self.on_report
         self.GenerateButton.Click += self.on_generate
         self.CloseButton.Click += self.on_close_click
         self.AddSpare.Click += self.on_add_spare
         self.RemoveSpare.Click += self.on_remove_spare
+        self.ApplySettings.Click += self.on_apply_settings
         self.win.Closing += self.on_closing
         for name, _ in BOARD_CONTROLS:
             control = getattr(self, name)
@@ -223,7 +321,7 @@ class EditorWindow(object):
 
     def show(self):
         self.win.ShowDialog()
-        return self.action, self._read_settings()
+        return self.action, self.sld_values, self.vd_values
 
     # ------------------------------------------------------------ helpers
 
@@ -250,16 +348,16 @@ class EditorWindow(object):
         finally:
             self._busy = False
 
-    def _read_settings(self):
-        s = dict(self.settings)
-        s["utility"] = (self.SetUtility.Text or "").strip().upper() or s.get("utility", "")
-        s["substation_label"] = ((self.SetSubstation.Text or "").strip().upper() or
-                                 s.get("substation_label", ""))
-        s["show_ratings"] = bool(self.SetShowRatings.IsChecked)
-        index = self.SetNumbering.SelectedIndex
-        if 0 <= index < len(NUMBERING):
-            s["numbering"] = NUMBERING[index][0]
-        return s
+    def _status(self, text):
+        """A line in the footer, painted before a long step runs."""
+        self.WarningsText.Text = text
+        ui.pump(self.win)
+
+    def _paint_chip(self, chip, text_block, state, text):
+        fg, bg = ui.state_brushes(self.win, state)
+        chip.Background = bg
+        text_block.Foreground = fg
+        text_block.Text = text
 
     # ------------------------------------------------------------ board
 
@@ -290,8 +388,23 @@ class EditorWindow(object):
         table.AcceptChanges()
         self.table = table
         self.WaysGrid.ItemsSource = table.DefaultView
-        self.PreviewText.Text = u""
-        self._show_warnings()
+        self.PreviewText.Text = u"Click a way to see how it prints on the SLD."
+        self._show_tiles()
+        self._show_states()
+
+    def _show_tiles(self):
+        if self.current is None:
+            return
+        s = studio.board_summary(self.editor, self.current)
+        self.KpiConnected.Text = s["connected"]
+        self.KpiDemand.Text = s["demand"]
+        self.KpiIncomer.Text = s["incomer"]
+        self.KpiVd.Text = s["worst_vd"]
+        self.KpiVd.Foreground = ui.state_brushes(self.win, s["worst_state"])[0] \
+            if s["worst_state"] else ui.brush(self.win, "TextBrush")
+        self.BoardWays.Text = s["ways"]
+        self._paint_chip(self.BoardChip, self.BoardChipText, s["state"],
+                         STATE_TEXT.get(s["state"], u""))
 
     def _write_row(self, row, way):
         for name, value in row_values(way).items():
@@ -304,18 +417,84 @@ class EditorWindow(object):
             row = self.rows.get(key)
             if row is not None:
                 self._write_row(row, self.editor.way(key))
-        self._show_warnings()
+        self._vd_stale = True
+        self._show_tiles()
+        self._show_states()
 
-    def _show_warnings(self):
+    def _show_states(self):
+        """Tree dots, the footer line and the V.D tab's dot."""
+        for board in self.editor.boards:
+            dot = self.tree_dots.get(board.id)
+            if dot is not None:
+                dot.Fill = ui.state_brushes(self.win, studio.board_state(self.editor,
+                                                                         board.id))[0]
         warnings = self.editor.warnings()
-        self.WarningsText.Text = warnings_text(warnings)
+        self.WarningsText.Text = warnings_text(warnings) or u"No problems found."
         self.WarningsText.ToolTip = u"\n".join(warnings) if warnings else None
+        self.StatusDot.Fill = ui.state_brushes(self.win, overall_state(self.editor))[0]
+        text, state = studio.vd_tab_header(self.editor)
+        self.VdTabText.Text = text
+        self.VdDot.Fill = ui.state_brushes(self.win, state)[0]
 
     def _row_key(self, item):
         try:
             return u"%s" % item.Row["key"]
         except Exception:
             return None
+
+    # ------------------------------------------------------------ voltage drop tab
+
+    def _fill_vd(self):
+        from System import String
+        from System.Data import DataTable
+        s = studio.vd_summary(self.editor)
+        self.VdCables.Text = s["cables"]
+        self.VdOk.Text = s["ok"]
+        self.VdFailed.Text = s["failed"]
+        self.VdIncomplete.Text = s["incomplete"]
+        self.VdWorst.Text = s["worst"]
+        self.VdWorst.Foreground = ui.state_brushes(self.win, s["worst_state"])[0] \
+            if s["worst_state"] else ui.brush(self.win, "TextBrush")
+        self.VdWorstWhere.Text = s["worst_where"]
+        self.VdFixes.Text = u"\n".join(u"•  %s" % f for f in s["fixes"]) or \
+            u"Nothing to fix: every cable passes."
+        table = DataTable("Cables")
+        names = ("key", "state") + tuple(c[0] for c in studio.VD_COLUMNS)
+        for name in names:
+            table.Columns.Add(name, String).DefaultValue = u""
+        for values in studio.vd_rows(self.editor, bool(self.VdProblemsOnly.IsChecked),
+                                     self.VdSearch.Text):
+            row = table.NewRow()
+            for name in names:
+                row[name] = u"%s" % (values.get(name) or u"")
+            table.Rows.Add(row)
+        table.AcceptChanges()
+        self.VdGrid.ItemsSource = table.DefaultView
+        self._vd_stale = False
+
+    def on_step(self, sender, args):
+        if not _same(args.OriginalSource, self.Steps):
+            return       # a combo or grid inside a tab
+        if self._vd_stale and _same(self.Steps.SelectedItem, self.VdTab):
+            self._safe(self._fill_vd)
+
+    def on_vd_filter(self, sender, args):
+        self._safe(self._fill_vd)
+
+    def on_vd_open(self, sender, args):
+        """Double-click a cable: show the board it starts from."""
+        item = self.VdGrid.SelectedItem
+        if item is None or self.editor.result is None:
+            return
+        key = u"%s" % item.Row["key"]
+        row = next((r for r in self.editor.result.rows() if u"%s" % r.feeder.id == key), None)
+        board_id = row.feeder.source_id if row is not None else None
+        tree_item = self.tree_items.get(board_id)
+        if tree_item is None:
+            return
+        self.Steps.SelectedItem = self.BoardsTab
+        tree_item.IsSelected = True
+        tree_item.BringIntoView()
 
     # ------------------------------------------------------------ events
 
@@ -382,8 +561,7 @@ class EditorWindow(object):
     def on_board_field(self, sender, args):
         if self._busy or self.current is None:
             return
-        field = next(f for n, f in BOARD_CONTROLS if getattr(self, n) is sender or
-                     getattr(self, n).Equals(sender))
+        field = next(f for n, f in BOARD_CONTROLS if _same(getattr(self, n), sender))
         self._safe(self._set_board, field, sender.Text)
 
     def _set_board(self, field, text):
@@ -395,7 +573,9 @@ class EditorWindow(object):
             self._commit()
             self._show_board(self.current)
         else:
-            self._show_warnings()
+            self._vd_stale = True
+            self._show_tiles()
+            self._show_states()
 
     def _step_spares(self, step):
         self._commit()
@@ -419,6 +599,7 @@ class EditorWindow(object):
         changed, messages = self.editor.auto_size()
         if self.current is not None:
             self._show_board(self.current)
+        self._fill_vd()
         self._alert(auto_size_message(changed, messages))
 
     def on_save_click(self, sender, args):
@@ -427,14 +608,78 @@ class EditorWindow(object):
 
     def _save(self):
         reload = any(c.kind == "fed_by" for c in self.editor.changes())
-        message = self.on_save(self.editor)
+        self._status(u"Saving to Revit...")
+        message = self.actions["save"](self.editor)
         self._show_board(self.current)
         if reload:
-            message += u"\n\nFed from changed: the editor opens again with the new feeds."
+            message += u"\n\nFed from changed: the window opens again with the new feeds."
         self._alert(message)
         if reload:
             self.action = "reload"
             self.win.Close()
+
+    def on_report(self, sender, args):
+        self._commit()
+        self._safe(self._report)
+
+    def _report(self):
+        from Microsoft.Win32 import SaveFileDialog
+        if self.editor.result is None or not list(self.editor.result.rows()):
+            self._alert(u"Nothing to report: no panel is fed from another panel or a "
+                        u"transformer, and no final circuit has a length.")
+            return
+        dialog = SaveFileDialog()
+        dialog.Filter = "Excel workbook (*.xlsx)|*.xlsx"
+        dialog.FileName = self.actions["report_name"]
+        if not dialog.ShowDialog(self.win):
+            return
+        self._status(u"Saving the voltage drop report (Excel, then PDF)...")
+        try:
+            message = self.actions["report"](self.editor, dialog.FileName)
+        finally:
+            self._show_states()
+        self._alert(message)
+
+    def on_apply_settings(self, sender, args):
+        self._commit()
+        self._safe(self._apply_settings)
+
+    def _apply_settings(self):
+        form = {}
+        for key, (kind, control) in self.setting_controls.items():
+            if kind == "check":
+                form[key] = bool(control.IsChecked)
+            elif kind == "choice":
+                form[key] = u"%s" % (control.SelectedItem or control.Text or u"")
+            else:
+                form[key] = control.Text
+        sld_values, vd_values, errors = studio.apply_settings(self.sld_values,
+                                                              self.vd_values, form)
+        if errors:
+            self._alert(u"Not saved:\n\n" + u"\n".join(errors))
+            return
+        reload = studio.needs_reload(self.sld_values, self.vd_values, sld_values, vd_values)
+        self.actions["settings"](sld_values, vd_values)
+        self.sld_values, self.vd_values = sld_values, vd_values
+        if reload:
+            if self.editor.dirty():
+                answer = self._alert(u"These settings are read with the model, so the window "
+                                     u"opens again.\n\nSave your changes to Revit first?",
+                                     ask=True)
+                if answer == "cancel":
+                    return
+                if answer == "yes":
+                    self.actions["save"](self.editor)
+                    self.editor.mark_saved()
+            self.action = "reload"
+            self.win.Close()
+            return
+        from vdrop import settings as vd_settings
+        self.editor.set_vd_settings(vd_settings.calc_settings(vd_values))
+        if self.current is not None:
+            self._show_board(self.current)
+        self._fill_vd()
+        self.SettingsNote.Text = u"Settings saved."
 
     def on_generate(self, sender, args):
         self._commit()
@@ -452,11 +697,11 @@ class EditorWindow(object):
         if answer == "cancel":
             args.Cancel = True
         elif answer == "yes":
-            self._safe(lambda: self.on_save(self.editor))
+            self._safe(lambda: self.actions["save"](self.editor))
 
 
-def show_editor(editor, settings_values, on_save):
-    """Show the window (modal). on_save(editor) writes to Revit and returns
-    a message. Returns ('generate', 'reload' (after a Fed from change was
-    saved) or 'close', settings values)."""
-    return EditorWindow(editor, settings_values, on_save).show()
+def show_editor(editor, sld_values, vd_values, actions, model_text=u""):
+    """Show the window (modal). Returns (action, sld values, vd values);
+    action is 'generate', 'reload' (read the model again: a Fed from or a
+    setting read with the model changed) or 'close'."""
+    return EditorWindow(editor, sld_values, vd_values, actions, model_text).show()

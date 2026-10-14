@@ -208,6 +208,7 @@ class Editor(object):
         self.schematic = schematic
         self.numbering = numbering
         self.vd = vd or None
+        self.result = None              # vdrop.calc.Result of the values shown
         self.boards, self.roots, self._ways, self._by_key = [], [], {}, {}
         for root in schematic.roots:
             self.roots.append(self._add_board(root, 0, None))
@@ -398,6 +399,12 @@ class Editor(object):
             return w.target_id
         return w.key
 
+    def set_vd_settings(self, calc_settings):
+        """Work the voltage drop out again with new VD settings."""
+        if self.vd:
+            self.vd["settings"] = calc_settings
+            self._recalculate()
+
     def _recalculate(self):
         if not self.vd:
             return
@@ -434,6 +441,7 @@ class Editor(object):
             if trip is not None:
                 f.breaker = trip
         result = calc.calculate(feeders, self.vd["settings"])
+        self.result = result
         rows = dict((r.feeder.id, r) for r in result.rows())
         for w in self._by_key.values():
             r = rows.get(self._feeder_id(w, by_id))
