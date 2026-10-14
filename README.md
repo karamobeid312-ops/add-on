@@ -44,7 +44,12 @@ everywhere). Its footer holds Close, **Auto Size**, **Export V.D report**,
 stays on its sheets): only the tool's own drawing (lines in its "SLD ..."
 line styles, text in its "SLD ..." text types) is replaced, anything added
 by hand stays. A view drawn by an older version is cleared once. Settings
-→ "Draw SLD in a new view each time" brings back a new view per run.
+→ "Draw SLD in a new view each time" brings back a new view per run. The
+diagram is drawn to fill the sheet chosen in Settings (A1 by default; about
+78 % of its width and 85 % of its height, leaving the title block strip):
+lines and text are scaled together (between half and 5 times the base
+size), so a small SLD is not lost on an A1 sheet. "Actual size" draws it as
+set in `style.py`.
 
 1. **Boards and ways** – the boards tree on the left, each board with a
    green (OK), amber (check the board: too many ways) or red (a way is over

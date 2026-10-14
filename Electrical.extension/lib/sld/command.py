@@ -155,7 +155,8 @@ def run():
     from sld.revit_sld import generate
     view, schematic = generate(doc, settings.layout_settings(sld_values),
                                sld_values["numbering"], bool(sld_values.get("new_view")),
-                               spares=settings.load_spares(_project(doc)))
+                               spares=settings.load_spares(_project(doc)),
+                               paper=sld_values.get("sheet_size", "A1"))
     if view is None:
         forms.alert("No electrical equipment was found in this model.", exitscript=True)
     revit.uidoc.ActiveView = view

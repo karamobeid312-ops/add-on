@@ -60,7 +60,7 @@ from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 from sld import style
 from sld.cables import (cable_from_revit_values, conductor_code, construction,
                         format_cable, insulation_code)
-from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, line_length
+from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, fit_scale, line_length, scale_drawing
 from sld.layout import LayoutSettings, layout_schematic
 from sld.model import CircuitInfo, EquipmentInfo, add_fed_by, build_schematic, fed_by_links
 
@@ -747,7 +747,7 @@ def render(doc, drawing, view_name=VIEW_NAME, new_view=False):
     return view
 
 
-def generate(doc, settings=None, numbering="slots", new_view=False, spares=None):
+def generate(doc, settings=None, numbering="slots", new_view=False, spares=None, paper="A1"):
     """Build and draw the schematic. Returns (view or None, schematic).
     spares: {board name: (count, rating)} kept by Power Studio, used where
     the panel has no SLD Spares value."""
@@ -761,6 +761,8 @@ def generate(doc, settings=None, numbering="slots", new_view=False, spares=None)
         return None, schematic
 
     layout = layout_schematic(schematic, settings or LayoutSettings())
+    # drawn big enough to fill the sheet (text grows with it)
+    scale_drawing(layout.drawing, fit_scale(layout.drawing, paper))
 
     t = Transaction(doc, "Generate LV Schematic Diagram")
     t.Start()

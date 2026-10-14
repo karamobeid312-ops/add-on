@@ -13,6 +13,7 @@ DEFAULTS = {
     "balance_warn": 10.0,                     # phase unbalance %: amber above
     "balance_bad": 20.0,                      # red above
     "new_view": False,                        # Draw SLD: new view each time
+    "sheet_size": "A1",                       # Draw SLD fills this paper; '1:1' = as drawn
 }
 
 

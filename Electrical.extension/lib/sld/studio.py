@@ -265,6 +265,7 @@ SETTINGS = (
     (SLD, "numbering", "Way numbering", "", "choice"),
     (SLD, "balance_warn", "Phase unbalance shown amber above", "%", "number"),
     (SLD, "balance_bad", "Phase unbalance shown red above", "%", "number"),
+    (SLD, "sheet_size", "Draw SLD to fill a sheet of", "", "choice"),
     (SLD, "new_view", "Draw SLD in a new view each time (else update the same view)", "", "check"),
     (VD, "voltage_3ph", "Three phase voltage", "V", "number"),
     (VD, "voltage_1ph", "Single phase voltage", "V", "number"),
@@ -290,8 +291,11 @@ RELOAD_KEYS = ("numbering", "voltage_source", "pf_source", "power_factor", "load
 
 NUMBERING = (("slots", "Ways numbered in order (1, 2, R9, Y9, B9)"),
              ("revit", "Revit circuit numbers"))
+SHEETS = (("A0", "A0"), ("A1", "A1"), ("A2", "A2"), ("A3", "A3"),
+          ("1:1", "Actual size (text as set, no fitting)"))
 _LABELS = {
     "numbering": dict(NUMBERING),
+    "sheet_size": dict(SHEETS),
     "voltage_source": {"settings": "The voltages above (as the office sheet)",
                        "model": "Each panel's distribution system in Revit"},
     "pf_source": {"settings": "The power factor above on every cable (as the office sheet)",
@@ -305,6 +309,8 @@ def choices(key):
     """[(value, text shown)] of a 'choice' setting."""
     if key == "numbering":
         values = [k for k, _ in NUMBERING]
+    elif key == "sheet_size":
+        values = [k for k, _ in SHEETS]
     else:
         values = list(vd_settings.CHOICES[key])
     labels = _LABELS.get(key, {})

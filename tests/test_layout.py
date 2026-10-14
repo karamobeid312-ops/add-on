@@ -307,3 +307,25 @@ def test_feeder_cable_text_ends_below_the_next_floor_line():
     assert ups
     for top in ups:
         assert mdb.top + (top - mdb.top) * style.FLOOR_LABEL_SLACK < floor_y
+
+
+def test_fit_to_sheet_scales_lines_and_text_together():
+    from sld.geometry import fit_scale, scale_drawing
+    d = Drawing()
+    d.line(0, 0, 200, 0)
+    d.line(0, 0, 0, 100)
+    t = d.text(10, 10, "MDB-01", 2.0)
+    f = fit_scale(d, "A1")
+    assert f == 3.25                        # 841 * 0.78 / 200 = 3.28 -> 3.25 (height allows 5.0)
+    assert fit_scale(d, "1:1") == 1.0
+    scale_drawing(d, f)
+    assert d.lines[0].x2 == 650 and t.size == 6.5 and (t.x, t.y) == (32.5, 32.5)
+    big = Drawing()
+    big.line(0, 0, 5000, 0)
+    big.line(0, 0, 0, 10)
+    assert fit_scale(big, "A1") == 0.5      # never shrunk past half size
+    lay = sample_layout()
+    f = fit_scale(lay.drawing, "A1")
+    scale_drawing(lay.drawing, f)
+    x0, y0, x1, y1 = lay.drawing.bounds()
+    assert x1 - x0 <= 841 * 0.78 + 1 or f == 0.5

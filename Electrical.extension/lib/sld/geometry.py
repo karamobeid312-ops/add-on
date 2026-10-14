@@ -190,3 +190,43 @@ def text_box(t):
     pts = [(t.x + u * c - v * s, t.y + u * s + v * c) for u, v in corners]
     return (min(p[0] for p in pts), min(p[1] for p in pts),
             max(p[0] for p in pts), max(p[1] for p in pts))
+
+
+# ---------------------------------------------------------------- fit to sheet
+
+# Paper sizes (width, height mm, landscape) and the part of the paper the
+# diagram may use: the rest is the title block strip and borders.
+PAPERS = {"A0": (1189.0, 841.0), "A1": (841.0, 594.0), "A2": (594.0, 420.0),
+          "A3": (420.0, 297.0)}
+PAPER_USE = (0.78, 0.85)
+MIN_SCALE, MAX_SCALE = 0.5, 5.0
+
+
+def fit_scale(drawing, paper):
+    """Factor that makes the drawing fill the usable part of `paper`
+    (lines and text alike, so it reads the same, only bigger); 1.0 for
+    '1:1' or an empty drawing. Rounded down to 0.05."""
+    if paper not in PAPERS:
+        return 1.0
+    x0, y0, x1, y1 = drawing.bounds()
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return 1.0
+    pw, ph = PAPERS[paper]
+    f = min(pw * PAPER_USE[0] / w, ph * PAPER_USE[1] / h)
+    f = math.floor(f * 20.0 + 1e-9) / 20.0
+    return max(MIN_SCALE, min(MAX_SCALE, f))
+
+
+def scale_drawing(drawing, f):
+    """Scale everything about the origin by f, text sizes too."""
+    if f == 1.0:
+        return drawing
+    for l in drawing.lines:
+        l.x1, l.y1, l.x2, l.y2 = l.x1 * f, l.y1 * f, l.x2 * f, l.y2 * f
+    for a in drawing.arcs:
+        a.cx, a.cy, a.r = a.cx * f, a.cy * f, a.r * f
+    for t in drawing.texts:
+        t.x, t.y, t.size, t.width = t.x * f, t.y * f, t.size * f, t.width * f
+    return drawing
+
