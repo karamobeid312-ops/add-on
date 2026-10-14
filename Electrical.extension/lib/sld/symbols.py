@@ -104,10 +104,11 @@ def isolator(d, x, y0, name):
     return y_text + vertical_length(name, style.TEXT_LOAD)
 
 
-def spare(d, x, y_end):
+def spare(d, x, y_end, label="SPARE"):
+    """SPARE (or SPACE) at the end of a way."""
     y_text = y_end + 0.8
-    vertical_text(d, x, y_text, "SPARE", style.TEXT_SPARE, center=True)
-    return y_text + vertical_length("SPARE", style.TEXT_SPARE)
+    vertical_text(d, x, y_text, label, style.TEXT_SPARE, center=True)
+    return y_text + vertical_length(label, style.TEXT_SPARE)
 
 
 def pfc(d, x, y0):
@@ -167,18 +168,44 @@ def sealing_end(d, x, y):
 
 
 def transformer(d, x, y_top, name, description):
-    """Two-winding transformer; returns the bottom y."""
+    """Two-winding transformer, name and description left of it (office
+    SLD), earthed on the right (R<1Ω); returns the bottom y."""
     r = style.TRANSFORMER_RADIUS
     c1 = y_top - r
     c2 = c1 - 1.4 * r
     d.circle(x, c1, r)
     d.circle(x, c2, r)
-    text_x = x - r - 1.5
-    d.text(text_x, y_top, name, style.TEXT_TRANSFORMER_NAME, align=RIGHT, valign=TOP)
-    if description:
-        d.text(text_x, y_top - style.TEXT_TRANSFORMER_NAME * 1.7, "\n".join(description),
-               style.TEXT_TRANSFORMER_INFO, align=RIGHT, valign=TOP)
+    info = list(description or [])
+    width = max([line_length(name, style.TEXT_TRANSFORMER_NAME)] +
+                [line_length(l, style.TEXT_TRANSFORMER_INFO) for l in info])
+    text_x = x - r - 1.5 - width
+    d.text(text_x, y_top, name, style.TEXT_TRANSFORMER_NAME, align=LEFT, valign=TOP)
+    if info:
+        d.text(text_x, y_top - style.TEXT_TRANSFORMER_NAME * 1.7, "\n".join(info),
+               style.TEXT_TRANSFORMER_INFO, align=LEFT, valign=TOP)
+    ex = x + r + 2.5
+    d.line(x + r, c2, ex, c2)
+    d.line(ex, c2, ex, c2 - r - 1.0)
+    earth(d, ex, c2 - r - 1.0)
+    d.text(ex + 0.5, c2 - r - 4.3, style.MAIN_EARTH_LABEL, style.TEXT_CABLE,
+           align=LEFT, valign=TOP)
     return c2 - r
+
+
+def utility_meter(d, x, y_top, label, ratio):
+    """Utility meter box on the incoming line ('ADDC METER', '1600A/5A' on
+    its right); returns the bottom y."""
+    lines = label.split()
+    if len(lines) > 2:
+        lines = [" ".join(lines[:-1]), lines[-1]]
+    size = style.TEXT_SMALL
+    w = max(line_length(l, size) for l in lines) + 1.6
+    h = size * style.LINE_SPACING * len(lines) + 1.2
+    d.rect(x - w / 2, y_top - h, x + w / 2, y_top)
+    d.text(x, y_top - h / 2, "\n".join(lines), size, align=CENTER, valign=MIDDLE)
+    if ratio:
+        d.text(x + w / 2 + 0.8, y_top - h / 2, ratio, size, align=LEFT, valign=MIDDLE)
+    return y_top - h
 
 
 def small_transformer(d, x, y0, name):

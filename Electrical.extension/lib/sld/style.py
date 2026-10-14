@@ -23,6 +23,7 @@ TEXT_SMALL = 1.2            # labels inside the main board (ACB, SPD...)
 TEXT_TRANSFORMER_NAME = 2.5
 TEXT_TRANSFORMER_INFO = 1.5
 TEXT_CABLE = 1.5            # incoming / MV cable labels
+TEXT_SUPPLY = 2.5           # FROM TAQA under the transformer
 TEXT_FONT = "Arial"
 
 # Text height is the capital letter height (as Revit's Text Size); widths
@@ -97,6 +98,7 @@ MAIN_SPD_LABEL = "SPD"
 SUBSTATION_STACK = 34.0     # substation floor line -> main board bottom
 TRANSFORMER_RADIUS = 3.0
 DEFAULT_UTILITY = "TAQA"
+DEFAULT_METER = "ADDC METER"   # utility meter box under the incoming cable
 
 # ---------------------------------------------------------------- loads
 TERMINAL_BASE = 36.5        # board top -> bottom of DB box / isolator

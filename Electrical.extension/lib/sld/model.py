@@ -131,7 +131,7 @@ class EquipmentInfo(object):
                  mains_rating=None, incomer_rating=None, incomer_frame="",
                  phases=3, neutral=True, fault_level="", incomer_device="",
                  upstream_protection="", demand_factor=None, spares=None,
-                 spare_rating="", fed_by="", virtual=False):
+                 spare_rating="", fed_by="", virtual=False, spaces=None):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -161,6 +161,7 @@ class EquipmentInfo(object):
         self.demand_factor = demand_factor    # its own diversity factor
         self.spares = spares                  # spare ways wanted ('SLD Spares')
         self.spare_rating = spare_rating or ""   # e.g. '63AT/100AF MCCB'
+        self.spaces = spaces                  # empty breaker ways (SPACE), drawn last
 
     def supply_text(self):
         """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
@@ -278,9 +279,16 @@ class Way(object):
                 return trip
         return parse_amps(self.circuit.rating) if self.circuit is not None else None
 
+    @property
+    def is_space(self):
+        """An empty breaker way (SPACE): drawn like a spare, with no rating."""
+        return self.circuit is not None and self.circuit.id.startswith(SPACE_ID)
+
     def breaker_lines(self):
         """Beside the way's breaker: the upstream protection typed on the
         panel it feeds, else the circuit's rating."""
+        if self.is_space:
+            return []
         if self.target is not None and self.target.upstream_protection:
             trip, frame, device = parse_protection(self.target.upstream_protection)
             if trip is not None:
@@ -578,7 +586,7 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
         spares or (style.MIN_SPARES, style.MAX_SPARES))
     limit = max_ways or style.MAX_WAYS
     groups = _way_groups(board.ways, phases).values()
-    spare_ways = sum(1 for g in groups if all(w.kind == SPARE for w in g))
+    spare_ways = sum(1 for g in groups if all(w.kind == SPARE and not w.is_space for w in g))
     used = len(groups) - spare_ways
     room = limit if wanted is not None else min(_declared_ways(e.ways) or limit, limit)
     if used + low > room:
@@ -608,6 +616,25 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
         return ["%s has %d ways (spares included), more than the %d circuit breakers "
                 "allowed on a sub-main board." % (board.name, used + spare_ways + add, limit)]
     return []
+
+
+SPACE_ID = "space:"
+
+
+def add_spaces(board, numbering="slots"):
+    """Empty breaker ways (SPACE, no rating) after the spares: as many as
+    the board's `spaces`, typed in Power Studio. Drawn only."""
+    board.ways = [w for w in board.ways if not w.is_space]
+    try:
+        count = max(int(float(board.equipment.spaces or 0)), 0)
+    except (TypeError, ValueError):
+        count = 0
+    number = _next_way_number([w.label for w in board.ways])
+    for i in range(count):
+        c = CircuitInfo("%s%s:%d" % (SPACE_ID, board.id, i + 1), board.id, poles="3",
+                        is_spare=True)
+        label = str(number + i) if numbering != "revit" else ""
+        board.ways.append(Way(c, SPARE, label, "SPACE"))
 
 
 OTHER_MODEL = "IN ANOTHER MODEL (LINK)"
@@ -851,6 +878,8 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
             if is_sub_main(b) or b.equipment.spares not in (None, ""):
                 warnings.extend(add_spares(b, numbering, phases_of.get(b.id, 3)))
+            if b.equipment.spaces not in (None, ""):
+                add_spaces(b, numbering)
 
     for b in boards.values():
         if b.equipment.virtual:

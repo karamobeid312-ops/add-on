@@ -38,12 +38,14 @@ BOARD_CONTROLS = (("IncomerAT", "incomer_at"), ("IncomerAF", "incomer_af"),
                   ("IncomerDevice", "incomer_device"), ("FaultLevel", "fault_level"),
                   ("WaysCount", "ways"), ("SpareCount", "spares"), ("SpareAT", "spare_at"),
                   ("SpareAF", "spare_af"), ("SpareDevice", "spare_device"),
+                  ("SpaceCount", "spaces"),
                   ("FedBy", "fed_by"), ("TxVd", "tx_vd"))
 NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "BoardsTree", "BoardTitle", "BoardChip", "BoardChipText", "BoardWays",
          "KpiConnected", "KpiDemand", "KpiIncomer", "KpiVd", "KpiBalance", "KpiBalanceSub",
          "WaysGrid", "PreviewText", "WarningsText", "SaveButton", "AutoSizeButton",
          "ReportButton", "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare",
+         "AddSpace", "RemoveSpace",
          "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
          "VdWorstWhere", "VdFixes", "VdProblemsOnly", "VdSearch", "VdGrid",
          "SldSettingsPanel", "VdSettingsPanel", "ApplySettings", "SettingsNote") + \
@@ -312,6 +314,8 @@ class EditorWindow(object):
         self.CloseButton.Click += self.on_close_click
         self.AddSpare.Click += self.on_add_spare
         self.RemoveSpare.Click += self.on_remove_spare
+        self.AddSpace.Click += self.on_add_space
+        self.RemoveSpace.Click += self.on_remove_space
         self.ApplySettings.Click += self.on_apply_settings
         self.win.Closing += self.on_closing
         for name, _ in BOARD_CONTROLS:
@@ -584,10 +588,10 @@ class EditorWindow(object):
             self._show_tiles()
             self._show_states()
 
-    def _step_spares(self, step):
+    def _step_spares(self, step, field="spares"):
         self._commit()
         board = self.editor.board(self.current)
-        self.editor.set_board(self.current, "spares", spare_count(board.values["spares"], step))
+        self.editor.set_board(self.current, field, spare_count(board.values[field], step))
         self._show_board(self.current)
 
     def on_add_spare(self, sender, args):
@@ -597,6 +601,14 @@ class EditorWindow(object):
     def on_remove_spare(self, sender, args):
         if self.current is not None:
             self._safe(self._step_spares, -1)
+
+    def on_add_space(self, sender, args):
+        if self.current is not None:
+            self._safe(self._step_spares, 1, "spaces")
+
+    def on_remove_space(self, sender, args):
+        if self.current is not None:
+            self._safe(self._step_spares, -1, "spaces")
 
     def on_auto_size(self, sender, args):
         self._commit()

@@ -261,6 +261,7 @@ VD = "vd"
 SETTINGS = (
     (SLD, "utility", "Utility / supply authority (FROM ...)", "", "text"),
     (SLD, "substation_label", "Bottom band label", "", "text"),
+    (SLD, "meter_label", "Utility meter under the incoming cable (empty = none)", "", "text"),
     (SLD, "show_ratings", "Print breaker rating and cable along each way", "", "check"),
     (SLD, "numbering", "Way numbering", "", "choice"),
     (SLD, "balance_warn", "Phase unbalance shown amber above", "%", "number"),
@@ -341,7 +342,7 @@ def read(key, shown_value):
                 return v
         raise ValueError(u"'%s' is not one of the choices" % shown_value)
     text = (u"%s" % (shown_value or u"")).strip()
-    if key in ("utility", "substation_label"):
+    if key in ("utility", "substation_label", "meter_label"):
         return text.upper()
     if group_of(key) == SLD:
         if kind == "number":

@@ -20,14 +20,17 @@ from sld import style, symbols
 from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing,
                           text_height, text_width, wrap)
 from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS, split_cable,
-                       TRANSFORMER)
+                       TRANSFORMER, trim_number)
 
 SUBSTATION_BAND = -1
 
 
 class LayoutSettings(object):
-    def __init__(self, utility=None, substation_label=None, show_ratings=True):
+    def __init__(self, utility=None, substation_label=None, show_ratings=True,
+                 meter_label=None):
         self.utility = utility or style.DEFAULT_UTILITY
+        # utility meter box under the incoming cable; '' draws none
+        self.meter_label = style.DEFAULT_METER if meter_label is None else meter_label
         self.substation_label = substation_label or style.SUBSTATION_LABEL
         self.show_ratings = show_ratings
 
@@ -607,7 +610,7 @@ def _draw_way_end(d, g, w, x, settings):
         symbols.isolator(d, x, t + style.TERMINAL_BASE, w.name)
     elif w.kind == SPARE:
         d.line(x, t, x, t + style.SPARE_HEIGHT)
-        symbols.spare(d, x, t + style.SPARE_HEIGHT)
+        symbols.spare(d, x, t + style.SPARE_HEIGHT, w.name)
     elif w.kind == PFC:
         y0 = t + style.PFC_ABOVE_BOARD
         d.line(x, t, x, y0)
@@ -647,7 +650,9 @@ def _draw_feed(d, f, row_base):
 
 
 def _draw_source(d, g, floor_y, settings):
-    """Everything under a main board: incoming cable, transformer, supply."""
+    """Everything under a main board, as the office SLD: incoming cable
+    (one line), utility meter, transformer with its own earth, then a
+    straight line down to FROM <utility>."""
     b = g.board
     x = g.incomer_x
     y = g.bottom
@@ -656,32 +661,24 @@ def _draw_source(d, g, floor_y, settings):
     d.line(x, y, x, y_cable + 0.6)
     symbols.cable_mark(d, x, y_cable, _cable_label(cable) if cable else None)
     y = y_cable - 0.6
+    if settings.meter_label:
+        trip = b.equipment._incomer()[0]
+        ratio = "%sA/5A" % trim_number(trip, 0) if trip else ""
+        y_meter = y - 2.0
+        d.line(x, y, x, y_meter)
+        y = symbols.utility_meter(d, x, y_meter, settings.meter_label, ratio)
     if b.transformer is not None:
         tr = b.transformer
-        y_tr = y - 4.0
+        y_tr = y - 3.0
         d.line(x, y, x, y_tr)
         y = symbols.transformer(d, x, y_tr, tr.name, tr.description)
-        d.line(x, y, x, floor_y + 0.6)
-        symbols.cable_mark(d, x, floor_y, "MV CABLE FROM %s" % settings.utility)
-        supply = "FROM %s" % settings.utility
-    else:
-        d.line(x, y, x, floor_y)
-        supply = "FROM %s" % settings.utility
-    end_y = floor_y - 5.0
-    d.line(x, floor_y - 0.6, x, end_y)
-    symbols.sealing_end(d, x, end_y)
-    d.text(x, end_y - 2.5, supply, style.TEXT_CABLE, align=CENTER, valign=TOP)
+    end_y = min(y - 4.0, floor_y - 5.0)
+    d.line(x, y, x, end_y)
+    d.text(x, end_y - 1.0, "FROM %s" % settings.utility, style.TEXT_SUPPLY,
+           align=CENTER, valign=TOP)
 
 
 def _cable_label(cable):
-    """'(7 SC 630mm²\nCu/XLPE/AWA/PVC)': size on the first line, build on the
-    next; office text that has its own brackets is not bracketed again."""
-    wrap = (lambda t: t) if "(" in cable else (lambda t: "(%s)" % t)
-    lines = split_cable(cable)
-    if len(lines) > 1:
-        return wrap("\n".join(lines))
-    tokens = cable.split()
-    for i, tok in enumerate(tokens):
-        if "/" in tok and i > 0:
-            return wrap("%s\n%s" % (" ".join(tokens[:i]), " ".join(tokens[i:])))
-    return wrap(cable)
+    """'7 SC 630mm² Cu/XLPE/AWA/PVC' on one line (office SLD); a cable
+    with an earth part has the earth on a second line."""
+    return "\n".join(split_cable(cable))

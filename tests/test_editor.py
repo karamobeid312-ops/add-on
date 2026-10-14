@@ -135,7 +135,7 @@ def test_spares_set_on_the_board():
     spares = [w for w in ed.ways("SMDB-1") if w.spare]
     assert len(spares) == 4 and spares[0].values["at"] == "40"
     (change,) = [c for c in ed.changes() if c.kind == "spares"]
-    assert change.values == {"count": "4", "rating": "40AT/100AF MCCB"}
+    assert change.values == {"count": "4", "rating": "40AT/100AF MCCB", "spaces": "0"}
     assert ed.set_board("SMDB-1", "fault_level", "35kA") is False
     assert [c.values for c in ed.changes() if c.kind == "fault_level"] == [{"text": "35kA"}]
 
@@ -237,3 +237,22 @@ def test_own_vd_when_the_total_is_not_known():
     lights = ed.ways("SMDB-1")[0]
     assert lights.vd_partial and lights.vd.endswith(" own")
     assert studio.way_state(lights) == "warn" and "No total yet" in lights.vd_tip
+
+
+def test_spaces_are_empty_breakers_after_the_spares():
+    from sld.model import SPARE
+    ed = small()
+    ed.set_board("SMDB-1", "spaces", "2")
+    ways = ed.ways("SMDB-1")
+    spaces = [w for w in ways if w.way.is_space]
+    assert [w.feeds for w in spaces] == ["SPACE", "SPACE"]
+    assert ways[-2:] == spaces                       # drawn last
+    assert all(w.way.breaker_lines() == [] and w.way.kind == SPARE for w in spaces)
+    spares = ed.board("SMDB-1").values["spares"]
+    ed.set_board("SMDB-1", "spares", "1")            # spares rebuilt, spaces kept after them
+    ways = ed.ways("SMDB-1")
+    assert [w.feeds for w in ways[-3:]] == ["SPARE", "SPACE", "SPACE"]
+    change = next(c for c in ed.changes() if c.kind == "spares")
+    assert change.values["spaces"] == "2" and change.values["count"] == "1" and spares != "1"
+    ed.set_board("SMDB-1", "spaces", "0")
+    assert not any(w.way.is_space for w in ed.ways("SMDB-1"))

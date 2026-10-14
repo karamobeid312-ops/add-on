@@ -35,7 +35,8 @@ def _save(doc, editor):
         # kept here too: most models have no SLD Spares parameter to hold them
         stored = settings.load_spares(_project(doc))
         for c in spares:
-            stored[editor.board(c.element_id).name] = (c.values["count"], c.values["rating"])
+            stored[editor.board(c.element_id).name] = (c.values["count"], c.values["rating"],
+                                                       c.values.get("spaces", ""))
         try:
             settings.save_spares(_project(doc), stored)
             lines.append("Spare ways kept for the SLD (drawn only, the Revit panels are not changed).")

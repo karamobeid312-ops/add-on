@@ -12,14 +12,14 @@ from __future__ import division
 from sld import cablespec, style
 from sld.model import (DB_BOX, FEEDER, PFC, SPARE, CircuitInfo, Way, add_spares, breaker_lines,
                        frame_rating, is_sub_main, natural_key, parse_amps, parse_protection,
-                       trim_number, way_phases, way_positions)
+                       trim_number, way_phases, way_positions, add_spaces)
 
 FIELDS = ("at", "af", "device", "runs", "cores", "size", "material", "insulation",
           "armour", "earth", "length")
 CABLE_FIELDS = ("runs", "cores", "size", "material", "insulation", "armour", "earth")
 BREAKER_FIELDS = ("at", "af", "device")
 BOARD_FIELDS = ("incomer_at", "incomer_af", "incomer_device", "fault_level", "ways",
-                "spares", "spare_at", "spare_af", "spare_device", "fed_by", "tx_vd")
+                "spares", "spare_at", "spare_af", "spare_device", "spaces", "fed_by", "tx_vd")
 
 TRIPS = ("6", "10", "16", "20", "25", "32", "40", "50", "63", "80", "100", "125", "160",
          "200", "250", "315", "400", "500", "630", "800", "1000", "1250", "1600", "2000",
@@ -198,7 +198,8 @@ class BoardItem(object):
             "incomer_at": _num(trip), "incomer_af": _num(frame or frame_rating(trip)),
             "incomer_device": device or "", "fault_level": e.fault_level or "",
             "ways": u"%s" % (e.ways or ""),
-            "spares": str(sum(1 for w in board.ways if w.kind == SPARE)),
+            "spares": str(sum(1 for w in board.ways if w.kind == SPARE and not w.is_space)),
+            "spaces": str(sum(1 for w in board.ways if w.is_space)),
             "spare_at": _num(s_trip), "spare_af": _num(s_frame or frame_rating(s_trip)),
             "spare_device": s_device or (style.WAY_DEVICE if s_trip else ""),
             "fed_by": e.fed_by or "",
@@ -355,14 +356,16 @@ class Editor(object):
                 incoming.values[field[len("incomer_"):]] = text
                 self._recalculate()
             return False
-        if field not in ("spares", "spare_at", "spare_af", "spare_device"):
+        if field not in ("spares", "spare_at", "spare_af", "spare_device", "spaces"):
             return False
         e = b.board.equipment
-        e.spares = text if field == "spares" else b.values["spares"]
+        e.spares = b.values["spares"]
         e.spare_rating = self._spare_rating(b)
-        b.board.ways = [w for w in b.board.ways
-                        if w.circuit is None or not w.circuit.id.startswith("spare:")]
+        e.spaces = b.values["spaces"]
+        b.board.ways = [w for w in b.board.ways if w.circuit is None or not (
+            w.circuit.id.startswith("spare:") or w.is_space)]
         b.warnings = add_spares(b.board, self.numbering, b.board.phases)
+        add_spaces(b.board, self.numbering)
         self._load_ways(b)
         return True
 
@@ -640,9 +643,9 @@ class Editor(object):
             out.append(Change("fault_level", b.id, text=v["fault_level"]))
         if v["ways"] != s["ways"] and v["ways"]:
             out.append(Change("ways", b.id, text=v["ways"]))
-        if any(v[f] != s[f] for f in ("spares", "spare_at", "spare_af", "spare_device")):
+        if any(v[f] != s[f] for f in ("spares", "spare_at", "spare_af", "spare_device", "spaces")):
             out.append(Change("spares", b.id, count=v["spares"],
-                              rating=self._spare_rating(b)))
+                              rating=self._spare_rating(b), spaces=v["spaces"]))
         return out
 
     def mark_saved(self):

@@ -88,9 +88,9 @@ def test_main_board_details_present():
     lay = sample_layout()
     texts = [t.text for t in lay.drawing.texts]
     for expected in ("MDB-1", "1600AT", "1600AF\nACB", "SPD", "3NO", u"R<1Ω", "TR-01",
-                     "FROM TAQA", "MV CABLE FROM TAQA",
+                     "FROM TAQA", "ADDC\nMETER", "1600A/5A",
                      "1600A,3PH+N+E,50kA FOR 1 SEC\nFORM4-TYPE6\nLOCATION: LV ROOM",
-                     u"(7 SC 630mm²", "POWER FACTOR CORRECTION"):
+                     u"7 SC 630mm² Cu/XLPE/AWA/PVC", "POWER FACTOR CORRECTION"):
         assert expected in texts, expected
     assert ("250A,3PH+N+E,35kA FOR 1 SEC\nFORM 2b, 18 WAYS\nLOCATION: ELEC. ROOM GF-48"
             "\n@ GROUND FLOOR") in texts
@@ -121,9 +121,9 @@ def test_load_names_are_vertical():
 
 
 def test_cable_label():
-    assert _cable_label(u"7 SC 630mm² Cu/XLPE/AWA/PVC") == u"(7 SC 630mm²\nCu/XLPE/AWA/PVC)"
+    assert _cable_label(u"7 SC 630mm² Cu/XLPE/AWA/PVC") == u"7 SC 630mm² Cu/XLPE/AWA/PVC"
     assert _cable_label(u"4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC") == \
-        u"(4Cx4mm² Cu/XLPE/PVC\n+ 1Cx4mm² Cu/XLPE/PVC)"
+        u"4Cx4mm² Cu/XLPE/PVC\n+ 1Cx4mm² Cu/XLPE/PVC"
 
 
 def test_text_box_rotation():
@@ -329,3 +329,15 @@ def test_fit_to_sheet_scales_lines_and_text_together():
     scale_drawing(lay.drawing, f)
     x0, y0, x1, y1 = lay.drawing.bounds()
     assert x1 - x0 <= 841 * 0.78 + 1 or f == 0.5
+
+
+def test_transformer_as_the_office_sld():
+    lay = sample_layout()
+    texts = [t.text for t in lay.drawing.texts]
+    assert texts.count(u"R<1Ω") == 4          # SPD and transformer, on both main boards
+    assert "MV CABLE FROM TAQA" not in texts
+    tr = next(t for t in lay.drawing.texts if t.text == "TR-01")
+    assert tr.align == "left"                  # name block left of the transformer
+    plain = [t.text for t in sample_layout(meter_label="").drawing.texts]
+    assert "ADDC\nMETER" not in plain and "1600A/5A" not in plain
+    assert not overlaps(lay.drawing)

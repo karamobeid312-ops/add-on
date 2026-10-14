@@ -9,6 +9,7 @@ DEFAULTS = {
     "utility": style.DEFAULT_UTILITY,         # FROM TAQA / MV CABLE FROM TAQA
     "substation_label": style.SUBSTATION_LABEL,
     "show_ratings": True,                     # breaker rating + cable along ways
+    "meter_label": style.DEFAULT_METER,       # utility meter under the cable; '' = none
     "numbering": "slots",                     # 'slots' (1, 2, R9...) or 'revit'
     "balance_warn": 10.0,                     # phase unbalance %: amber above
     "balance_bad": 20.0,                      # red above
@@ -44,7 +45,8 @@ def save(values):
 def layout_settings(values):
     return LayoutSettings(utility=values["utility"],
                           substation_label=values["substation_label"],
-                          show_ratings=values["show_ratings"])
+                          show_ratings=values["show_ratings"],
+                          meter_label=values.get("meter_label", style.DEFAULT_METER))
 
 
 # ---------------------------------------------------------------- spares
@@ -57,7 +59,7 @@ def _spares_key(project):
 
 
 def load_spares(project):
-    """{board name: (spare count text, spare rating text)}"""
+    """{board name: (spare count, spare rating, space count)} as text"""
     import json
     try:
         text = _config().get_option(_spares_key(project), "")
@@ -81,3 +83,5 @@ def apply_spares(equipment, spares):
         stored = spares.get(e.name)
         if stored and e.spares in (None, ""):
             e.spares, e.spare_rating = stored[0], stored[1] or e.spare_rating
+        if stored and len(stored) > 2 and stored[2] not in (None, "", "0"):
+            e.spaces = stored[2]
