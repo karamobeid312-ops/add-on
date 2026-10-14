@@ -12,7 +12,7 @@ from __future__ import division
 from sld import cablespec, style
 from sld.model import (DB_BOX, FEEDER, PFC, SPARE, CircuitInfo, Way, add_spares, breaker_lines,
                        frame_rating, is_sub_main, natural_key, parse_amps, parse_protection,
-                       trim_number, way_positions)
+                       trim_number, way_phases, way_positions)
 
 FIELDS = ("at", "af", "device", "runs", "cores", "size", "material", "insulation",
           "armour", "earth", "length")
@@ -110,6 +110,7 @@ class WayItem(object):
         self.spare = way.kind == SPARE
         self.added = c.id.startswith("spare:")
         self.incoming = c.id.startswith(INCOMING)   # main board's cable from the transformer
+        self.phase = ""                 # 'R', 'Y', 'B' or 'RYB' (phase balance)
         self.errors = {}
         self.sized = False              # values set by Auto Size, not saved yet
         self.vd, self.vd_over, self.vd_tip = "", False, ""
@@ -263,7 +264,11 @@ class Editor(object):
         return any(w.incoming for w in self.ways(board_id))
 
     def _load_ways(self, item):
-        ways = [WayItem(w, item.board) for w in item.board.ways if w.circuit is not None]
+        model_ways = [w for w in item.board.ways if w.circuit is not None]
+        ways = [WayItem(w, item.board) for w in model_ways]
+        for w, phase in zip(ways, way_phases([m.circuit for m in model_ways],
+                                             item.board.phases)):
+            w.phase = phase
         incoming = self._incoming_way(item)
         if incoming is not None:
             ways.insert(0, incoming)

@@ -25,7 +25,8 @@ NUMBERING = studio.NUMBERING
 COLUMNS = (
     ("label", "Way", 45, "ro"), ("feeds", "Feeds", 170, "ro"),
     ("at", "AT", 60, "combo"), ("af", "AF", 60, "combo"), ("device", "Type", 70, "combo"),
-    ("poles", "Poles", 45, "ro"), ("runs", "Runs", 45, "combo"),
+    ("poles", "Poles", 45, "ro"), ("phase", "Phase", 50, "ro"),
+    ("runs", "Runs", 45, "combo"),
     ("cores", "Cores", 50, "combo"), ("size", u"Size mm²", 70, "combo"),
     ("material", "Cu/Al", 55, "combo"), ("insulation", "Insulation", 75, "combo"),
     ("armour", "Armour", 65, "combo"), ("earth", u"Earth mm²", 75, "combo"),
@@ -40,7 +41,7 @@ BOARD_CONTROLS = (("IncomerAT", "incomer_at"), ("IncomerAF", "incomer_af"),
                   ("FedBy", "fed_by"), ("TxVd", "tx_vd"))
 NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "BoardsTree", "BoardTitle", "BoardChip", "BoardChipText", "BoardWays",
-         "KpiConnected", "KpiDemand", "KpiIncomer", "KpiVd",
+         "KpiConnected", "KpiDemand", "KpiIncomer", "KpiVd", "KpiBalance", "KpiBalanceSub",
          "WaysGrid", "PreviewText", "WarningsText", "SaveButton", "AutoSizeButton",
          "ReportButton", "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare",
          "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
@@ -100,7 +101,7 @@ def themed_xaml():
 def row_values(way):
     """{data column: text} for a ways grid row."""
     values = {"key": way.key, "label": way.label, "feeds": way.feeds, "poles": way.poles,
-              "vd": way.vd, "vd_state": studio.way_state(way)}
+              "phase": way.phase, "vd": way.vd, "vd_state": studio.way_state(way)}
     for field in ed.FIELDS:
         values[field] = way.values.get(field, "")
     return values
@@ -177,6 +178,7 @@ class EditorWindow(object):
     def __init__(self, editor, sld_values, vd_values, actions, model_text=u""):
         self.editor = editor
         self.sld_values = dict(sld_values)
+        studio.set_balance_limits(editor, self.sld_values)
         self.vd_values = dict(vd_values)
         self.actions = actions
         self.action = "close"
@@ -403,6 +405,10 @@ class EditorWindow(object):
         self.KpiVd.Text = s["worst_vd"]
         self.KpiVd.Foreground = ui.state_brushes(self.win, s["worst_state"])[0] \
             if s["worst_state"] else ui.brush(self.win, "TextBrush")
+        self.KpiBalance.Text = s["balance"]
+        self.KpiBalance.Foreground = ui.state_brushes(self.win, s["balance_state"])[0] \
+            if s["balance_state"] else ui.brush(self.win, "TextBrush")
+        self.KpiBalanceSub.Text = s["balance_sub"]
         self.BoardWays.Text = s["ways"]
         self._paint_chip(self.BoardChip, self.BoardChipText, s["state"],
                          STATE_TEXT.get(s["state"], u""))
@@ -662,6 +668,7 @@ class EditorWindow(object):
         reload = studio.needs_reload(self.sld_values, self.vd_values, sld_values, vd_values)
         self.actions["settings"](sld_values, vd_values)
         self.sld_values, self.vd_values = sld_values, vd_values
+        studio.set_balance_limits(self.editor, sld_values)
         if reload:
             if self.editor.dirty():
                 answer = self._alert(u"These settings are read with the model, so the window "

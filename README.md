@@ -40,12 +40,22 @@ Everything is on one **Electrical** ribbon tab, with four panels:
 tab's shared look (dark header, amber for power, green / amber / red status
 everywhere). Its footer holds Close, **Auto Size**, **Export V.D report**,
 **Save to Revit** and **Draw SLD**; the footer line lists what needs a look.
+**Draw SLD** updates the drafting view "LV Schematic Diagram" in place (it
+stays on its sheets): only the tool's own drawing (lines in its "SLD ..."
+line styles, text in its "SLD ..." text types) is replaced, anything added
+by hand stays. A view drawn by an older version is cleared once. Settings
+→ "Draw SLD in a new view each time" brings back a new view per run.
 
 1. **Boards and ways** – the boards tree on the left, each board with a
    green (OK), amber (check the board: too many ways) or red (a way is over
    the V.D limit or has a wrong value) dot. Above the selected board's ways:
-   tiles with its connected load, demand load, incomer and the worst V.D on
-   its ways. The ways are in a table you can edit: breaker AT /
+   tiles with its connected load, demand load, incomer, the worst V.D on
+   its ways and its **phase unbalance** (connected kW on R, Y and B: a
+   single-pole way on its phase as numbered R9 / Y9 / B9, a three-pole way a
+   third on each; unbalance = the largest phase's difference from the
+   average; amber above 10 %, red above 20 %, both in Settings, and the
+   board's dot follows). The phase is not drawn on the SLD. The ways are in
+   a table you can edit (a Phase column shows R / Y / B / RYB): breaker AT /
   AF / type, cable runs, cores, size, Cu/Al, insulation, armour, earth size
   and length. The V.D % is worked out again with the Voltage Drop tool as you
   type (a green / red chip), and a preview line shows the cable as it prints:

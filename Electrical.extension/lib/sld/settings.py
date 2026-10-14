@@ -10,6 +10,9 @@ DEFAULTS = {
     "substation_label": style.SUBSTATION_LABEL,
     "show_ratings": True,                     # breaker rating + cable along ways
     "numbering": "slots",                     # 'slots' (1, 2, R9...) or 'revit'
+    "balance_warn": 10.0,                     # phase unbalance %: amber above
+    "balance_bad": 20.0,                      # red above
+    "new_view": False,                        # Draw SLD: new view each time
 }
 
 

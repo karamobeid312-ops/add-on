@@ -24,14 +24,18 @@ def _kw(value):
 
 
 def board_state(editor, board_id):
-    """Red when a way is over the V.D limit or has a wrong value, amber for
-    a board warning (too many ways, spares), else green."""
+    """Red when a way is over the V.D limit or has a wrong value, or the
+    phases are unbalanced past the red limit; amber for a board warning
+    (too many ways, spares) or an unbalance past the amber limit; else green."""
     b = editor.board(board_id)
     ways = editor.ways(board_id)
     if any(w.vd_over or w.errors for w in ways) or b.errors:
         return BAD
-    if b.warnings or (is_sub_main(b.board) and
-                      way_positions(b.board.ways, b.board.phases) > style.MAX_WAYS):
+    balance = balance_summary(editor, board_id)[2]
+    if balance == BAD:
+        return BAD
+    if b.warnings or balance == WARN or (is_sub_main(b.board) and
+                                         way_positions(b.board.ways, b.board.phases) > style.MAX_WAYS):
         return WARN
     return OK
 
@@ -70,6 +74,7 @@ def board_summary(editor, board_id):
     connected = totals[0] if totals else None
     demand = totals[2] if totals else None
     vd_text, vd_state = worst_vd(editor, board_id)
+    balance = balance_summary(editor, board_id)
     ways = [w for w in editor.ways(board_id)]
     return {
         "connected": _kw(connected),
@@ -80,6 +85,7 @@ def board_summary(editor, board_id):
         "ways": u"%d ways, %d spare" % (sum(1 for w in ways if not w.incoming),
                                          sum(1 for w in ways if w.spare)),
         "state": board_state(editor, board_id),
+        "balance": balance[0], "balance_sub": balance[1], "balance_state": balance[2],
     }
 
 
@@ -92,6 +98,81 @@ def way_state(way):
     if way.vd == "n/a" or way.vd_partial:
         return WARN
     return OK
+
+
+# ---------------------------------------------------------------- phase balance
+
+BALANCE_WARN = 10.0     # % unbalance: amber above this
+BALANCE_BAD = 20.0      # red above this
+
+
+def phase_loads(editor, board_id):
+    """Connected kW on R, Y and B: a single-pole way on its phase, a
+    three-pole way (or sub-board) a third on each. Each fed board counted
+    once. None when the board is single phase or no load is known."""
+    b = editor.board(board_id)
+    if b.board.phases != 3:
+        return None
+    loads, seen, known = {"R": 0.0, "Y": 0.0, "B": 0.0}, set(), False
+    for w in editor.ways(board_id):
+        if w.incoming or not w.phase:
+            continue
+        if w.target_id is not None:
+            if w.target_id in seen:
+                continue
+            seen.add(w.target_id)
+        connected = w.way.loads()[0]
+        if connected is None:
+            continue
+        known = True
+        for p in w.phase:
+            loads[p] += connected / len(w.phase)
+    return loads if known else None
+
+
+def unbalance(loads):
+    """Largest phase's departure from the average, % of the average."""
+    if not loads:
+        return None
+    average = sum(loads.values()) / 3.0
+    if average <= 0:
+        return None
+    return max(abs(v - average) for v in loads.values()) / average * 100.0
+
+
+def balance_state(percent, warn=BALANCE_WARN, bad=BALANCE_BAD):
+    if percent is None:
+        return NONE
+    if percent > bad:
+        return BAD
+    return WARN if percent > warn else OK
+
+
+def set_balance_limits(editor, sld_values):
+    """The amber/red unbalance limits from the settings, kept on the editor."""
+    def number(key, default):
+        try:
+            return float(sld_values.get(key, default))
+        except (TypeError, ValueError):
+            return default
+    editor.balance_limits = (number("balance_warn", BALANCE_WARN),
+                             number("balance_bad", BALANCE_BAD))
+
+
+def _limits(editor):
+    return getattr(editor, "balance_limits", (BALANCE_WARN, BALANCE_BAD))
+
+
+def balance_summary(editor, board_id):
+    """(tile text, sub text, state) of the board's phase balance."""
+    warn, bad = _limits(editor)
+    loads = phase_loads(editor, board_id)
+    percent = unbalance(loads)
+    if percent is None:
+        return u"–", u"Single phase" if editor.board(board_id).board.phases != 3 else u"", NONE
+    text = u"%.0f %%" % percent
+    sub = u"R %s · Y %s · B %s kW" % tuple(format_number(loads[p], 1) for p in "RYB")
+    return text, sub, balance_state(percent, warn, bad)
 
 
 # ---------------------------------------------------------------- voltage drop
@@ -182,6 +263,9 @@ SETTINGS = (
     (SLD, "substation_label", "Bottom band label", "", "text"),
     (SLD, "show_ratings", "Print breaker rating and cable along each way", "", "check"),
     (SLD, "numbering", "Way numbering", "", "choice"),
+    (SLD, "balance_warn", "Phase unbalance shown amber above", "%", "number"),
+    (SLD, "balance_bad", "Phase unbalance shown red above", "%", "number"),
+    (SLD, "new_view", "Draw SLD in a new view each time (else update the same view)", "", "check"),
     (VD, "voltage_3ph", "Three phase voltage", "V", "number"),
     (VD, "voltage_1ph", "Single phase voltage", "V", "number"),
     (VD, "voltage_source", "Voltage used", "", "choice"),
@@ -254,6 +338,14 @@ def read(key, shown_value):
     if key in ("utility", "substation_label"):
         return text.upper()
     if group_of(key) == SLD:
+        if kind == "number":
+            try:
+                value = float(text.replace(",", "."))
+            except ValueError:
+                raise ValueError(u"'%s' is not a number" % text)
+            if not 0 < value < 100:
+                raise ValueError(u"'%s' must be between 0 and 100" % text)
+            return value
         return text
     if kind == "number":
         text = text.replace(",", ".")

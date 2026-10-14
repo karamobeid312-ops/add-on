@@ -467,6 +467,28 @@ def way_labels(circuits, phases=3, numbering="slots"):
     return labels
 
 
+def way_phases(circuits, phases=3):
+    """Phase(s) of each circuit, in slot order, as the ways are numbered
+    (R9, Y9, B9): 'R', 'Y' or 'B' for a single-pole circuit, 'RYB' for a
+    three-pole one; '' on a single-phase board."""
+    if phases != 3:
+        return ["" for _ in circuits]
+    out, phase = [], 3
+    for c in circuits:
+        try:
+            poles = int(c.poles)
+        except (TypeError, ValueError):
+            poles = 3
+        if poles == 1:
+            phase = 0 if phase >= 3 else phase
+            out.append("RYB"[phase])
+            phase += 1
+        else:
+            phase = 3
+            out.append("RYB")
+    return out
+
+
 def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transformer):
     if eq.symbol in _SYMBOL_ROLES:
         return _SYMBOL_ROLES[eq.symbol]

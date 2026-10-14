@@ -89,3 +89,52 @@ def test_settings_form_errors_and_reload():
     assert new_vd["load_basis"] == "TCL" and studio.needs_reload(sld, vd, sld, new_vd)
     new_sld, _, _ = studio.apply_settings(sld, vd, {"utility": " taqa ", "show_ratings": False})
     assert new_sld["utility"] == "TAQA" and new_sld["show_ratings"] is False
+
+
+def _single_pole_board(kws):
+    from sld.editor import Editor
+    from sld.model import CircuitInfo, EquipmentInfo, build_schematic
+    equipment = [EquipmentInfo("DB-1", "SMDB-1")]
+    circuits = [CircuitInfo("c%d" % i, "DB-1", str(i + 1), "L%d" % i, rating="10 A", poles="1",
+                            start_slot=i + 1, branch_load_count=1, connected_kw=kw)
+                for i, kw in enumerate(kws)]
+    circuits.append(CircuitInfo("c3p", "DB-1", "20", "AC", rating="32 A", poles="3",
+                                start_slot=20, branch_load_count=1, connected_kw=3.0))
+    return Editor(build_schematic(equipment, circuits, spares=False), None)
+
+
+def test_way_phases_follow_way_numbering():
+    from sld.model import CircuitInfo, way_phases
+    poles = ["1", "1", "3", "1", "1", "1", "1"]
+    circuits = [CircuitInfo("c%d" % i, "DB", str(i), poles=p) for i, p in enumerate(poles)]
+    assert way_phases(circuits) == ["R", "Y", "RYB", "R", "Y", "B", "R"]
+    assert way_phases(circuits, phases=1) == [""] * len(poles)
+
+
+def test_phase_loads_and_unbalance():
+    editor = _single_pole_board([2.0, 1.0, 1.0])     # R 2, Y 1, B 1, plus 1 each from the 3-pole
+    ways = editor.ways("DB-1")
+    assert [w.phase for w in ways] == ["R", "Y", "B", "RYB"]
+    loads = studio.phase_loads(editor, "DB-1")
+    assert loads == {"R": 3.0, "Y": 2.0, "B": 2.0}
+    assert studio.unbalance(loads) == pytest.approx(28.57, abs=0.01)
+    text, sub, state = studio.balance_summary(editor, "DB-1")
+    assert text == u"29 %" and sub == u"R 3 · Y 2 · B 2 kW" and state == "bad"
+    assert studio.board_state(editor, "DB-1") == "bad"
+    studio.set_balance_limits(editor, {"balance_warn": 20.0, "balance_bad": 30.0})
+    assert studio.board_state(editor, "DB-1") == "warn"
+    assert studio.board_summary(editor, "DB-1")["balance_state"] == "warn"
+
+
+def test_balanced_board_is_green():
+    editor = _single_pole_board([1.0, 1.0, 1.0])
+    assert studio.balance_summary(editor, "DB-1")[2] == "ok"
+    assert studio.board_state(editor, "DB-1") == "ok"
+
+
+def test_balance_settings_read_as_numbers():
+    sld, vd, errors = studio.apply_settings(sld_settings.DEFAULTS, vd_settings.DEFAULTS,
+                                            {"balance_warn": "12,5", "balance_bad": "abc",
+                                             "new_view": True})
+    assert sld["balance_warn"] == 12.5 and sld["balance_bad"] == 20.0 and sld["new_view"] is True
+    assert len(errors) == 1

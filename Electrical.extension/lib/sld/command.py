@@ -138,10 +138,10 @@ def run():
 
     from sld.revit_sld import generate
     view, schematic = generate(doc, settings.layout_settings(sld_values),
-                               sld_values["numbering"])
+                               sld_values["numbering"], bool(sld_values.get("new_view")))
     if view is None:
         forms.alert("No electrical equipment was found in this model.", exitscript=True)
     revit.uidoc.ActiveView = view
     if schematic.warnings:
-        forms.alert("Diagram created in '%s' with %d warning(s):" % (view.Name, len(schematic.warnings)),
+        forms.alert("Diagram drawn in '%s' with %d warning(s):" % (view.Name, len(schematic.warnings)),
                     expanded="\n".join(schematic.warnings))

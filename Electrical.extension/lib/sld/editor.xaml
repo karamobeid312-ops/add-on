@@ -163,7 +163,7 @@
               <TextBlock/>
             </DockPanel>
 
-            <UniformGrid DockPanel.Dock="Top" Rows="1" Columns="4" Margin="0,0,-8,8">
+            <UniformGrid DockPanel.Dock="Top" Rows="1" Columns="5" Margin="0,0,-8,8">
               <Border Style="{StaticResource Tile}">
                 <StackPanel>
                   <TextBlock Text="CONNECTED LOAD" Style="{StaticResource TileLabel}"/>
@@ -186,6 +186,15 @@
                 <StackPanel>
                   <TextBlock Text="WORST V.D ON ITS WAYS" Style="{StaticResource TileLabel}"/>
                   <TextBlock x:Name="KpiVd" Style="{StaticResource TileValue}"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Tile}"
+                      ToolTip="Connected load on each phase: a single-pole way on its phase, a three-pole way a third on each. Unbalance = largest phase's difference from the average.">
+                <StackPanel>
+                  <TextBlock Text="PHASE UNBALANCE" Style="{StaticResource TileLabel}"/>
+                  <TextBlock x:Name="KpiBalance" Style="{StaticResource TileValue}"/>
+                  <TextBlock x:Name="KpiBalanceSub" Style="{StaticResource Muted}" FontSize="11"
+                             TextWrapping="NoWrap"/>
                 </StackPanel>
               </Border>
             </UniformGrid>
