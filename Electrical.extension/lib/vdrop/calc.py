@@ -72,7 +72,7 @@ class Feeder(object):
     def __init__(self, id, source_id, source, target, target_id=None, length=None,
                  phases=3, voltage=None, tcl_kw=None, mdl_kw=None, power_factor=None,
                  breaker=None, installation=None, cable=None, source_kind=BOARD,
-                 order=None, ref=None, notes=None):
+                 order=None, ref=None, notes=None, typed_vd=None):
         self.id = id
         self.source_id = source_id
         self.source = source or ""
@@ -91,6 +91,12 @@ class Feeder(object):
         self.order = order        # sort key among the cables of a board
         self.ref = ref            # Revit element id, for links
         self.notes = list(notes or [])
+        self.typed_vd = typed_vd  # V.D % typed by hand (transformer cable), used as is
+
+
+# problems a V.D typed by hand makes irrelevant
+_TYPED_VD_SKIPS = ("no VD Length", "no cable size", "no wire size", "wire size", "no rating",
+                   "no mV/A/m", "VD Cable", "VD Length")
 
 
 class Row(object):
@@ -266,6 +272,12 @@ def calculate_row(row, settings):
         row.vd_volts = row.mv_row * f.length * row.current / 1000.0
         row.vd_percent = row.vd_volts / row.voltage * 100.0
 
+    if f.typed_vd is not None:
+        row.vd_percent = f.typed_vd
+        row.vd_volts = None
+        row.problems = [p for p in row.problems if not p.startswith(_TYPED_VD_SKIPS)]
+        row.suggestions.append(u"V.D %s%% typed" % format_number(f.typed_vd))
+
     if f.breaker is not None and row.current is not None:
         row.breaker_ok = f.breaker >= 1.1 * row.current - EPS
     needed = f.breaker if f.breaker is not None else row.current
@@ -304,7 +316,7 @@ def suggest(row):
     needed = needed or row.current
     too_small = row.cable_ok is False or (
         row.capacity is not None and needed is not None and row.capacity < needed - EPS)
-    fix_vd = row.vd_ok is False
+    fix_vd = row.vd_ok is False and row.feeder.typed_vd is None
     if fix_vd and row.upstream >= row.limit - EPS:
         row.suggestions.append("already over the limit upstream")
         fix_vd = False

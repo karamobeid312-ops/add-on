@@ -28,7 +28,7 @@ def board_state(editor, board_id):
     a board warning (too many ways, spares), else green."""
     b = editor.board(board_id)
     ways = editor.ways(board_id)
-    if any(w.vd_over or w.errors for w in ways):
+    if any(w.vd_over or w.errors for w in ways) or b.errors:
         return BAD
     if b.warnings or (is_sub_main(b.board) and
                       way_positions(b.board.ways, b.board.phases) > style.MAX_WAYS):
@@ -77,7 +77,8 @@ def board_summary(editor, board_id):
         "incomer": _incomer_text(b.values),
         "worst_vd": vd_text,
         "worst_state": vd_state,
-        "ways": u"%d ways, %d spare" % (len(ways), sum(1 for w in ways if w.spare)),
+        "ways": u"%d ways, %d spare" % (sum(1 for w in ways if not w.incoming),
+                                         sum(1 for w in ways if w.spare)),
         "state": board_state(editor, board_id),
     }
 
@@ -88,7 +89,7 @@ def way_state(way):
         return BAD
     if way.vd in ("", None):
         return NONE
-    if way.vd == "n/a":
+    if way.vd == "n/a" or way.vd_partial:
         return WARN
     return OK
 

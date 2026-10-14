@@ -10,16 +10,16 @@ what Save to Revit has to write (see revit_edit).
 from __future__ import division
 
 from sld import cablespec, style
-from sld.model import (DB_BOX, FEEDER, PFC, SPARE, add_spares, breaker_lines, frame_rating,
-                       is_sub_main, natural_key, parse_amps, parse_protection, trim_number,
-                       way_positions)
+from sld.model import (DB_BOX, FEEDER, PFC, SPARE, CircuitInfo, Way, add_spares, breaker_lines,
+                       frame_rating, is_sub_main, natural_key, parse_amps, parse_protection,
+                       trim_number, way_positions)
 
 FIELDS = ("at", "af", "device", "runs", "cores", "size", "material", "insulation",
           "armour", "earth", "length")
 CABLE_FIELDS = ("runs", "cores", "size", "material", "insulation", "armour", "earth")
 BREAKER_FIELDS = ("at", "af", "device")
 BOARD_FIELDS = ("incomer_at", "incomer_af", "incomer_device", "fault_level", "ways",
-                "spares", "spare_at", "spare_af", "spare_device", "fed_by")
+                "spares", "spare_at", "spare_af", "spare_device", "fed_by", "tx_vd")
 
 TRIPS = ("6", "10", "16", "20", "25", "32", "40", "50", "63", "80", "100", "125", "160",
          "200", "250", "315", "400", "500", "630", "800", "1000", "1250", "1600", "2000",
@@ -39,6 +39,9 @@ CHOICES["incomer_at"], CHOICES["spare_at"] = TRIPS, TRIPS
 CHOICES["incomer_af"] = CHOICES["spare_af"] = CHOICES["af"]
 CHOICES["incomer_device"] = CHOICES["spare_device"] = DEVICES
 CHOICES["fault_level"] = ("6kA", "10kA", "16kA", "25kA", "35kA", "50kA", "65kA")
+INCOMING = "incoming:"            # key of a main board's cable from the transformer
+INCOMING_LABEL = "TX"
+INCOMING_NAME = "FROM TRANSFORMER"
 _TEXT = ("material", "insulation", "armour", "device", "incomer_device", "spare_device")
 
 
@@ -106,9 +109,11 @@ class WayItem(object):
         self.poles = _poles_text(c.poles)
         self.spare = way.kind == SPARE
         self.added = c.id.startswith("spare:")
+        self.incoming = c.id.startswith(INCOMING)   # main board's cable from the transformer
         self.errors = {}
         self.sized = False              # values set by Auto Size, not saved yet
         self.vd, self.vd_over, self.vd_tip = "", False, ""
+        self.vd_partial = False         # only this cable's V.D: the total is not known
         trip, frame, device = self._breaker()
         self.values = {"at": _num(trip), "af": _num(frame or frame_rating(trip)),
                        "device": device or style.WAY_DEVICE,
@@ -196,8 +201,10 @@ class BoardItem(object):
             "spare_at": _num(s_trip), "spare_af": _num(s_frame or frame_rating(s_trip)),
             "spare_device": s_device or (style.WAY_DEVICE if s_trip else ""),
             "fed_by": e.fed_by or "",
+            "tx_vd": "",                # V.D % of the transformer cable, typed by hand
         }
         self.saved = dict(self.values)
+        self.errors = {}
 
 
 class Editor(object):
@@ -209,6 +216,7 @@ class Editor(object):
         self.numbering = numbering
         self.vd = vd or None
         self.result = None              # vdrop.calc.Result of the values shown
+        self._made = []                 # transformer rows added here (not in the model)
         self.boards, self.roots, self._ways, self._by_key = [], [], {}, {}
         for root in schematic.roots:
             self.roots.append(self._add_board(root, 0, None))
@@ -222,8 +230,43 @@ class Editor(object):
             item.children.append(self._add_board(child, depth + 1, board.id))
         return item
 
+    def _vd_feeder(self, feeder_id):
+        if not self.vd:
+            return None
+        return next((f for f in self.vd["feeders"] if f.id == feeder_id), None)
+
+    def _incoming_way(self, item):
+        """A main board fed straight from the transformer gets a first row
+        for that cable (length, cable, its incomer as the breaker), saved on
+        the board (Feeder_Length_m, Feeder_Size / Feeder_Type)."""
+        b = item.board
+        if item.virtual or not b.is_main or b.feed_way is not None or \
+                b.feed_pass_through is not None:
+            return None
+        f = self._vd_feeder(b.id)
+        name = u"FROM %s" % b.transformer.name if b.transformer is not None else INCOMING_NAME
+        circuit = CircuitInfo(INCOMING + b.id, None, load_name=name, poles="3",
+                              length_m=f.length if f is not None else None)
+        w = WayItem(Way(circuit, FEEDER, INCOMING_LABEL, name, target=b.equipment), b)
+        if f is not None and f.typed_vd is not None and w.key not in self._by_key:
+            item.values["tx_vd"] = item.saved["tx_vd"] = trim_number(f.typed_vd, 2)
+        spec = cablespec.from_vd(f.cable) if f is not None else None
+        if spec is None and b.equipment.incoming_cable:
+            spec = cablespec.parse(b.equipment.incoming_cable)
+        if spec is not None:
+            w.spec = spec
+            w.values.update(_cable_values(spec))
+            w.saved = dict(w.values)
+        return w
+
+    def has_incoming(self, board_id):
+        return any(w.incoming for w in self.ways(board_id))
+
     def _load_ways(self, item):
         ways = [WayItem(w, item.board) for w in item.board.ways if w.circuit is not None]
+        incoming = self._incoming_way(item)
+        if incoming is not None:
+            ways.insert(0, incoming)
         old = dict((w.key, w) for w in self._ways.get(item.id, []))
         for w in ways:
             if w.key in old and not w.added:     # keep what was typed
@@ -289,7 +332,24 @@ class Editor(object):
             self.set_way(feed.key, field[len("incomer_"):], text)
             b.values[field] = feed.values[field[len("incomer_"):]]
             return False
+        if field == "tx_vd":
+            b.errors.pop(field, None)
+            if text:
+                try:
+                    text = trim_number(_number(text.rstrip("%").strip()), 2)
+                except ValueError as error:
+                    b.errors[field] = u"transformer V.D %s: %s" % (text, error)
+            b.values[field] = text
+            self._recalculate()
+            return False
         b.values[field] = text
+        if field.startswith("incomer_"):
+            # a main board's incomer is also the breaker of its transformer cable row
+            incoming = next((w for w in self.ways(board_id) if w.incoming), None)
+            if incoming is not None:
+                incoming.values[field[len("incomer_"):]] = text
+                self._recalculate()
+            return False
         if field not in ("spares", "spare_at", "spare_af", "spare_device"):
             return False
         e = b.board.equipment
@@ -314,7 +374,7 @@ class Editor(object):
 
     def _feeding_way(self, board_id):
         return next((w for w in self._by_key.values() if w.target_id == board_id and
-                     not w.added), None)
+                     not w.added and not w.incoming), None)
 
     def _spare_rating(self, b):
         v = b.values
@@ -395,6 +455,8 @@ class Editor(object):
     # ------------------------------------------------------------ voltage drop
 
     def _feeder_id(self, w, by_id):
+        if w.incoming:
+            return w.target_id
         if w.target_id and w.target_id in by_id:
             return w.target_id
         return w.key
@@ -404,6 +466,23 @@ class Editor(object):
         if self.vd:
             self.vd["settings"] = calc_settings
             self._recalculate()
+
+    def _incoming_feeder(self, w, length):
+        """The V.D row of a main board's cable from the transformer, as the
+        Voltage Drop tool reads it once Feeder_Length_m is on the board."""
+        from vdrop import calc
+        totals = w.board.load_totals()
+        connected = totals[0] if totals else None
+        demand = totals[2] if totals and self.vd.get("load_basis", calc.MDL) == calc.MDL \
+            else None
+        if connected is None:       # the board's own cables then
+            loads = [f.tcl_kw for f in self.vd["feeders"]
+                     if f.source_id == w.target_id and f.tcl_kw]
+            connected = sum(loads) if loads else None
+        return calc.Feeder(
+            w.target_id, "TR:%s" % w.target_id, "TR", w.board.name, target_id=w.target_id,
+            length=length, phases=3, tcl_kw=connected, mdl_kw=demand,
+            source_kind=calc.TRANSFORMER)
 
     def _recalculate(self):
         if not self.vd:
@@ -416,6 +495,27 @@ class Editor(object):
                 continue
             fid = self._feeder_id(w, by_id)
             f = by_id.get(fid)
+            typed = None
+            if w.incoming:
+                b = self.board(w.target_id)
+                typed = None if b.errors.get("tx_vd") else _try(_number, b.values["tx_vd"])
+            if w.incoming and f is not None and f in self._made and typed is None and \
+                    _try(_number, w.values["length"]) is None:
+                feeders.remove(f)        # nothing left to calculate it with
+                del by_id[fid]
+                self._made.remove(f)
+                f = None
+                w.vd, w.vd_over, w.vd_partial, w.vd_tip = "", False, False, ""
+            if f is None and w.incoming:
+                length = _try(_number, w.values["length"])
+                if length is None and typed is None:
+                    continue
+                f = self._incoming_feeder(w, length)
+                feeders.append(f)
+                by_id[fid] = f
+                self._made.append(f)
+            if w.incoming:
+                f.typed_vd = typed
             if f is None:
                 length = _try(_number, w.values["length"])
                 if length is None or w.target_id:
@@ -447,16 +547,22 @@ class Editor(object):
             r = rows.get(self._feeder_id(w, by_id))
             if r is None or w.spare:
                 continue
+            w.vd_partial = r.total_percent is None and r.vd_percent is not None
             if r.total_percent is None:
-                w.vd, w.vd_over = "n/a", False
+                # this cable's own V.D when the cables above it are not complete
+                w.vd = "%.2f own" % r.vd_percent if w.vd_partial else "n/a"
+                w.vd_over = False
             else:
                 w.vd, w.vd_over = "%.2f" % r.total_percent, r.vd_ok is False
             tip = []
             if r.vd_percent is not None:
                 tip.append(u"This cable %.2f%%, limit %s%%" % (r.vd_percent,
                                                               trim_number(r.limit, 2)))
+            if w.vd_partial:
+                tip.append(u"No total yet: a cable above this one is incomplete "
+                           u"(see the Voltage drop step).")
             try:
-                tip += list(r.remarks())
+                tip.append(r.remarks())
             except Exception:
                 pass
             w.vd_tip = u"\n".join(t for t in tip if t)
@@ -467,6 +573,7 @@ class Editor(object):
         out = []
         for b in self.boards:
             out += b.warnings
+            out += [u"%s: %s" % (b.name, m) for m in b.errors.values()]
             if is_sub_main(b.board) and way_positions(b.board.ways, b.board.phases) > \
                     style.MAX_WAYS:
                 out.append(u"%s has more than %d ways." % (b.name, style.MAX_WAYS))
@@ -489,22 +596,24 @@ class Editor(object):
             for w in self.ways(b.id):
                 if w.added:
                     continue
+                circuit_id = None if w.incoming else w.key
                 v, s = w.values, w.saved
-                if any(v[f] != s[f] for f in BREAKER_FIELDS):
+                if any(v[f] != s[f] for f in BREAKER_FIELDS) and not w.incoming:
+                    # (a main board's: saved as its incomer, see _board_changes)
                     trip, frame, device = w.breaker()
                     key = ("breaker", w.target_id or w.key)
                     if trip is not None and key not in seen:
                         seen.add(key)
-                        out.append(Change("breaker", w.target_id, w.key, trip=trip,
+                        out.append(Change("breaker", w.target_id, circuit_id, trip=trip,
                                           frame=frame, device=v["device"]))
                 if any(v[f] != s[f] for f in CABLE_FIELDS):
                     spec = w.cable()
                     if spec is not None:
-                        out.append(Change("cable", w.target_id, w.key, text=spec.text()))
+                        out.append(Change("cable", w.target_id, circuit_id, text=spec.text()))
                 if v["length"] != s["length"]:
                     length = _try(_number, v["length"])
                     if length is not None:
-                        out.append(Change("length", w.target_id, w.key, length=length))
+                        out.append(Change("length", w.target_id, circuit_id, length=length))
         return out
 
     def _board_changes(self, b):
@@ -513,6 +622,8 @@ class Editor(object):
             return out
         if v["fed_by"] != s["fed_by"]:
             out.append(Change("fed_by", b.id, text=v["fed_by"]))
+        if v["tx_vd"] != s["tx_vd"] and not b.errors.get("tx_vd"):
+            out.append(Change("tx_vd", b.id, value=_try(_number, v["tx_vd"])))
         if any(v[f] != s[f] for f in ("incomer_at", "incomer_af", "incomer_device")) and \
                 self._feeding_way(b.id) is None:     # else saved as the way's breaker
             trip = _try(_number, v["incomer_at"])

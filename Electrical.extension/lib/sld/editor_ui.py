@@ -29,7 +29,7 @@ COLUMNS = (
     ("cores", "Cores", 50, "combo"), ("size", u"Size mm²", 70, "combo"),
     ("material", "Cu/Al", 55, "combo"), ("insulation", "Insulation", 75, "combo"),
     ("armour", "Armour", 65, "combo"), ("earth", u"Earth mm²", 75, "combo"),
-    ("length", "Length m", 70, "text"), ("vd", "V.D %", 75, "vd"),
+    ("length", "Length m", 70, "text"), ("vd", "V.D %", 90, "vd"),
 )
 HIDDEN = ("key", "vd_state")
 FLAGS = ("vd_over", "locked", "sized")
@@ -37,7 +37,7 @@ BOARD_CONTROLS = (("IncomerAT", "incomer_at"), ("IncomerAF", "incomer_af"),
                   ("IncomerDevice", "incomer_device"), ("FaultLevel", "fault_level"),
                   ("WaysCount", "ways"), ("SpareCount", "spares"), ("SpareAT", "spare_at"),
                   ("SpareAF", "spare_af"), ("SpareDevice", "spare_device"),
-                  ("FedBy", "fed_by"))
+                  ("FedBy", "fed_by"), ("TxVd", "tx_vd"))
 NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "BoardsTree", "BoardTitle", "BoardChip", "BoardChipText", "BoardWays",
          "KpiConnected", "KpiDemand", "KpiIncomer", "KpiVd",
@@ -372,6 +372,7 @@ class EditorWindow(object):
             for name, field in BOARD_CONTROLS:
                 getattr(self, name).Text = board.values.get(field, "")
             self.FedBy.IsEnabled = self.editor.fed_by_editable(board_id)
+            self.TxVd.IsEnabled = self.editor.has_incoming(board_id)
         finally:
             self._busy = False
         table = DataTable("Ways")

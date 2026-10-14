@@ -226,6 +226,10 @@
                 <ComboBox x:Name="FedBy" Width="140" Style="{StaticResource EditCombo}"
                           ItemsSource="{DynamicResource ch_fed_by}"
                           ToolTip="For a board no circuit in this model feeds (its MDB is in another link): the board feeding it, saved to Fed_By. A name not in this model is drawn as that MDB, built from the boards it feeds."/>
+                <TextBlock Text="Transformer V.D %" Style="{StaticResource FieldLabel}"
+                           Margin="16,0,4,0"/>
+                <TextBox x:Name="TxVd" Width="50"
+                         ToolTip="Main boards: the voltage drop of the cable from the transformer, typed by hand (e.g. 0.8). Used instead of working it out from the TX row, and the totals below start from it. Saved to the board's VD Percent."/>
               </WrapPanel>
             </Border>
 
