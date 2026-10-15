@@ -560,8 +560,8 @@ The **Circuits** panel of the **Electrical** tab:
   of the same kind. Then pick which circuits to copy: Lighting,
   Power, Data... (a circuit of lighting fixtures and devices only is
   Lighting), by the family they feed (`Feeding FCU Socket`), those shown
-  in the active plan, or one by one (the list's search finds a panel,
-  load name or family). Select
+  in the active plan, by clicking their fixtures in the model, or one by
+  one (the list's search finds a panel, load name or family). Select
   fixtures, circuits or panels first to copy only their circuits. The new circuits are selected in Revit, and
   pyRevit's output window lists, per floor, what was made and what was
   not, and why. One Undo takes it all back.
