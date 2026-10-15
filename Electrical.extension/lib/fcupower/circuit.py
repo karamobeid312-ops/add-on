@@ -68,6 +68,45 @@ def tag_types(doc):
     return types, best
 
 
+def _power_systems(element):
+    try:
+        systems = element.MEPModel.GetElectricalSystems()
+    except Exception:
+        try:
+            systems = element.MEPModel.ElectricalSystems
+        except Exception:
+            return []
+    try:
+        return [s for s in systems if s.SystemType == ElectricalSystemType.PowerCircuit]
+    except Exception:
+        return []
+
+
+def panel_name(element):
+    """Name of the panel the outlet's circuit is on, or ''."""
+    for system in _power_systems(element):
+        try:
+            if system.BaseEquipment is not None:
+                return (_text(system.BaseEquipment, BuiltInParameter.RBS_ELEC_PANEL_NAME) or u"").strip()
+        except Exception:
+            pass
+    return u""
+
+
+def wired(element):
+    """True when a wire is connected to the outlet."""
+    connector = _connector(element)
+    if connector is None:
+        return False
+    try:
+        for ref in connector.AllRefs:
+            if isinstance(ref.Owner, Wire):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def circuited(element):
     """True when the outlet is already on a power circuit."""
     try:
@@ -83,23 +122,28 @@ def circuited(element):
         return False
 
 
-def plan_of(doc, floor_z):
-    """The active view when it is a plan of this floor, else the first
-    floor plan of the level at floor_z."""
+def plan_of(doc, z):
+    """The plan to draw the wire of an outlet at height z in: the active
+    view when it is a plan, else a plan (floor plan first) of the highest
+    level at or below z."""
     view = doc.ActiveView
-    if _plan_at(view, floor_z):
+    if _is_plan(view):
         return view
-    for v in FilteredElementCollector(doc).OfClass(ViewPlan):
-        if _plan_at(v, floor_z) and v.ViewType == ViewType.FloorPlan:
-            return v
-    return None
+    levels = [v.GenLevel for v in FilteredElementCollector(doc).OfClass(ViewPlan)
+              if _is_plan(v)]
+    below = [l for l in levels if l.ProjectElevation <= z + 0.05]
+    if not below:
+        return None
+    floor = max(l.ProjectElevation for l in below)
+    plans = [v for v in FilteredElementCollector(doc).OfClass(ViewPlan)
+             if _is_plan(v) and abs(v.GenLevel.ProjectElevation - floor) < 0.01]
+    plans.sort(key=lambda v: (v.ViewType != ViewType.FloorPlan, v.Name))
+    return plans[0] if plans else None
 
 
-def _plan_at(view, floor_z):
+def _is_plan(view):
     try:
-        if not isinstance(view, ViewPlan) or view.IsTemplate or view.GenLevel is None:
-            return False
-        return abs(view.GenLevel.ProjectElevation - floor_z) < 0.05
+        return isinstance(view, ViewPlan) and not view.IsTemplate and view.GenLevel is not None
     except Exception:
         return False
 
@@ -148,23 +192,26 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
             tag_type.Activate()
             doc.Regenerate()
         for label, outlet in outlets:
-            ids = List[ElementId]()
-            ids.Add(outlet.Id)
-            try:
+            if not circuited(outlet):
+                ids = List[ElementId]()
+                ids.Add(outlet.Id)
                 try:
-                    system = ElectricalSystem.Create(doc, ids, ElectricalSystemType.PowerCircuit)
-                except AttributeError:
-                    system = doc.Create.NewElectricalSystem(ids, ElectricalSystemType.PowerCircuit)
-                system.SelectPanel(panel)
-            except Exception as error:
-                failed.append(u"%s: circuit refused (%s)" % (label, _first_line(error)))
-                continue
-            made += 1
+                    try:
+                        system = ElectricalSystem.Create(doc, ids, ElectricalSystemType.PowerCircuit)
+                    except AttributeError:
+                        system = doc.Create.NewElectricalSystem(ids, ElectricalSystemType.PowerCircuit)
+                    system.SelectPanel(panel)
+                except Exception as error:
+                    failed.append(u"%s: circuit refused (%s)" % (label, _first_line(error)))
+                    continue
+                made += 1
+            elif wired(outlet):
+                continue        # circuited and wired already
             view = view_for(outlet)
             if wire_type is None:
                 continue
             if view is None:
-                failed.append(u"%s: circuited, but no floor plan of its level for the wire" % label)
+                failed.append(u"%s: circuited, but no plan view found for the wire" % label)
                 continue
             doc.Regenerate()
             connector = _connector(outlet)

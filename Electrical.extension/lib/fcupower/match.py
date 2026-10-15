@@ -83,6 +83,8 @@ class Fcu(object):
         self.linked_unit = None      # index of that linked FCU
         self.z = None                # height of the socket (ft), for the floor filter
         self.circuited = True        # already on a power circuit
+        self.panel = u""             # its circuit's panel
+        self.wired = True            # a wire is connected to it
 
     @property
     def room(self):

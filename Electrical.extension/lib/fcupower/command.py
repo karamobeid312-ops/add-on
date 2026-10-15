@@ -73,12 +73,12 @@ def _circuit(doc, elements, keys, panel_name, wire_name, tag_name):
     views = {}
 
     def view_for(element):
-        floor = revit_fcu._floor(element)
-        if floor is None:
+        point = revit_fcu._location(element)
+        if point is None:
             return None
-        key = round(floor, 3)
+        key = round(point.Z, 1)
         if key not in views:
-            views[key] = circuit.plan_of(doc, floor)
+            views[key] = circuit.plan_of(doc, point.Z)
         return views[key]
     outlets = [(label, elements[k]) for k, label in keys if k in elements]
     return circuit.circuit_and_wire(doc, outlets, panel, wires.get(wire_name), tags.get(tag_name),

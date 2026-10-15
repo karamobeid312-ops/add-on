@@ -143,6 +143,8 @@ class FcuWindow(object):
         self.WriteButton.Click += self.on_write
         self.AddButton.Click += self.on_add
         self.CircuitButton.Click += self.on_circuit
+        self.PanelCombo.SelectionChanged += lambda s, e: self._fill_circuit_info()
+        self.PanelCombo.LostFocus += lambda s, e: self._fill_circuit_info()
         self.FloorCombo.SelectionChanged += self.on_floor
         self.SheetList.SelectionChanged += self.on_sheet
         for combo in (self.TagCombo, self.RoomCombo, self.PowerCombo, self.UnitCombo):
@@ -424,17 +426,21 @@ class FcuWindow(object):
             combo.SelectedIndex = names.index(best) + 1 if best in names else 0
 
     def to_circuit(self):
-        """The outlets of the floor picked that are on no circuit yet."""
-        return [f for f in self.floor_fcus() if not f.circuited]
+        """The outlets of the floor picked that are on no circuit yet, and
+        the ones on the panel picked that have no wire yet."""
+        item = self.PanelCombo.SelectedItem
+        panel = (u"%s" % item if item is not None else (self.PanelCombo.Text or u"")).strip()
+        return [f for f in self.floor_fcus()
+                if not f.circuited or (f.panel == panel and not f.wired)]
 
     def _fill_circuit_info(self):
         n = len(self.to_circuit())
         self.CircuitButton.Content = u"Circuit + wire (%d)" % n
         self.CircuitButton.IsEnabled = bool(n)
         floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
-        self.CircuitInfo.Text = (u"%d outlet(s) of %s with no circuit. Each gets its own circuit on "
-                                 u"the panel, a home-run wire towards it and the wire tag, in the "
-                                 u"floor's plan." % (n, floor))
+        self.CircuitInfo.Text = (u"%d outlet(s) of %s with no circuit (or on this panel with no "
+                                 u"wire). Each gets its own circuit on the panel, a home-run wire "
+                                 u"towards it and the wire tag, in the open plan view." % (n, floor))
 
     def _fill_missing(self, grid=True):
         span = self._floor_range()
