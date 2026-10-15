@@ -177,6 +177,27 @@ def _home_run_points(start, panel_point):
     return [start, mid, end]
 
 
+def _keep_short(wire, outlet, points):
+    """Revit runs a new wire of a circuited outlet to its panel: cut it
+    back to a short home run (its far end free, so the arrow shows)."""
+    outlet_id = id_int(outlet.Id)
+    for c in wire.ConnectorManager.Connectors:
+        for ref in list(c.AllRefs):
+            try:
+                if id_int(ref.Owner.Id) != outlet_id:
+                    c.DisconnectFrom(ref)
+            except Exception:
+                pass
+    while wire.NumberOfVertices > len(points):
+        wire.RemoveVertex(wire.NumberOfVertices - 2)
+    while wire.NumberOfVertices < len(points):
+        wire.InsertVertex(wire.NumberOfVertices - 1, points[wire.NumberOfVertices - 1])
+    far = wire.GetVertex(wire.NumberOfVertices - 1).DistanceTo(points[-1])
+    if far > 0.01:
+        for i in range(len(points) - 1, 0, -1):
+            wire.SetVertex(i, XYZ(points[i].X, points[i].Y, wire.GetVertex(i).Z))
+
+
 def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
     """One circuit per outlet on `panel`, then its home-run wire and tag in
     the plan view_for(outlet) gives (no wire when it gives None). One undo.
@@ -226,6 +247,11 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
                 failed.append(u"%s: wire refused (%s)" % (label, _first_line(error)))
                 continue
             wired += 1
+            doc.Regenerate()
+            try:
+                _keep_short(wire, outlet, points)
+            except Exception as error:
+                failed.append(u"%s: wire drawn but not shortened (%s)" % (label, _first_line(error)))
             if tag_type is None:
                 continue
             end = points[-1]
