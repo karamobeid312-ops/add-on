@@ -751,12 +751,13 @@ def render(doc, drawing, view_name=VIEW_NAME, new_view=False):
 
 
 def generate(doc, settings=None, numbering="slots", new_view=False, spares=None, paper="A1",
-             risers=None, generators=None):
+             risers=None, generators=None, supplies=None):
     """Build and draw the schematic. Returns (view or None, schematic).
     spares: {board name: (count, rating)} kept by Power Studio, used where
     the panel has no SLD Spares value. risers: bus bar riser specs kept by
     Power Studio (sld.riser). generators: standby generator specs kept by
-    Power Studio (sld.generator); generators in the model are drawn too."""
+    Power Studio (sld.generator); generators in the model are drawn too.
+    supplies: transformer / PFC typed in Power Studio (sld.supply)."""
     equipment, circuits, phases_of, warnings = extract(doc)
     if spares:
         from sld.settings import apply_spares
@@ -766,6 +767,9 @@ def generate(doc, settings=None, numbering="slots", new_view=False, spares=None,
     if risers:
         from sld.riser import apply_risers
         schematic.warnings += apply_risers(schematic, risers, numbering)
+    if supplies:
+        from sld.supply import apply_supply
+        schematic.warnings += apply_supply(schematic, supplies)
     from sld.generator import apply_generators
     schematic.warnings += apply_generators(schematic, generators,
                                            (settings or LayoutSettings()).utility)

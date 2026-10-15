@@ -213,7 +213,7 @@ class BoardGeom(object):
                         style.UPS_ABOVE_BOARD + 1.0 + symbols.vertical_length(w.name, style.TEXT_LOAD))
             elif w.kind == PFC:
                 h = max(h, style.PFC_ABOVE_BOARD + style.PFC_SIZE + 2.0 +
-                        symbols.vertical_length(symbols.pfc_label(), style.TEXT_LOAD))
+                        symbols.vertical_length(symbols.pfc_label(w.pfc_text), style.TEXT_LOAD))
         return h
 
 
@@ -967,7 +967,7 @@ def _draw_way_end(d, g, w, x, settings):
     elif w.kind == PFC:
         y0 = t + style.PFC_ABOVE_BOARD
         d.line(x, t, x, y0)
-        symbols.pfc(d, x, y0)
+        symbols.pfc(d, x, y0, w.pfc_text)
     elif w.kind == TO_UPS:
         pt = next(p for p in g.board.pass_throughs if w in p.input_ways)
         joined = pt.kind in (TRANSFORMER, ATS) and len(pt.input_ways) > 1
@@ -1028,6 +1028,16 @@ def _draw_source(d, g, floor_y, settings):
         d.line(x, y, x, y_tr)
         y = symbols.transformer(d, x, y_tr, tr.name, tr.description)
     end_y = min(y - 4.0, floor_y - 5.0)
+    if b.mv_cable:
+        # the MV cable from the utility (typed in Power Studio) and its sealing end
+        y_mv = min(y - 3.0, floor_y + 3.0)
+        d.line(x, y, x, y_mv + 0.6)
+        symbols.cable_mark(d, x, y_mv, b.mv_cable)
+        d.line(x, y_mv - 0.6, x, end_y + 1.6)
+        symbols.sealing_end(d, x, end_y + 0.8)
+        d.text(x, end_y - 1.0, "FROM %s" % settings.utility, style.TEXT_SUPPLY,
+               align=CENTER, valign=TOP)
+        return
     d.line(x, y, x, end_y)
     d.text(x, end_y - 1.0, "FROM %s" % settings.utility, style.TEXT_SUPPLY,
            align=CENTER, valign=TOP)

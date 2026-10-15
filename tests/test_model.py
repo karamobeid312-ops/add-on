@@ -139,7 +139,9 @@ def test_rating_lines():
     assert Way(c, FEEDER, "1", "X").rating_lines() == [
         u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
     assert Way(c, SPARE, "1", "SPARE").rating_lines() == []
-    assert Way(c, PFC, "1", "PFC").rating_lines() == []
+    # the PFC bank's cable is printed on its way, as the office SLD
+    assert Way(c, PFC, "1", "PFC").rating_lines() == [
+        u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
 
 
 def test_breaker_lines_trip_and_frame():

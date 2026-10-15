@@ -144,6 +144,18 @@ feeding it and the board it feeds; an ATS with no supply in the model is
 drawn under the board it feeds, in the substation band. `SLD Symbol` = ATS
 or PFC forces it.
 
+**Transformer and PFC (typed).** Board fields are grouped as Incomer,
+Spares and Supply; Supply shows Transformer / PFC / Generator / Transformer
+V.D % on an MDB or EMDB, and Fed from / Bus bar riser on other boards.
+Tick **Transformer** (then **Edit...**) to draw a transformer under the
+board: name, kVA, voltage, type, the cable to the board and the MV cable
+text are all typed by hand; the board is drawn as a main board with the
+MV cable and its sealing end above FROM TAQA. Tick **PFC** to add a power
+factor correction bank on a new way before the spares (kVAR, breaker AT and
+cable typed by hand). Both are kept in Power Studio only (nothing is
+written to Revit). An EMDB with both a transformer and a generator takes
+its normal supply from that transformer.
+
 **Standby generator.** In Power Studio, **+ Generator** on a life safety
 board (EMDB) adds a generator (G-01, G-02...), kept per project in Power
 Studio only (nothing is written to Revit). On the SLD the board is drawn in

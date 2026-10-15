@@ -134,7 +134,7 @@ def spare(d, x, y_end, label="SPARE"):
     return y_text + vertical_length(label, style.TEXT_SPARE)
 
 
-def pfc(d, x, y0):
+def pfc(d, x, y0, extra=""):
     """Power factor correction capacitor bank; y0 is the bottom vertex."""
     s = style.PFC_SIZE
     top = y0 + s * 0.8
@@ -143,12 +143,13 @@ def pfc(d, x, y0):
     d.line(x - gap, top - 0.8, x - gap, top + 0.8)
     d.line(x + gap, top - 0.8, x + gap, top + 0.8)
     # Label reads upward above the symbol, like the load names.
-    vertical_text(d, x, top + 1.5, pfc_label(), style.TEXT_LOAD, center=True)
-    return top + 1.5 + vertical_length(pfc_label(), style.TEXT_LOAD)
+    vertical_text(d, x, top + 1.5, pfc_label(extra), style.TEXT_LOAD, center=True)
+    return top + 1.5 + vertical_length(pfc_label(extra), style.TEXT_LOAD)
 
 
-def pfc_label():
-    return style.PFC_LABEL.replace("\n", " ")
+def pfc_label(extra=""):
+    label = style.PFC_LABEL.replace("\n", " ")
+    return "%s %s" % (label, extra) if extra else label
 
 
 def ups_box(d, left, right, y0, name):

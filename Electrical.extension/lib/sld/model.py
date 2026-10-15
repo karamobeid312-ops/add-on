@@ -291,6 +291,7 @@ class Way(object):
         self.name = name          # text at the end of the way
         self.target = target      # EquipmentInfo fed by this way, if any
         self.riser = None         # sld.riser.Riser it feeds (kind 'riser')
+        self.pfc_text = ""        # '(300 KVAR)' after the PFC label (sld.supply)
 
     @property
     def target_id(self):
@@ -326,8 +327,10 @@ class Way(object):
     def rating_lines(self):
         """Cable, length and voltage drop, printed along the way (the
         breaker rating is printed beside the breaker)."""
-        if self.circuit is None or self.kind in (SPARE, PFC) or self.riser is not None:
+        if self.circuit is None or self.kind == SPARE or self.riser is not None:
             return []
+        if self.kind == PFC:
+            return list(self.circuit.cable_lines())
         lines = list(self.circuit.cable_lines())
         if self.kind == ISOLATOR and len(lines) == 1:
             lines = split_cable(_with_earth(lines[0]))
@@ -385,6 +388,7 @@ class Board(object):
         self.parent = None              # parent Board
         self.transformer = None         # EquipmentInfo drawn under a main board
         self.ats = None                 # or the transfer switch feeding it (no supply in the model)
+        self.mv_cable = ""              # 'MV CABLE FROM TAQA' under its transformer (sld.supply)
         self.generator = None           # sld.generator.Generator backing it up, through an ATS
         self.model_generator = None     # a generator in the model feeding it (or its ATS)
         self.children = []              # Boards fed from this one

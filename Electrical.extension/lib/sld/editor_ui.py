@@ -16,6 +16,8 @@ import elecui as ui
 from sld import editor as ed
 from sld import generator as gn
 from sld import riser as rs
+from sld import supply as sp
+from sld.model import is_main_name
 from sld import studio
 
 XAML_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor.xaml")
@@ -51,7 +53,9 @@ NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
          "VdWorstWhere", "VdFixes", "VdProblemsOnly", "VdSearch", "VdGrid",
          "SldSettingsPanel", "VdSettingsPanel", "ApplySettings", "SettingsNote",
-         "OnBusbar", "RiserPick", "TypicalOf", "GeneratorButton", "GeneratorText") + \
+         "OnBusbar", "RiserPick", "TypicalOf", "GeneratorButton", "GeneratorText",
+         "TxCheck", "TxEdit", "TxText", "PfcCheck", "PfcEdit", "PfcText",
+         "SupplyMain", "SupplySub") + \
     tuple(n for n, _ in BOARD_CONTROLS)
 STATE_TEXT = {studio.OK: u"OK", studio.WARN: u"Check", studio.BAD: u"Problem"}
 
@@ -182,6 +186,8 @@ class EditorWindow(object):
       save_risers(specs)                keep them
       generators -> standby generator specs kept for this model (sld.generator)
       save_generators(specs)            keep them
+      supplies -> transformer / PFC typed for this model (sld.supply)
+      save_supplies(specs)              keep them
     """
 
     def __init__(self, editor, sld_values, vd_values, actions, model_text=u""):
@@ -202,6 +208,8 @@ class EditorWindow(object):
         self._risers_dirty = False
         self.generators = [dict(s) for s in actions.get("generators") or []]
         self._generators_dirty = False
+        self.supplies = [dict(s) for s in actions.get("supplies") or []]
+        self._supplies_dirty = False
         self.win = ui.load_window(window_xaml(), ACCENT)
         for name in NAMES:
             setattr(self, name, self.win.FindName(name))
@@ -333,6 +341,10 @@ class EditorWindow(object):
         self.ApplySettings.Click += self.on_apply_settings
         self.OnBusbar.Click += self.on_busbar
         self.GeneratorButton.Click += self.on_generator
+        self.TxCheck.Click += lambda s, e: self.on_supply("tx", False)
+        self.TxEdit.Click += lambda s, e: self.on_supply("tx", True)
+        self.PfcCheck.Click += lambda s, e: self.on_supply("pfc", False)
+        self.PfcEdit.Click += lambda s, e: self.on_supply("pfc", True)
         for control in (self.RiserPick, self.TypicalOf):
             control.LostKeyboardFocus += self.on_busbar
             control.DropDownClosed += self.on_busbar
@@ -402,6 +414,7 @@ class EditorWindow(object):
             self._busy = False
         self._show_busbar(board)
         self._show_generator(board)
+        self._show_supply(board)
         table = DataTable("Ways")
         for name in HIDDEN + tuple(c[0] for c in COLUMNS):
             table.Columns.Add(name, String).DefaultValue = u""
@@ -571,6 +584,117 @@ class EditorWindow(object):
         if self._generators_dirty and "save_generators" in self.actions:
             self.actions["save_generators"](self.generators)
             self._generators_dirty = False
+        if self._supplies_dirty and "save_supplies" in self.actions:
+            self.actions["save_supplies"](self.supplies)
+            self._supplies_dirty = False
+
+    # ------------------------------------------------------------ transformer / PFC
+
+    def _show_supply(self, board):
+        """MDB / EMDB: transformer, PFC, generator and TX V.D; other boards:
+        Fed from and the bus bar riser."""
+        from System.Windows import Visibility
+        main = board.board.is_main or is_main_name(board.name)
+        self.SupplyMain.Visibility = Visibility.Visible if main else Visibility.Collapsed
+        self.SupplySub.Visibility = Visibility.Collapsed if main else Visibility.Visible
+        tx, pfc = sp.board_supply(self.supplies, board.name)
+        self._busy = True
+        try:
+            self.TxCheck.IsChecked = bool(tx)
+            self.PfcCheck.IsChecked = bool(pfc)
+        finally:
+            self._busy = False
+        self.TxEdit.IsEnabled = bool(tx)
+        self.PfcEdit.IsEnabled = bool(pfc)
+        kva = sp.parse_amps((tx or {}).get("kva"))
+        self.TxText.Text = u"%s  %s" % (tx.get("name") or u"", u"%s kVA" % sp.trim_number(kva, 1)
+                                        if kva else u"") if tx else u""
+        self.PfcText.Text = sp.pfc_text(pfc).strip("()") if pfc else u""
+
+    def on_supply(self, part, edit):
+        if self._busy or self.current is None:
+            return
+        self._safe(self._set_supply, part, edit)
+
+    def _set_supply(self, part, edit):
+        board = self.editor.board(self.current)
+        tx, pfc = sp.board_supply(self.supplies, board.name)
+        current = tx if part == "tx" else pfc
+        fields = sp.TX_FIELDS if part == "tx" else sp.PFC_FIELDS
+        check = self.TxCheck if part == "tx" else self.PfcCheck
+        if not edit and not check.IsChecked:
+            values = None                       # unticked: removed
+        else:
+            title = (u"Transformer feeding %s" if part == "tx" else u"PFC on %s") % board.name
+            values = self._ask_fields(title, fields, current or sp.defaults(fields))
+            if values is None:                  # cancelled
+                self._show_supply(board)
+                return
+        self.supplies = sp.set_supply(self.supplies, board.name, part, values)
+        self._supplies_dirty = True
+        self._show_supply(board)
+
+    def _ask_fields(self, title, fields, values):
+        """A small pop-up with one text box per field; the typed values, or
+        None when cancelled."""
+        from System.Windows import GridLength, HorizontalAlignment, Thickness
+        from System.Windows.Controls import (Button, ColumnDefinition, Grid, RowDefinition,
+                                             StackPanel, TextBlock, TextBox, Orientation)
+        text = (u'<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" '
+                u'xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Width="460" '
+                u'SizeToContent="Height" WindowStartupLocation="CenterOwner" ResizeMode="NoResize" '
+                u'ShowInTaskbar="False" FontFamily="Segoe UI" FontSize="12" '
+                u'Background="#FFF6F8FB"><Window.Resources>\n<!--THEME-->\n'
+                u'</Window.Resources><Border x:Name="Body" Style="{StaticResource Card}" '
+                u'Margin="12"/></Window>')
+        win = ui.load_window(text, ACCENT)
+        win.Title = title
+        try:
+            win.Owner = self.win
+        except Exception:
+            pass
+        grid = Grid()
+        grid.ColumnDefinitions.Add(ColumnDefinition())
+        grid.ColumnDefinitions.Add(ColumnDefinition())
+        grid.ColumnDefinitions[0].Width = GridLength(130)
+        boxes = {}
+        for n, (key, label, _) in enumerate(fields):
+            grid.RowDefinitions.Add(RowDefinition())
+            tb = TextBlock()
+            tb.Text = label
+            tb.Margin = Thickness(0, 4, 8, 4)
+            Grid.SetRow(tb, n)
+            box = TextBox()
+            box.Text = u"%s" % (values.get(key) or u"")
+            box.Margin = Thickness(0, 3, 0, 3)
+            Grid.SetRow(box, n)
+            Grid.SetColumn(box, 1)
+            grid.Children.Add(tb)
+            grid.Children.Add(box)
+            boxes[key] = box
+        buttons = StackPanel()
+        buttons.Orientation = Orientation.Horizontal
+        buttons.HorizontalAlignment = HorizontalAlignment.Right
+        buttons.Margin = Thickness(0, 10, 0, 0)
+        ok, cancel = Button(), Button()
+        ok.Content, cancel.Content = u"OK", u"Cancel"
+        ok.IsDefault, cancel.IsCancel = True, True
+        ok.Margin = Thickness(0, 0, 6, 0)
+        result = {}
+
+        def accept(sender, args):
+            result["values"] = dict((k, b.Text) for k, b in boxes.items())
+            win.DialogResult = True
+        ok.Click += accept
+        buttons.Children.Add(ok)
+        buttons.Children.Add(cancel)
+        grid.RowDefinitions.Add(RowDefinition())
+        Grid.SetRow(buttons, len(fields))
+        Grid.SetColumnSpan(buttons, 2)
+        grid.Children.Add(buttons)
+        win.FindName("Body").Child = grid
+        win.ShowDialog()
+        return result.get("values")
 
     # ------------------------------------------------------------ standby generator
 

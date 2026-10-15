@@ -140,11 +140,13 @@ def run():
                "report": lambda ed, path: _report(doc, ed, path),
                "report_name": _report_name(doc),
                "save_risers": lambda specs: settings.save_risers(_project(doc), specs),
-               "save_generators": lambda specs: settings.save_generators(_project(doc), specs)}
+               "save_generators": lambda specs: settings.save_generators(_project(doc), specs),
+               "save_supplies": lambda specs: settings.save_supplies(_project(doc), specs)}
     action = "reload"
     while action == "reload":         # again after a Fed from or a model setting changed
         actions["risers"] = settings.load_risers(_project(doc))
         actions["generators"] = settings.load_generators(_project(doc))
+        actions["supplies"] = settings.load_supplies(_project(doc))
         editor = _editor(doc, sld_values)
         if not editor.boards:
             forms.alert("No electrical equipment was found in this model.\n\n"
@@ -163,7 +165,8 @@ def run():
                                spares=settings.load_spares(_project(doc)),
                                paper=sld_values.get("sheet_size", "A1"),
                                risers=settings.load_risers(_project(doc)),
-                               generators=settings.load_generators(_project(doc)))
+                               generators=settings.load_generators(_project(doc)),
+                               supplies=settings.load_supplies(_project(doc)))
     if view is None:
         forms.alert("No electrical equipment was found in this model.", exitscript=True)
     revit.uidoc.ActiveView = view

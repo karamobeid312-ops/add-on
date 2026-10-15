@@ -126,6 +126,8 @@ def apply_generators(schematic, specs, utility="TAQA"):
             gen.ats = AtsInfo(model_ats.name, rating, model_ats.location or e.location)
         else:
             gen.ats = AtsInfo("ATS", rating, spec.get("ats_location") or e.location)
+        if b.transformer is not None and gen.normal_board is None:
+            gen.normal_text = "FROM %s" % b.transformer.name     # its own transformer
         b.ats = None
         b.transformer = None
         b.generator = gen

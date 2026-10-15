@@ -8,6 +8,12 @@
        THEME marker and the grid columns in place of COLUMNS / VDCOLUMNS. -->
   <Window.Resources>
 <!--THEME-->
+    <Style x:Key="SectionLabel" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="Margin" Value="0,0,0,6"/>
+    </Style>
     <Style x:Key="EditCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
       <Setter Property="IsEditable" Value="True"/>
       <Setter Property="IsTextSearchEnabled" Value="False"/>
@@ -200,8 +206,18 @@
             </UniformGrid>
 
             <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,8">
-              <WrapPanel>
-                <TextBlock Text="Incomer" Style="{StaticResource FieldLabel}"/>
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="70"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Incomer" Style="{StaticResource SectionLabel}"/>
+                <WrapPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,6">
                 <ComboBox x:Name="IncomerAT" Width="65" Style="{StaticResource EditCombo}"
                           ItemsSource="{DynamicResource ch_incomer_at}" ToolTip="Trip (AT)"/>
                 <TextBlock Text="AT" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
@@ -215,7 +231,9 @@
                           ItemsSource="{DynamicResource ch_fault_level}"/>
                 <TextBlock Text="Ways" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
                 <TextBox x:Name="WaysCount" Width="40"/>
-                <TextBlock Text="Spares" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                </WrapPanel>
+                <TextBlock Grid.Row="1" Text="Spares" Style="{StaticResource SectionLabel}"/>
+                <WrapPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
                 <ComboBox x:Name="SpareCount" Width="45" Style="{StaticResource EditCombo}"
                           ItemsSource="{DynamicResource ch_spares}"/>
                 <TextBlock Text="x" Style="{StaticResource FieldLabel}" Margin="4,0"/>
@@ -231,14 +249,38 @@
                         Style="{StaticResource SmallButton}"/>
                 <Button x:Name="RemoveSpare" Content="- Spare" Margin="4,0,0,0"
                         Style="{StaticResource SmallButton}"/>
-                <TextBlock Text="Spaces" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"
+                <TextBlock Text="Spaces" Style="{StaticResource FieldLabel}" Margin="18,0,4,0"
                            ToolTip="Empty breaker ways drawn as SPACE (no rating), after the spares"/>
                 <TextBox x:Name="SpaceCount" Width="30"/>
                 <Button x:Name="AddSpace" Content="+ Space" Margin="6,0,0,0"
                         Style="{StaticResource SmallButton}"/>
                 <Button x:Name="RemoveSpace" Content="- Space" Margin="4,0,0,0"
                         Style="{StaticResource SmallButton}"/>
-                <TextBlock Text="Fed from" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                </WrapPanel>
+                <TextBlock Grid.Row="2" Text="Supply" Style="{StaticResource SectionLabel}"/>
+                <WrapPanel Grid.Row="2" Grid.Column="1">
+                  <StackPanel x:Name="SupplyMain" Orientation="Horizontal">
+                    <CheckBox x:Name="TxCheck" Content="Transformer" VerticalAlignment="Center"
+                              ToolTip="MDB / EMDB: draw its transformer under it (name, kVA, voltage, type, cables typed by you). Kept in Power Studio only: nothing is written to Revit."/>
+                    <Button x:Name="TxEdit" Content="Edit..." Margin="6,0,0,0"
+                            Style="{StaticResource SmallButton}"/>
+                    <TextBlock x:Name="TxText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
+                    <CheckBox x:Name="PfcCheck" Content="PFC" Margin="18,0,0,0" VerticalAlignment="Center"
+                              ToolTip="MDB / EMDB: add a power factor correction bank on a way (kVAR, breaker and cable typed by you). Kept in Power Studio only."/>
+                    <Button x:Name="PfcEdit" Content="Edit..." Margin="6,0,0,0"
+                            Style="{StaticResource SmallButton}"/>
+                    <TextBlock x:Name="PfcText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
+                    <Button x:Name="GeneratorButton" Content="+ Generator" Margin="18,0,0,0"
+                        Style="{StaticResource SmallButton}"
+                        ToolTip="Life safety board (EMDB): adds a standby generator. On the SLD the board is drawn beside the board feeding it, through an ATS: normal supply from that board's way, the generator at the bottom. Sized from CL x 1.2 (kVA) x 1.2, next rating up. Kept in Power Studio only: nothing is written to Revit."/>
+                <TextBlock x:Name="GeneratorText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
+                    <TextBlock Text="Transformer V.D %" Style="{StaticResource FieldLabel}"
+                           Margin="18,0,4,0"/>
+                <TextBox x:Name="TxVd" Width="50"
+                         ToolTip="Main boards: the voltage drop of the cable from the transformer, typed by hand (e.g. 0.8). Used instead of working it out from the TX row, and the totals below start from it. Saved to the board's VD Percent."/>
+                  </StackPanel>
+                  <StackPanel x:Name="SupplySub" Orientation="Horizontal">
+                    <TextBlock Text="Fed from" Style="{StaticResource FieldLabel}" Margin="0,0,4,0"/>
                 <ComboBox x:Name="FedBy" Width="140" Style="{StaticResource EditCombo}"
                           ItemsSource="{DynamicResource ch_fed_by}"
                           ToolTip="For a board no circuit in this model feeds (its MDB is in another link): the board feeding it, saved to Fed_By. A name not in this model is drawn as that MDB, built from the boards it feeds."/>
@@ -252,15 +294,9 @@
                 <ComboBox x:Name="TypicalOf" Width="120" Style="{StaticResource EditCombo}"
                           ItemsSource="{DynamicResource ch_typical}"
                           ToolTip="Drawn as a box 'DB SAME AS ...' on the riser instead of in full. Empty: drawn in full."/>
-                <Button x:Name="GeneratorButton" Content="+ Generator" Margin="16,0,0,0"
-                        Style="{StaticResource SmallButton}"
-                        ToolTip="Life safety board (EMDB): adds a standby generator. On the SLD the board is drawn beside the board feeding it, through an ATS: normal supply from that board's way, the generator at the bottom. Sized from CL x 1.2 (kVA) x 1.2, next rating up. Kept in Power Studio only: nothing is written to Revit."/>
-                <TextBlock x:Name="GeneratorText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
-                <TextBlock Text="Transformer V.D %" Style="{StaticResource FieldLabel}"
-                           Margin="16,0,4,0"/>
-                <TextBox x:Name="TxVd" Width="50"
-                         ToolTip="Main boards: the voltage drop of the cable from the transformer, typed by hand (e.g. 0.8). Used instead of working it out from the TX row, and the totals below start from it. Saved to the board's VD Percent."/>
-              </WrapPanel>
+                  </StackPanel>
+                </WrapPanel>
+              </Grid>
             </Border>
 
             <Border DockPanel.Dock="Bottom" Style="{StaticResource Card}" Margin="0,8,0,0"

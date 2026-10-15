@@ -137,3 +137,29 @@ def save_generators(project, generators):
     setattr(cfg, _generators_key(project), json.dumps(clean_specs(generators), ensure_ascii=True,
                                                       sort_keys=True))
     script.save_config()
+
+
+# ---------------------------------------------------------------- transformer / PFC
+# Typed in Power Studio (sld.supply), per project.
+
+def _supplies_key(project):
+    return "supplies_" + _spares_key(project)[len("spares_"):]
+
+
+def load_supplies(project):
+    import json
+    try:
+        text = _config().get_option(_supplies_key(project), "")
+        return json.loads(text) if text else []
+    except Exception:
+        return []
+
+
+def save_supplies(project, supplies):
+    import json
+    from pyrevit import script
+    from sld.supply import clean_specs
+    cfg = _config()
+    setattr(cfg, _supplies_key(project), json.dumps(clean_specs(supplies), ensure_ascii=True,
+                                                    sort_keys=True))
+    script.save_config()
