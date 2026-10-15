@@ -166,14 +166,14 @@ def _floor(element):
     if level_id is not None and id_int(level_id) > 0:
         level = doc.GetElement(level_id)
         if level is not None:
-            return level.Elevation
+            return level.ProjectElevation
     for name in ("FAMILY_LEVEL_PARAM", "INSTANCE_REFERENCE_LEVEL_PARAM",
                  "INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM"):
         try:
             p = element.get_Parameter(getattr(BuiltInParameter, name))
             level = doc.GetElement(p.AsElementId()) if p is not None else None
             if level is not None:
-                return level.Elevation
+                return level.ProjectElevation
         except Exception:
             pass
     return None
@@ -327,7 +327,7 @@ class LinkedFcus(object):
                 if point is not None:
                     p = to_host.OfPoint(point)
                     self.units.append((p.X, p.Y, p.Z, tag))
-        self.levels = sorted(l.Elevation for l in FilteredElementCollector(doc).OfClass(Level))
+        self.levels = sorted(l.ProjectElevation for l in FilteredElementCollector(doc).OfClass(Level))
 
     def _storey(self, element):
         floor = _floor(element)
@@ -376,6 +376,8 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=No
         fcu = Fcu(key, comments(element), number, name, read_watts(param),
                   family=family_name(element), problem=problem)
         fcu.texts = text_values(element)
+        point = _location(element)
+        fcu.z = point.Z if point is not None else None
         if linked is not None:
             tag, distance, unit = linked.nearest(element)
             fcu.texts[LINKED_TAG] = tag

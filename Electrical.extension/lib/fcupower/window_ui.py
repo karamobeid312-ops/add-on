@@ -21,9 +21,10 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "BrowseButton", "FileText", "SheetList", "SheetTitle", "TagCombo", "RoomCombo",
          "PowerCombo", "UnitCombo", "SheetInfo", "FamilyList", "KpiWrite", "KpiSame",
          "KpiCheck", "KpiBad", "KpiUnused", "ShowCombo", "SearchText", "ResultGrid",
-         "TagParamCombo", "SocketTypeCombo", "AddButton")
+         "TagParamCombo", "SocketTypeCombo", "AddButton", "FloorCombo")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
+ALL_FLOORS = u"All floors"
 SHOW = ((u"all", u"All FCUs"), (u"write", u"To write"), (u"check", u"Check (amber)"),
         (u"bad", u"Problems (red)"), (u"same", u"Already set"),
         (u"unused", u"Schedule rows not in the model"),
@@ -102,6 +103,8 @@ class FcuWindow(object):
         self.units = revit.get("units") or []   # linked FCUs (x, y, z, tag)
         self.missing = []               # indexes in units: in the schedule, no socket
         self.socket_types = []
+        self.levels = revit.get("levels") or []         # [(name, elevation ft)] low to high
+        self.all_missing = []
         self.tag_params = []
         self.table = None
         self._quiet = False
@@ -115,6 +118,12 @@ class FcuWindow(object):
         for unit in schedule.UNITS + (schedule.NO_UNIT,):
             self.UnitCombo.Items.Add(unit)
         self._fill_families()
+        self.FloorCombo.Items.Add(ALL_FLOORS)
+        for name, _ in self.levels:
+            self.FloorCombo.Items.Add(name)
+        names = [n for n, _ in self.levels]
+        active = revit.get("active_level")
+        self.FloorCombo.SelectedIndex = names.index(active) + 1 if active in names else 0
         self._wire()
         path = revit.get("path") or u""
         if path and os.path.isfile(path):
@@ -131,6 +140,7 @@ class FcuWindow(object):
         self.CloseButton.Click += lambda s, e: self.win.Close()
         self.WriteButton.Click += self.on_write
         self.AddButton.Click += self.on_add
+        self.FloorCombo.SelectionChanged += self.on_floor
         self.SheetList.SelectionChanged += self.on_sheet
         for combo in (self.TagCombo, self.RoomCombo, self.PowerCombo, self.UnitCombo):
             combo.SelectionChanged += self.on_column
@@ -296,10 +306,9 @@ class FcuWindow(object):
         self._fill_tag_params(rows)
         self.unused = m.match(self.fcus, rows)
         linked = m.NO_TAG[0].startswith(u"No linked")
-        self.missing = m.missing_sockets(self.units, self.fcus, rows) if linked else []
-        self.AddButton.Content = u"Add missing sockets (%d)" % len(self.missing)
-        self.AddButton.IsEnabled = bool(self.missing)
+        self.all_missing = m.missing_sockets(self.units, self.fcus, rows) if linked else []
         self.by_tag = m.index_rows(rows)
+        self._fill_missing(grid=False)
         for fcu in self.fcus:
             fcu.can = fcu.write
             key = fcu.key
@@ -325,16 +334,17 @@ class FcuWindow(object):
         m.use_tag_parameter(self.fcus, name)
 
     def _fill_tiles(self):
-        s = m.summary(self.fcus, self.unused)
-        self.KpiWrite.Text = u"%d" % sum(1 for f in self.fcus if f.write)
+        fcus = self.floor_fcus()
+        s = m.summary(fcus, self.unused)
+        self.KpiWrite.Text = u"%d" % sum(1 for f in fcus if f.write)
         self.KpiSame.Text = u"%d" % s["same"]
         self.KpiCheck.Text = u"%d" % s["check"]
         self.KpiBad.Text = u"%d" % s["bad"]
         self.KpiUnused.Text = u"%d" % s["unused"]
         if not self.sheets:
             return
-        if not self.fcus:
-            self._status(u"No FCU of the ticked families in the model.", "warn")
+        if not fcus:
+            self._status(u"No FCU of the ticked families on this floor.", "warn")
         elif s["bad"]:
             self._status(u"%d FCU(s) can't be written: see the red rows." % s["bad"], "bad")
         elif s["check"]:
@@ -359,7 +369,7 @@ class FcuWindow(object):
             items = [(self._missing_values(i), False, False) for i in self.missing]
         else:
             order = {m.BAD: 0, m.WARN: 1, m.OK: 2}
-            for fcu in sorted(self.fcus, key=lambda f: (order.get(f.state, 3), m.tokens(f.tag))):
+            for fcu in sorted(self.floor_fcus(), key=lambda f: (order.get(f.state, 3), m.tokens(f.tag))):
                 if shown(fcu, show):
                     items.append((fcu_values(fcu), bool(fcu.write), bool(fcu.can)))
         for values, write, can in items:
@@ -376,6 +386,34 @@ class FcuWindow(object):
         self.table = table
         self.ResultGrid.ItemsSource = table.DefaultView
 
+    def _floor_range(self):
+        """(bottom, top) in ft of the floor picked, or None for all floors."""
+        name = self.FloorCombo.SelectedItem
+        name = u"%s" % name if name is not None else ALL_FLOORS
+        names = [n for n, _ in self.levels]
+        if name not in names:
+            return None
+        i = names.index(name)
+        bottom = self.levels[i][1]
+        top = next((z for _, z in self.levels[i + 1:] if z > bottom + 1.0 / 0.3048), bottom + 6.0 / 0.3048)
+        return bottom - 0.3 / 0.3048, top
+
+    def floor_fcus(self):
+        """The FCUs (sockets) of the floor picked."""
+        span = self._floor_range()
+        if span is None:
+            return self.fcus
+        return [f for f in self.fcus if f.z is not None and span[0] <= f.z < span[1]]
+
+    def _fill_missing(self, grid=True):
+        span = self._floor_range()
+        self.missing = [i for i in self.all_missing
+                        if span is None or span[0] <= self.units[i][2] < span[1]]
+        self.AddButton.Content = u"Add missing sockets (%d)" % len(self.missing)
+        self.AddButton.IsEnabled = bool(self.missing)
+        if grid:
+            self._fill_grid()
+
     def _missing_values(self, index):
         tag = self.units[index][3]
         rows = self.by_tag.get(m.tag_key(tag), [])
@@ -389,6 +427,11 @@ class FcuWindow(object):
 
     # ------------------------------------------------------------ events
 
+    def on_floor(self, sender, args):
+        self._fill_missing(grid=False)
+        self._fill_tiles()
+        self._fill_grid()
+
     def on_add(self, sender, args):
         from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult
         label = self.SocketTypeCombo.SelectedItem
@@ -399,10 +442,11 @@ class FcuWindow(object):
                         u"ticked families).")
             return
         label = u"%s" % label
+        floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
         answer = MessageBox.Show(
-            self.win, u"Add %d socket(s) of type\n%s\non the slab above each FCU that has none?\n\n"
-            u"Their Real_Power_W is filled when you press Write to Revit." % (len(self.missing), label),
-            TITLE, MessageBoxButton.YesNo)
+            self.win, u"Add %d socket(s) of type\n%s\non the slab above each FCU of %s that has none?\n\n"
+            u"Their Real_Power_W is filled when you press Write to Revit."
+            % (len(self.missing), label, floor), TITLE, MessageBoxButton.YesNo)
         if answer != MessageBoxResult.Yes:
             return
         self._status(u"Reading the slabs and adding %d socket(s)..." % len(self.missing), "")
@@ -514,10 +558,10 @@ class FcuWindow(object):
         for fcu in self.fcus:
             if fcu.key == int(key) and fcu.can:
                 fcu.write = value
-        self.KpiWrite.Text = u"%d" % sum(1 for f in self.fcus if f.write)
+        self.KpiWrite.Text = u"%d" % sum(1 for f in self.floor_fcus() if f.write)
 
     def on_write(self, sender, args):
-        todo = [f for f in self.fcus if f.write]
+        todo = [f for f in self.floor_fcus() if f.write]
         if not todo:
             self._alert(u"Nothing to write: no FCU is ticked.")
             return

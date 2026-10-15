@@ -39,6 +39,20 @@ def _keep_families(names):
         pass
 
 
+def _levels(doc):
+    """[(name, elevation)] of the model's levels, low to high."""
+    from Autodesk.Revit.DB import FilteredElementCollector, Level
+    levels = list(FilteredElementCollector(doc).OfClass(Level))
+    return [(l.Name, l.ProjectElevation) for l in sorted(levels, key=lambda l: l.ProjectElevation)]
+
+
+def _active_level(doc):
+    try:
+        return doc.ActiveView.GenLevel.Name
+    except Exception:
+        return None
+
+
 def run():
     doc = revit.doc
     if doc is None or doc.IsFamilyDocument:
@@ -62,6 +76,8 @@ def run():
         "keep_path": _keep_path,
         "families_ticked": _last_families(),
         "units": linked.units,
+        "levels": _levels(doc),
+        "active_level": _active_level(doc),
         "socket_types": lambda names: place.socket_types(doc, names),
         "default_type": lambda labels, names: place.most_used(doc, labels, names),
         "add": lambda units, label, names: place.add_sockets(

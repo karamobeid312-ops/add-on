@@ -81,6 +81,7 @@ class Fcu(object):
         self.texts = {}             # {parameter name: text}: where the tag may be
         self.linked_distance = None  # m to the linked FCU whose Comments is the tag
         self.linked_unit = None      # index of that linked FCU
+        self.z = None                # height of the socket (ft), for the floor filter
 
     @property
     def room(self):
