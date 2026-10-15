@@ -57,8 +57,9 @@ class BoardGeom(object):
             # Incomer (and its lamp group) to the right of the name/info block.
             block = max(text_width(self.name_text, style.TEXT_MAIN_NAME),
                         text_width(self.info_text, style.TEXT_MAIN_INFO)) + 2.0
-            self.incomer_offset = max(style.MAIN_INCOMER_FROM_LEFT,
-                                      block + symbols.MAIN_LAMPS_LEFT + 3.0)
+            self.incomer_offset = _clear_of_ways(
+                max(style.MAIN_INCOMER_FROM_LEFT, block + symbols.MAIN_LAMPS_LEFT + 3.0),
+                first, n)
             # The load table sits top right, clear of the meters and fuse text.
             self.width = max(style.MAIN_MIN_WIDTH, span, self.incomer_offset + 45.0,
                              self.incomer_offset + 32.0 + table_w)
@@ -77,7 +78,7 @@ class BoardGeom(object):
             # Incomer to the right of the name/info block in the corner.
             block = max(text_width(self.name_text, style.TEXT_BOARD_NAME),
                         text_width(self.info_text, style.TEXT_BOARD_INFO)) + 1.5
-            self.incomer_offset = max(span / 2, block + 2.0)
+            self.incomer_offset = _clear_of_ways(max(span / 2, block + 2.0), first, n)
             # The load table sits bottom right, clear of the incomer label.
             self.width = max(style.BOARD_MIN_WIDTH, span, self.incomer_offset + 12.0,
                              self.incomer_offset + 9.0 + table_w)
@@ -209,6 +210,15 @@ class BoardGeom(object):
                 h = max(h, style.PFC_ABOVE_BOARD + style.PFC_SIZE + 2.0 +
                         symbols.vertical_length(symbols.pfc_label(), style.TEXT_LOAD))
         return h
+
+
+def _clear_of_ways(offset, first, n):
+    """The incomer's offset moved half a way to the right when it would
+    sit on a way's line (the way's riser would read as the incomer)."""
+    for i in range(n):
+        if abs(first + i * style.WAY_PITCH - offset) < style.WAY_PITCH / 4:
+            return first + (i + 0.5) * style.WAY_PITCH
+    return offset
 
 
 class BoxGeom(object):
@@ -569,6 +579,7 @@ def _route(geoms, feeds, rows):
         return None
 
     per_row = {}
+    lanes = {}          # (board, side) -> risers already jogged around it there
     for f in feeds:
         x = f.source_x()
         target_x = f.target.incomer_x
@@ -579,9 +590,12 @@ def _route(geoms, feeds, rows):
             g = blocker(row, x)
             if g is None:
                 continue
-            options = [c for c in (g.left - clearance, g.right + clearance)
-                       if blocker(row, c) is None] or [g.right + clearance]
-            nx = min(options, key=lambda c: abs(c - target_x))
+            # each riser round the same side of a board gets its own lane
+            sides = [(-1, g.left - clearance - lanes.get((g.key, -1), 0) * style.RISER_LANE),
+                     (1, g.right + clearance + lanes.get((g.key, 1), 0) * style.RISER_LANE)]
+            options = [(side, c) for side, c in sides if blocker(row, c) is None] or [sides[1]]
+            side, nx = min(options, key=lambda o: abs(o[1] - target_x))
+            lanes[(g.key, side)] = lanes.get((g.key, side), 0) + 1
             f.jogs.append([row, x, nx, 0])
             x = nx
         if abs(x - target_x) > 1e-6:

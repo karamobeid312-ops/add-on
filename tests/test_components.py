@@ -81,3 +81,28 @@ def test_way_numbers_under_the_busbar_on_sub_boards():
     g = lay.geoms["smdb-g"]
     labels = [t for t in lay.drawing.texts if t.text == "1" and g.left < t.x < g.right]
     assert labels and all(t.y < g.bus_y for t in labels)
+
+
+def _coincident_risers(lay):
+    segs = []
+    for i, f in enumerate(lay.feeds):
+        for a, b in zip(f.points, f.points[1:]):
+            if abs(a[0] - b[0]) < 1e-6:
+                segs.append((i, a[0], min(a[1], b[1]), max(a[1], b[1])))
+    return [(p, q) for n, p in enumerate(segs) for q in segs[n + 1:]
+            if p[0] != q[0] and abs(p[1] - q[1]) < 0.5 and min(p[3], q[3]) - max(p[2], q[2]) > 0.5]
+
+
+def test_risers_round_the_same_board_get_their_own_lane():
+    eq, c = sample_tower.build(connected=True, tower_floors=6)
+    lay = layout_schematic(build_schematic(eq, c))
+    assert len(lay.feeds) > 3
+    assert not _coincident_risers(lay)
+
+
+def test_incomer_never_sits_on_a_way_line():
+    s = build_schematic(*sample_tower.build(connected=True, tower_floors=6))
+    lay = layout_schematic(s)
+    for g in lay.geoms.values():
+        if hasattr(g, "way_offsets"):
+            assert all(abs(o - g.incomer_offset) > 1.0 for o in g.way_offsets), g.name
