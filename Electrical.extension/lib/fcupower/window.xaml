@@ -262,7 +262,6 @@
                 <DataGridTemplateColumn Header="Do" Width="46" CellTemplate="{StaticResource WriteBox}"/>
                 <DataGridTextColumn Header="FCU tag" Binding="{Binding tag}" Width="2*" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Room" Binding="{Binding room}" Width="2*" IsReadOnly="True"/>
-                <DataGridTextColumn Header="Panel now" Binding="{Binding space}" Width="2*" IsReadOnly="True"/>
                 <DataGridTemplateColumn Header="Will do" Width="3*" IsReadOnly="True"
                                         CellTemplate="{StaticResource StatusChip}"/>
               </DataGrid.Columns>

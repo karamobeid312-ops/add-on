@@ -467,12 +467,9 @@ class FcuWindow(object):
             combo.SelectedIndex = names.index(best) + 1 if best in names else 0
 
     def to_circuit(self):
-        """The outlets of the floor picked that are on no circuit yet, and
-        the ones on the panel picked that have no wire yet."""
-        item = self.PanelCombo.SelectedItem
-        panel = (u"%s" % item if item is not None else (self.PanelCombo.Text or u"")).strip()
-        return [f for f in self.floor_fcus()
-                if not f.circuited or (f.panel == panel and not f.wired)]
+        """The outlets of the floor picked that are on no circuit yet (the
+        panel picked is only where they go)."""
+        return [f for f in self.floor_fcus() if not f.circuited]
 
     def _circuit_count(self):
         keys = set(f.key for f in self.to_circuit())
@@ -484,13 +481,12 @@ class FcuWindow(object):
         todo = self.to_circuit()
         self.CircuitTabText.Text = u"Circuit + wire (%d)" % len(todo)
         floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
-        self.CircuitInfo.Text = (u"Outlets of %s with no circuit, or on this panel with no wire. "
-                                 u"Tick the ones fed from this panel." % floor)
+        self.CircuitInfo.Text = (u"Outlets of %s with no circuit. Tick the ones to feed from "
+                                 u"the panel picked." % floor)
         items = []
         for f in sorted(todo, key=lambda f: m.tokens(f.tag)):
             items.append(({"key": u"%d" % f.key, "tag": f.tag or u"id %d" % f.key, "room": f.room,
-                           "space": f.panel or u"-",
-                           "status": u"Wire + tag" if f.circuited else u"New circuit + wire + tag",
+                           "status": u"New circuit + wire + tag",
                            "state": m.OK}, f.key in self.circuit_ticked, True))
         table = self._table(items)
         table.ColumnChanged += self.on_circuit_tick
