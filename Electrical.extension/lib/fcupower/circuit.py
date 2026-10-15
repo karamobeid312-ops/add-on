@@ -61,7 +61,8 @@ def tag_types(doc):
         name = _text(s, BuiltInParameter.SYMBOL_NAME_PARAM)
         types[u"%s : %s" % (s.FamilyName, name)] = s
     counts = {}
-    for tag in FilteredElementCollector(doc).OfClass(IndependentTag):
+    for tag in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_WireTags) \
+            .WhereElementIsNotElementType():
         key = id_int(tag.GetTypeId())
         counts[key] = counts.get(key, 0) + 1
     best = max(types, key=lambda n: counts.get(id_int(types[n].Id), 0)) if types else None

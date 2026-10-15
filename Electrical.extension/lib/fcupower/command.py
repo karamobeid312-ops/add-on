@@ -115,8 +115,8 @@ def run():
     linked = revit_fcu.LinkedFcus(doc)      # the tags are on the FCUs of the mechanical link
     callbacks = {
         "families": fams,
-        "read": lambda ticked, progress: revit_fcu.read_fcus(doc, ticked, models, rooms,
-                                                             elements, progress, linked),
+        "read": lambda ticked, progress, span=None: revit_fcu.read_fcus(
+            doc, ticked, models, rooms, elements, progress, linked, span),
         "write": lambda fcus: revit_fcu.write(doc, fcus, elements),
         "path": _last_path(),
         "keep_path": _keep_path,
@@ -125,7 +125,8 @@ def run():
         "levels": _levels(doc),
         "active_level": _active_level(doc),
         "socket_types": lambda names: place.socket_types(doc, names),
-        "default_type": lambda labels, names: place.most_used(doc, labels, names),
+        "default_type": lambda labels, fams: place.most_used(
+            labels, [e for f in fams for e in f.elements]),
         "add": lambda units, label, names: place.add_sockets(
             doc, units, place.socket_types(doc, names)[label]),
         "reload_families": lambda: revit_fcu.families(doc),

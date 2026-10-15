@@ -12,13 +12,13 @@ from __future__ import division
 import math
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, FamilyInstance, FamilySymbol, FilteredElementCollector, GeometryInstance,
+    BuiltInCategory, FamilySymbol, FilteredElementCollector, GeometryInstance,
     Level, Options, PlanarFace, Solid, Transaction, Transform, XYZ,
 )
 
 from firealarm.revit_fa import FACE, LEVEL, Hit, _place, linked_models, placement_kind, \
     type_label
-from fcupower.revit_fcu import FEET, family_name
+from fcupower.revit_fcu import FEET
 
 SLAB_CATEGORIES = (BuiltInCategory.OST_Floors, BuiltInCategory.OST_Roofs)
 ABOVE = 6.0 / FEET              # how high above the FCU the slab may be
@@ -41,18 +41,16 @@ def socket_types(doc, family_names):
     return found
 
 
-def most_used(doc, labels, family_names):
-    """The socket type placed most often in the ticked families."""
+def most_used(labels, elements):
+    """The socket type placed most often among the elements (the ticked
+    families' instances)."""
     counts = {}
-    names = set(family_names)
-    for instance in FilteredElementCollector(doc).OfClass(FamilyInstance) \
-            .WhereElementIsNotElementType():
-        if family_name(instance) in names:
-            try:
-                label = type_label(instance.Symbol)
-            except Exception:
-                continue
-            counts[label] = counts.get(label, 0) + 1
+    for instance in elements:
+        try:
+            label = type_label(instance.Symbol)
+        except Exception:
+            continue
+        counts[label] = counts.get(label, 0) + 1
     usable = [l for l in labels if l in counts]
     return max(usable, key=lambda l: counts[l]) if usable else (sorted(labels)[0] if labels else None)
 

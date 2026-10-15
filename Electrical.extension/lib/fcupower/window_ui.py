@@ -178,7 +178,8 @@ class FcuWindow(object):
         for label in self.socket_types:
             self.SocketTypeCombo.Items.Add(label)
         pick = current if current in self.socket_types else \
-            self.revit["default_type"](self.socket_types, names) if self.socket_types else None
+            self.revit["default_type"](
+                self.socket_types, [f for f in self.families if f.name in self.ticked_families]) if self.socket_types else None
         if pick in self.socket_types:
             self.SocketTypeCombo.SelectedIndex = self.socket_types.index(pick)
 
@@ -306,7 +307,7 @@ class FcuWindow(object):
 
             def progress(done, count):
                 self._status(u"Finding the room of each FCU... %d / %d" % (done, count), "")
-            self.fcus = self.revit["read"](fams, progress)
+            self.fcus = self.revit["read"](fams, progress, self._floor_range())
         rows = self.schedule_rows()
         self._fill_tag_params(rows)
         self.unused = m.match(self.fcus, rows)
@@ -508,9 +509,7 @@ class FcuWindow(object):
         self._alert(text)
 
     def on_floor(self, sender, args):
-        self._fill_missing(grid=False)
-        self._fill_tiles()
-        self._fill_grid()
+        self.refresh()          # rooms of the new floor (the others are kept)
 
     def on_add(self, sender, args):
         from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult

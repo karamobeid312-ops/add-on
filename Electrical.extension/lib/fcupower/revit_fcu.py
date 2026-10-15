@@ -134,17 +134,31 @@ class Model(object):
             return None
 
 
+def _has(doc, bic):
+    try:
+        from Autodesk.Revit.DB import ElementId
+        first = FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType() \
+            .FirstElementId()
+        return first is not None and first != ElementId.InvalidElementId
+    except Exception:
+        return True
+
+
 def room_models(doc):
-    """The loaded links (the architectural model among them), then this model."""
+    """The loaded links that have rooms (the architectural model), then
+    this model when it has rooms or spaces. Links without rooms (structure,
+    mechanical...) are left out: looking in them only costs time."""
+    from Autodesk.Revit.DB import BuiltInCategory
     found = []
     for link in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
         try:
             link_doc = link.GetLinkDocument()
         except Exception:
             link_doc = None
-        if link_doc is not None:
+        if link_doc is not None and _has(link_doc, BuiltInCategory.OST_Rooms):
             found.append(Model(link_doc, link))
-    found.append(Model(doc))
+    if _has(doc, BuiltInCategory.OST_Rooms) or _has(doc, BuiltInCategory.OST_MEPSpaces):
+        found.append(Model(doc))
     return found
 
 
@@ -359,7 +373,7 @@ class LinkedFcus(object):
         return best[1], best[0] * FEET, best[2]
 
 
-def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=None):
+def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=None, span=None):
     """[Fcu] of the ticked families (rooms cached by element id; `elements`
     gets {element id: element} for writing)."""
     out = []
@@ -367,16 +381,18 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=No
     for i, element in enumerate(todo):
         key = id_int(element.Id)
         elements[key] = element
-        if key not in rooms_cache:
+        point = _location(element)
+        on_floor = span is None or (point is not None and span[0] <= point.Z < span[1])
+        if key not in rooms_cache and on_floor:
+            # rooms only for the floor shown: the slow part (a lookup per link)
             rooms_cache[key] = find_room(element, models)
             if progress is not None and i % 25 == 0:
                 progress(i, len(todo))
-        number, name = rooms_cache[key]
+        number, name = rooms_cache.get(key, (u"", u""))
         param, problem = power_param(element)
         fcu = Fcu(key, comments(element), number, name, read_watts(param),
                   family=family_name(element), problem=problem)
         fcu.texts = text_values(element)
-        point = _location(element)
         fcu.z = point.Z if point is not None else None
         from fcupower import circuit
         fcu.circuited = circuit.circuited(element)
