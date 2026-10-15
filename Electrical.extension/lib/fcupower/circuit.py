@@ -241,8 +241,9 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
                 continue
             points = _home_run_points(connector.Origin, panel_point or connector.Origin)
             try:
+                # Revit adds the connector's origin as the start vertex itself
                 wire = Wire.Create(doc, wire_type.Id, view.Id, WiringType.Arc,
-                                   List[XYZ](points), connector, None)
+                                   List[XYZ](points[1:]), connector, None)
             except Exception as error:
                 failed.append(u"%s: wire refused (%s)" % (label, _first_line(error)))
                 continue
@@ -255,9 +256,17 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
             if tag_type is None:
                 continue
             end = points[-1]
+            head = XYZ(end.X, end.Y + TAG_UP, end.Z)
             try:
-                IndependentTag.Create(doc, tag_type.Id, view.Id, Reference(wire), True,
-                                      TagOrientation.Horizontal, XYZ(end.X, end.Y + TAG_UP, end.Z))
+                # made without a leader at the head point (with one, Revit put the
+                # head far off), then the leader is switched on and the head set
+                tag = IndependentTag.Create(doc, tag_type.Id, view.Id, Reference(wire), False,
+                                            TagOrientation.Horizontal, head)
+                try:
+                    tag.HasLeader = True
+                    tag.TagHeadPosition = head
+                except Exception:
+                    pass
                 tagged += 1
             except Exception as error:
                 failed.append(u"%s: tag refused (%s)" % (label, _first_line(error)))
