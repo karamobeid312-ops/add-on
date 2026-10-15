@@ -59,6 +59,7 @@ BOARD_GAP = 12.0            # min horizontal gap between boards in a row
 BUS_END_MARGIN = 1.5        # busbar end -> board side
 RISER_CLEARANCE = 5.0       # riser jogs this far clear of a board it passes
 RISER_LANE = 2.5            # between risers jogging round the same side of a board
+RISER_MIN_CLEAR = 1.5       # closest a riser in a narrow gap may pass a board
 
 # Spare breakers added to every sub-main board: as many as fit between the
 # minimum and maximum without going over the board's limit. Ways are counted

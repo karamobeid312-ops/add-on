@@ -125,3 +125,55 @@ def test_tower_risers_never_cross_each_other():
         eq, c = sample_tower.build(connected=True, tower_floors=floors)
         lay = layout_schematic(build_schematic(eq, c))
         assert not _riser_crossings(lay), floors
+
+
+def _random_model(seed):
+    import random
+    levels = [("Ground Floor", 0.0), ("First Floor", 4.0), ("Second Floor", 8.0), ("Roof", 12.0)]
+    r = random.Random(seed)
+    eq, c, boards = [EquipmentInfo("mdb", "MDB-01", "Ground Floor", 0.0)], [], ["mdb"]
+    for i in range(r.randint(4, 10)):
+        name, elevation = r.choice(levels)
+        eq.append(EquipmentInfo("b%d" % i, "SMDB-%d" % i, name, elevation))
+        c.append(CircuitInfo("f%d" % i, r.choice(boards), str(len(c) + 1), rating="100",
+                             poles="3", fed_equipment_ids=["b%d" % i], cable="(4X25)mm2"))
+        boards.append("b%d" % i)
+    for b in boards:
+        for k in range(r.randint(1, 6)):
+            c.append(CircuitInfo("%s-l%d" % (b, k), b, str(100 + k), "LOAD %d" % k,
+                                 rating="20", poles="3"))
+    r.shuffle(c)
+    return eq, c
+
+
+def test_risers_never_run_through_a_board_on_random_buildings():
+    for seed in range(80):
+        lay = layout_schematic(build_schematic(*_random_model(seed)))
+        for f in lay.feeds:
+            for a, b in zip(f.points, f.points[1:]):
+                for g in lay.geoms.values():
+                    if g is f.source or g is f.target:
+                        continue
+                    if abs(a[0] - b[0]) < 1e-6:
+                        assert not (g.left < a[0] < g.right and min(a[1], b[1]) < g.top - 1e-6
+                                    and max(a[1], b[1]) > g.bottom + 1e-6), (seed, g.name)
+                    else:
+                        assert not (g.bottom < a[1] < g.top and min(a[0], b[0]) < g.right and
+                                    max(a[0], b[0]) > g.left), (seed, g.name)
+
+
+def test_a_riser_passing_under_a_board_keeps_clear_of_its_incomer():
+    # SMDB-B sits right above the MDB; a riser from an MDB way left of SMDB-B's
+    # incomer goes up past it to SMDB-C on the next floor: it must not cut
+    # across SMDB-B's own incoming riser.
+    eq = [EquipmentInfo("mdb", "MDB-01", "Ground Floor", 0.0),
+          EquipmentInfo("b", "SMDB-B", "Ground Floor", 0.0),
+          EquipmentInfo("c", "SMDB-C", "First Floor", 4.0)]
+    c = [CircuitInfo("w1", "mdb", "1", rating="100", poles="3", fed_equipment_ids=["c"]),
+         CircuitInfo("w2", "mdb", "2", rating="100", poles="3", fed_equipment_ids=["b"])]
+    for k in range(6):
+        for board in ("b", "c"):
+            c.append(CircuitInfo("%s%d" % (board, k), board, str(k + 1), "L", rating="20",
+                                 poles="3"))
+    lay = layout_schematic(build_schematic(eq, c))
+    assert not _riser_crossings(lay)

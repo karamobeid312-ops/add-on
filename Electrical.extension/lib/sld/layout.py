@@ -411,8 +411,7 @@ def layout_schematic(schematic, settings=None):
     feeds = _collect_feeds(schematic, geoms, boxes)
     rows = sorted(set(g.row for g in geoms.values()))
     _place_x(schematic, geoms, feeds, rows)
-    jog_counts = _route(geoms, feeds, rows)
-    floor_ys, row_base = _place_y(geoms, rows, jog_counts)
+    floor_ys, row_base = _best_route(geoms, feeds, rows)
     for block in blocks:
         block.place_y()
 
@@ -557,80 +556,171 @@ def _place_x(schematic, geoms, feeds, rows):
                 block.place_x()
 
 
-def _route(geoms, feeds, rows):
+def _route(geoms, feeds, rows, incomer_side=True):
     """Plan each riser: where it has to jog sideways.
 
-    A riser goes straight up from its way. In every row it passes through,
-    if a board is in the way it jogs (just below that row's boards) to the
-    side of the board nearer its destination. Risers beside the same side
-    of a board run in lanes, in the order they come up, so they do not
-    cross (a riser already running there takes its lane too). In the fed
-    board's row it jogs to line up with the incomer. Returns
-    {row: number of jogs}.
+    Row by row (bottom up), every riser in the row's jog zone (just under
+    its boards) keeps its left-to-right order, so no two cross where it can
+    be helped: a riser ending in the row jogs to its board's incomer; a
+    riser passing through moves into a gap between the row's boards (lanes
+    RISER_LANE apart), going round a board in its way on the side of the
+    board's incomer it comes up on (incomer_side) or the side nearer its
+    destination. Returns {row: number of jogs}.
     """
     clearance = style.RISER_CLEARANCE
+    margin = style.RISER_MIN_CLEAR      # closest a riser may pass a board
     lane = style.RISER_LANE
     by_row = {}
     for g in geoms.values():
-        by_row.setdefault(g.row, []).append(g)
-
-    def blocker(row, x):
-        for g in by_row.get(row, []):
-            if _on_riser(g):
-                continue
-            if g.left - clearance < x < g.right + clearance:
-                return g
-        return None
-
+        if not _on_riser(g):
+            by_row.setdefault(g.row, []).append(g)
+    fed = set(f.target.key for f in feeds)
     xs = {}
     for f in feeds:
         f.jogs = []
         xs[f] = f.source_x()
+    inf = float("inf")
     for row in rows:
-        passing = [f for f in feeds if f.source.row < row < f.target.row]
-        groups = {}             # (board, side) -> [feed]
-        for f in passing:
+        present = [f for f in feeds if f.source.row < row <= f.target.row]
+        if not present:
+            continue
+        # blocked spans of the row's boards, merged; gaps between them
+        spans = []
+        for g in sorted(by_row.get(row, []), key=lambda g: g.left):
+            lo, hi = g.left - margin, g.right + margin
+            if spans and lo <= spans[-1][1]:
+                spans[-1][1] = max(spans[-1][1], hi)
+                spans[-1][2].append(g)
+            else:
+                spans.append([lo, hi, [g]])
+        gaps = [(-inf if k == 0 else spans[k - 1][1], spans[k][0] if k < len(spans) else inf)
+                for k in range(len(spans) + 1)]
+
+        def gap_of(x):
+            for k, (a, b) in enumerate(gaps):
+                if a - 1e-6 <= x <= b + 1e-6:
+                    return k
+            return None
+
+        def first_gap(k, lo):
+            for j in range(k, len(gaps)):
+                if gaps[j][1] >= lo:
+                    return j
+            return len(gaps) - 1
+
+        present.sort(key=lambda f: (xs[f], f.target.incomer_x))
+        entries = []            # [feed, fixed x or None, gap, wanted x]
+        lo = -inf
+        for f in present:
             x = xs[f]
-            g = blocker(row, x)
-            if g is None:
+            if f.target.row == row:
+                t = f.target.incomer_x
+                entries.append([f, t, None, t])
+                lo = max(lo, t + lane)
                 continue
-            target_x = f.target.incomer_x
-            sides = [(-1, g.left - clearance), (1, g.right + clearance)]
-            options = [o for o in sides if blocker(row, o[1]) is None] or [sides[1]]
-            side = min(options, key=lambda o: abs(o[1] - target_x))[0]
-            groups.setdefault((g, side), []).append(f)
-        taken = set(f for fs in groups.values() for f in fs)
-        for (g, side), fs in groups.items():
-            start = g.right + clearance if side > 0 else g.left - clearance
-            # risers already running in the band of lanes join it
-            while True:
-                end = start + side * (len(fs) + 0.5) * lane
-                lo, hi = min(start, end), max(start, end)
-                more = [f for f in passing if f not in taken and lo - 1e-6 <= xs[f] <= hi]
-                if not more:
-                    break
-                fs.extend(more)
-                taken.update(more)
-            # in the order they come up: nearest the board first on its side
-            fs.sort(key=lambda f: (xs[f] * side, f.target.incomer_x * side))
-            for n, f in enumerate(fs):
-                nx = start + side * n * lane
-                if blocker(row, nx) is not None:
-                    nx = start
-                if abs(nx - xs[f]) > 1e-6:
-                    f.jogs.append([row, xs[f], nx, 0])
-                    xs[f] = nx
+            k = gap_of(x)
+            if k is not None:
+                j = k if gaps[k][1] >= lo else first_gap(k + 1, lo)
+            else:
+                # under a board: go round it
+                s_ = next(n for n, sp in enumerate(spans) if sp[0] < x < sp[1])
+                board = min(spans[s_][2], key=lambda g: abs(g.incomer_x - x))
+                target_x = f.target.incomer_x
+                if incomer_side and board.key in fed:
+                    left = x < board.incomer_x
+                else:
+                    left = abs(spans[s_][0] - target_x) <= abs(spans[s_][1] - target_x)
+                if left and gaps[s_][1] >= lo:
+                    j = s_          # the gap left of the board
+                else:
+                    j = first_gap(s_ + 1, lo)
+            a, b = gaps[j]
+            if a <= x <= b:
+                want = x
+            elif x > b:         # round the board on its right: clear of it if there is room
+                want = max(a, b - (clearance - margin))
+            else:
+                want = min(b, a + (clearance - margin))
+            entries.append([f, None, j, want])
+            lo = max(lo, a)
+        # positions: in order, RISER_LANE apart, inside their gaps
+        pos = []
+        prev = -inf
+        for f, fixed, j, want in entries:
+            if fixed is not None:
+                p = fixed
+            else:
+                p = max(want, gaps[j][0], prev + lane)
+            pos.append(p)
+            prev = p
+        nxt = inf
+        for n in range(len(entries) - 1, -1, -1):
+            f, fixed, j, want = entries[n]
+            if fixed is None:
+                low = gaps[j][0] if n == 0 else max(gaps[j][0], pos[n - 1] + lane)
+                p = min(pos[n], nxt - lane)
+                # never into a board: a gap too narrow for its risers lets them cross
+                pos[n] = min(max(p, low), gaps[j][1])
+            nxt = pos[n]
+        for (f, fixed, j, want), p in zip(entries, pos):
+            if abs(p - xs[f]) > 1e-6:
+                f.jogs.append([row, xs[f], p, 0])
+                xs[f] = p
     per_row = {}
     for f in feeds:
-        x, target_x = xs[f], f.target.incomer_x
-        if abs(x - target_x) > 1e-6:
-            f.jogs.append([f.target.row, x, target_x, 0])
         for jog in f.jogs:
             per_row.setdefault(jog[0], []).append(jog)
     for row, jogs in per_row.items():
         for i, jog in enumerate(_order_jogs(jogs)):
             jog[3] = i
     return dict((row, len(jogs)) for row, jogs in per_row.items())
+
+
+_ROUTINGS = ((True,), (False,))
+
+
+def _best_route(geoms, feeds, rows):
+    """Route the risers each way in _ROUTINGS and keep the one with the
+    fewest lines crossing (the first on a tie). Returns _place_y's result."""
+    best = None
+    for n, args in enumerate(_ROUTINGS):
+        jog_counts = _route(geoms, feeds, rows, *args)
+        placed = _place_y(geoms, rows, jog_counts)
+        count = _count_crossings([_feed_points(f, placed[1]) for f in feeds])
+        if best is None or count < best[0]:
+            best = (count, n)
+        if count == 0:
+            return placed
+    if best[1] == n:
+        return placed
+    jog_counts = _route(geoms, feeds, rows, *_ROUTINGS[best[1]])
+    return _place_y(geoms, rows, jog_counts)
+
+
+def _feed_points(f, row_base):
+    points = [(f.source_x(), f.source_y())]
+    for row, x0, x1, track in f.jogs:
+        y = row_base[row] - style.JOG_FIRST - track * style.JOG_TRACK
+        points += [(x0, y), (x1, y)]
+    points.append((f.target.incomer_x, f.target.feed_y))
+    return points
+
+
+def _count_crossings(polylines):
+    """Horizontal segments of one riser crossing vertical segments of another."""
+    hs, vs = [], []
+    for i, pts in enumerate(polylines):
+        for a, b in zip(pts, pts[1:]):
+            if abs(a[1] - b[1]) < 1e-6 and abs(a[0] - b[0]) > 1e-6:
+                hs.append((i, min(a[0], b[0]), max(a[0], b[0]), a[1]))
+            elif abs(a[0] - b[0]) < 1e-6:
+                vs.append((i, a[0], min(a[1], b[1]), max(a[1], b[1])))
+    count = 0
+    for i, x0, x1, y in hs:
+        for j, x, y0, y1 in vs:
+            if i != j and x0 + 1e-6 < x < x1 - 1e-6 and y0 + 1e-6 < y < y1 - 1e-6:
+                count += 1
+    return count
 
 
 def _order_jogs(jogs):
@@ -890,11 +980,7 @@ def _draw_feed(d, f, row_base):
     xt, yt = f.target.incomer_x, f.target.feed_y
     if isinstance(f.target, BoxGeom):
         symbols.db_box(d, xt, yt, f.target.name, f.target.loads())
-    points = [(f.source_x(), f.source_y())]
-    for row, x0, x1, track in f.jogs:
-        y = row_base[row] - style.JOG_FIRST - track * style.JOG_TRACK
-        points += [(x0, y), (x1, y)]
-    points.append((xt, yt))
+    points = _feed_points(f, row_base)
     f.points = points
     d.polyline(points)
 
