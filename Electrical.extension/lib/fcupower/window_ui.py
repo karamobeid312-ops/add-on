@@ -21,7 +21,8 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "BrowseButton", "FileText", "SheetList", "SheetTitle", "TagCombo", "RoomCombo",
          "PowerCombo", "UnitCombo", "SheetInfo", "FamilyList", "KpiWrite", "KpiSame",
          "KpiCheck", "KpiBad", "KpiUnused", "ShowCombo", "SearchText", "ResultGrid",
-         "TagParamCombo", "SocketTypeCombo", "AddButton", "FloorCombo")
+         "TagParamCombo", "SocketTypeCombo", "AddButton", "FloorCombo", "PanelCombo",
+         "WireTypeCombo", "WireTagCombo", "CircuitButton", "CircuitInfo")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
 ALL_FLOORS = u"All floors"
@@ -124,6 +125,7 @@ class FcuWindow(object):
         names = [n for n, _ in self.levels]
         active = revit.get("active_level")
         self.FloorCombo.SelectedIndex = names.index(active) + 1 if active in names else 0
+        self._fill_circuit_choices()
         self._wire()
         path = revit.get("path") or u""
         if path and os.path.isfile(path):
@@ -140,6 +142,7 @@ class FcuWindow(object):
         self.CloseButton.Click += lambda s, e: self.win.Close()
         self.WriteButton.Click += self.on_write
         self.AddButton.Click += self.on_add
+        self.CircuitButton.Click += self.on_circuit
         self.FloorCombo.SelectionChanged += self.on_floor
         self.SheetList.SelectionChanged += self.on_sheet
         for combo in (self.TagCombo, self.RoomCombo, self.PowerCombo, self.UnitCombo):
@@ -405,12 +408,41 @@ class FcuWindow(object):
             return self.fcus
         return [f for f in self.fcus if f.z is not None and span[0] <= f.z < span[1]]
 
+    def _fill_circuit_choices(self):
+        if "panels" not in self.revit:
+            return
+        for name in self.revit["panels"]():
+            self.PanelCombo.Items.Add(name)
+        last = self.revit.get("panel") or u""
+        if last:
+            self.PanelCombo.Text = last
+        for combo, key in ((self.WireTypeCombo, "wire_types"), (self.WireTagCombo, "tag_types")):
+            names, best = self.revit[key]()
+            combo.Items.Add(NONE_CHOICE)
+            for name in names:
+                combo.Items.Add(name)
+            combo.SelectedIndex = names.index(best) + 1 if best in names else 0
+
+    def to_circuit(self):
+        """The outlets of the floor picked that are on no circuit yet."""
+        return [f for f in self.floor_fcus() if not f.circuited]
+
+    def _fill_circuit_info(self):
+        n = len(self.to_circuit())
+        self.CircuitButton.Content = u"Circuit + wire (%d)" % n
+        self.CircuitButton.IsEnabled = bool(n)
+        floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
+        self.CircuitInfo.Text = (u"%d outlet(s) of %s with no circuit. Each gets its own circuit on "
+                                 u"the panel, a home-run wire towards it and the wire tag, in the "
+                                 u"floor's plan." % (n, floor))
+
     def _fill_missing(self, grid=True):
         span = self._floor_range()
         self.missing = [i for i in self.all_missing
                         if span is None or span[0] <= self.units[i][2] < span[1]]
         self.AddButton.Content = u"Add missing sockets (%d)" % len(self.missing)
         self.AddButton.IsEnabled = bool(self.missing)
+        self._fill_circuit_info()
         if grid:
             self._fill_grid()
 
@@ -426,6 +458,48 @@ class FcuWindow(object):
                 "state": m.WARN}
 
     # ------------------------------------------------------------ events
+
+    def on_circuit(self, sender, args):
+        from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult
+        todo = self.to_circuit()
+        panel = (self.PanelCombo.Text or u"").strip()
+        names = [u"%s" % n for n in self.PanelCombo.Items]
+        if panel not in names:
+            self._alert(u"Pick the panel the FCU outlets are fed from.")
+            return
+
+        def picked(combo):
+            item = combo.SelectedItem
+            text = u"%s" % item if item is not None else NONE_CHOICE
+            return None if text == NONE_CHOICE else text
+        wire, tag = picked(self.WireTypeCombo), picked(self.WireTagCombo)
+        floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
+        answer = MessageBox.Show(
+            self.win, u"Circuit %d outlet(s) of %s to %s, one circuit each,%s?"
+            % (len(todo), floor, panel,
+               u" with a home-run wire (%s) and tag (%s)" % (wire, tag or u"no tag") if wire
+               else u" without wires"),
+            TITLE, MessageBoxButton.YesNo)
+        if answer != MessageBoxResult.Yes:
+            return
+        self._status(u"Circuiting %d outlet(s) to %s..." % (len(todo), panel), "")
+        try:
+            made, wired, tagged, failed = self.revit["circuit"](
+                [(f.key, f.tag or u"id %d" % f.key) for f in todo], panel, wire, tag)
+        except Exception as error:
+            self._alert(u"Nothing was circuited:\n%s" % error)
+            return
+        try:
+            self.revit["keep_panel"](panel)
+        except Exception:
+            pass
+        self.refresh()
+        text = u"%d circuit(s) made on %s, %d wire(s) and %d tag(s) drawn." % (made, panel, wired, tagged)
+        if failed:
+            text += u"\n\nProblems:\n" + u"\n".join(u"- %s" % f for f in failed[:30])
+            if len(failed) > 30:
+                text += u"\n(+%d more)" % (len(failed) - 30)
+        self._alert(text)
 
     def on_floor(self, sender, args):
         self._fill_missing(grid=False)

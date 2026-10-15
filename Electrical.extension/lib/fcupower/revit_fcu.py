@@ -378,6 +378,8 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=No
         fcu.texts = text_values(element)
         point = _location(element)
         fcu.z = point.Z if point is not None else None
+        from fcupower.circuit import circuited
+        fcu.circuited = circuited(element)
         if linked is not None:
             tag, distance, unit = linked.nearest(element)
             fcu.texts[LINKED_TAG] = tag

@@ -82,6 +82,7 @@ class Fcu(object):
         self.linked_distance = None  # m to the linked FCU whose Comments is the tag
         self.linked_unit = None      # index of that linked FCU
         self.z = None                # height of the socket (ft), for the floor filter
+        self.circuited = True        # already on a power circuit
 
     @property
     def room(self):

@@ -39,6 +39,52 @@ def _keep_families(names):
         pass
 
 
+def _option(key):
+    try:
+        from pyrevit import script
+        return script.get_config(SECTION).get_option(key, "") or ""
+    except Exception:
+        return ""
+
+
+def _keep_option(key, value):
+    try:
+        from pyrevit import script
+        cfg = script.get_config(SECTION)
+        setattr(cfg, key, value)
+        script.save_config()
+    except Exception:
+        pass
+
+
+def _names(found):
+    types, best = found
+    return sorted(types), best
+
+
+def _circuit(doc, elements, keys, panel_name, wire_name, tag_name):
+    """Circuit and wire the outlets (element ids), each on its own circuit."""
+    from fcupower import circuit, revit_fcu
+    panel = circuit.panels(doc).get(panel_name)
+    if panel is None:
+        return 0, 0, 0, [u"Panel %s not found" % panel_name]
+    wires = circuit.wire_types(doc)[0]
+    tags = circuit.tag_types(doc)[0]
+    views = {}
+
+    def view_for(element):
+        floor = revit_fcu._floor(element)
+        if floor is None:
+            return None
+        key = round(floor, 3)
+        if key not in views:
+            views[key] = circuit.plan_of(doc, floor)
+        return views[key]
+    outlets = [(label, elements[k]) for k, label in keys if k in elements]
+    return circuit.circuit_and_wire(doc, outlets, panel, wires.get(wire_name), tags.get(tag_name),
+                                    view_for)
+
+
 def _levels(doc):
     """[(name, elevation)] of the model's levels, low to high."""
     from Autodesk.Revit.DB import FilteredElementCollector, Level
@@ -58,7 +104,7 @@ def run():
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model to use FCU Power.", exitscript=True)
 
-    from fcupower import place, revit_fcu
+    from fcupower import circuit, place, revit_fcu
     from fcupower.window_ui import show_window
     fams = revit_fcu.families(doc)
     if not fams:
@@ -83,6 +129,12 @@ def run():
         "add": lambda units, label, names: place.add_sockets(
             doc, units, place.socket_types(doc, names)[label]),
         "reload_families": lambda: revit_fcu.families(doc),
+        "panels": lambda: sorted(circuit.panels(doc)),
+        "wire_types": lambda: _names(circuit.wire_types(doc)),
+        "tag_types": lambda: _names(circuit.tag_types(doc)),
+        "circuit": lambda keys, panel, wire, tag: _circuit(doc, elements, keys, panel, wire, tag),
+        "panel": _option("panel"),
+        "keep_panel": lambda name: _keep_option("panel", name),
         "keep_families": _keep_families,
     }
     links = len(models) - 1

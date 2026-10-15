@@ -1,6 +1,6 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="FCU Power" Width="1360" Height="820" MinWidth="980" MinHeight="560"
+        Title="FCU Power" Width="1400" Height="900" MinWidth="980" MinHeight="560"
         WindowStartupLocation="CenterScreen" ShowInTaskbar="False" FontSize="12"
         FontFamily="Segoe UI" Background="#FFF6F8FB" Foreground="#FF1D2733">
   <!-- No event attributes and no x:Class: XamlReader cannot bind them, so
@@ -97,6 +97,8 @@
           <RowDefinition Height="3*"/>
           <RowDefinition Height="8"/>
           <RowDefinition Height="2*"/>
+          <RowDefinition Height="8"/>
+          <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0" Style="{StaticResource Card}">
@@ -139,6 +141,22 @@
                        Text="Families with Real_Power_W, or with FCU in their name. Names with FCU are ticked at first."/>
             <ListBox x:Name="FamilyList" BorderThickness="0" Background="Transparent"/>
           </DockPanel>
+        </Border>
+
+        <Border Grid.Row="4" Style="{StaticResource Card}">
+          <StackPanel>
+            <TextBlock Text="3  Circuit and wire the outlets" Style="{StaticResource SectionTitle}"/>
+            <TextBlock Text="Panel" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="PanelCombo" IsEditable="True" IsTextSearchEnabled="True"/>
+            <TextBlock Text="Wire type" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="WireTypeCombo"/>
+            <TextBlock Text="Wire tag" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="WireTagCombo"/>
+            <Button x:Name="CircuitButton" Content="Circuit + wire" Margin="0,8,0,0"
+                    ToolTip="Each outlet of the floor with no circuit gets its own circuit on the panel, a home-run wire towards it and a wire tag"/>
+            <TextBlock x:Name="CircuitInfo" Style="{StaticResource Muted}" FontSize="11"
+                       Margin="0,6,0,0" TextWrapping="Wrap"/>
+          </StackPanel>
         </Border>
       </Grid>
 
