@@ -1,0 +1,271 @@
+# -*- coding: utf-8 -*-
+"""Entry points for the ribbon buttons."""
+from Autodesk.Revit.DB import ElementId, TransactionGroup
+from pyrevit import forms, revit, script
+from System.Collections.Generic import List
+
+from copycircuits import plan, report, revit_copy, settings
+
+TITLE = "Copy Circuits"
+MM_PER_FOOT = 304.8
+
+
+def _pick_levels(doc, view):
+    all_levels = revit_copy.levels(doc)
+    names = [l.Name for l in all_levels]
+    by_name = dict((l.Name, l) for l in all_levels)
+    if len(all_levels) < 2:
+        forms.alert("The model needs at least two levels.", title=TITLE)
+        return None, None
+    try:
+        here = view.GenLevel.Name
+    except Exception:
+        here = None
+    ordered = ([here] if here in by_name else []) + [n for n in names if n != here]
+    source = forms.SelectFromList.show(
+        ordered, title="%s: copy the circuits of which floor?" % TITLE,
+        button_name="Next", multiselect=False)
+    if not source:
+        return None, None
+    targets = forms.SelectFromList.show(
+        names,
+        title="%s: make them on which floors? (the copies of %s; pick %s too for a "
+              "mirrored or moved copy on the same floor, like the other tower)"
+              % (TITLE, source, source),
+        button_name="Copy circuits", multiselect=True)
+    if not targets:
+        return None, None
+    return by_name[source], [by_name[n] for n in names if n in targets]
+
+
+ONE_BY_ONE = "Pick circuits one by one..."
+BY_VIEW = "Circuits shown in plans I choose..."
+IN_MODEL = "Select them in the model (click the fixtures, then Finish)..."
+
+
+def _picked_in_model(uidoc, circuits):
+    """Keys of the circuits of the elements the user clicks in the model, or
+    None when cancelled (Esc)."""
+    from Autodesk.Revit.UI.Selection import ObjectType
+    try:
+        refs = uidoc.Selection.PickObjects(
+            ObjectType.Element, "Copy Circuits: click the fixtures (or panels) whose "
+                                "circuits to copy, then Finish")
+    except Exception:
+        return None
+    ids = set(revit_copy.id_int(r.ElementId) for r in refs)
+    return set(c.key for c in circuits
+               if ids & (set(c.elements) | set([c.key, c.panel])))
+
+
+def _pick_circuits(doc, uidoc, source, view):
+    """Keys of the circuits to copy: by kind (Lighting, Power...), by the
+    family they feed (an FCU socket...), those shown in the active plan or in plans picked from a list, or
+    picked one by one, or by clicking their fixtures in the model. None:
+    cancelled."""
+    circuits = source.circuits
+    options, keys = [], {}
+    for group, count in plan.groups(circuits):
+        text = "%s circuits (%d)" % (group, count)
+        options.append(text)
+        keys[text] = set(c.key for c in circuits if c.group == group)
+    shown = revit_copy.shown_in(doc, view)
+    if shown is not None:
+        here = set(c.key for c in circuits if set(c.elements) & shown)
+        if here and len(here) < len(circuits):
+            text = "Circuits shown in this plan, %s (%d)" % (view.Name, len(here))
+            options.append(text)
+            keys[text] = here
+    for family, count in plan.families(circuits):
+        text = "Feeding %s (%d)" % (family, count)
+        options.append(text)
+        keys[text] = set(c.key for c in circuits if family in c.families)
+    options.append(BY_VIEW)
+    options.append(IN_MODEL)
+    options.append(ONE_BY_ONE)
+    picked = forms.SelectFromList.show(
+        options, title="%s: copy which circuits of %s?" % (TITLE, source.level.Name),
+        button_name="Next", multiselect=True)
+    if not picked:
+        return None
+    chosen = set()
+    for text in picked:
+        chosen |= keys.get(text, set())
+    if BY_VIEW in picked:
+        plans = revit_copy.plans_of(doc, source.level)
+        names = forms.SelectFromList.show(
+            [n for n, _ in plans],
+            title="%s: copy the circuits shown in which plans of %s?"
+                  % (TITLE, source.level.Name),
+            button_name="Next", multiselect=True)
+        if not names:
+            return None
+        seen = set()
+        for name, v in plans:
+            if name in names:
+                seen |= revit_copy.shown_in(doc, v) or set()
+        shown = set(c.key for c in circuits if set(c.elements) & seen)
+        if not shown:
+            forms.alert("None of the circuits of %s is shown in %s."
+                        % (source.level.Name, ", ".join(names)), title=TITLE)
+            return None
+        chosen |= shown
+    if IN_MODEL in picked:
+        clicked = _picked_in_model(uidoc, circuits)
+        if clicked is None:
+            return None
+        chosen |= clicked
+        if not clicked:
+            forms.alert("None of the clicked elements is on a circuit of %s."
+                        % source.level.Name, title=TITLE)
+            return None
+    if ONE_BY_ONE not in picked:
+        return chosen
+    listed = [c for c in circuits if not chosen or c.key in chosen]
+    listed.sort(key=lambda c: (c.group, c.panel_name, c.slot, c.key))
+    labels = dict((plan.circuit_label(c), c.key) for c in listed)
+    picked = forms.SelectFromList.show(
+        [plan.circuit_label(c) for c in listed],
+        title="%s: copy which circuits of %s?" % (TITLE, source.level.Name),
+        button_name="Next", multiselect=True)
+    if not picked:
+        return None
+    return set(labels[t] for t in picked)
+
+
+def _show(output, result, source):
+    source_name = source.level.Name
+    output.print_md("## " + result.level)
+    output.print_md(report.headline(result))
+    if result.note:
+        return
+    line = report.found_line(result, source_name)
+    if line:
+        output.print_md(line)
+    if result.panels:
+        output.print_table(table_data=[report.panel_row(m) for m in result.panels],
+                           columns=report.PANEL_COLUMNS)
+    if result.made:
+        ids = [m.key for m in result.made]
+        output.print_md(output.linkify(ids, "Select the %d new circuits" % len(ids)))
+        output.print_table(
+            table_data=[report.made_row(m, output.linkify(m.key)) for m in result.made],
+            columns=report.MADE_COLUMNS)
+    if result.failed:
+        output.print_md("### Refused by Revit")
+        output.print_table(
+            table_data=[[j.circuit.label, msg] for j, msg in result.failed],
+            columns=report.SKIPPED_COLUMNS)
+    if result.not_copied():
+        output.print_md("### Not copied")
+        output.print_table(table_data=[report.skipped_row(s) for s in result.not_copied()],
+                           columns=report.SKIPPED_COLUMNS)
+    missing = result.missing()
+    if missing:
+        output.print_md("%s on %s with no copy here, left out of their circuits: %s" % (
+            len(missing) == 1 and "1 element" or "%d elements" % len(missing), source_name,
+            output.linkify([source.elements[k].Id for k in missing], "select them")))
+    if result.left:
+        output.print_md("%d element%s of the same family types on %s matched nothing on %s "
+                         "(new on this floor) and have no circuit: %s" % (
+                             len(result.left), "" if len(result.left) == 1 else "s",
+                             result.floor, source_name,
+                             output.linkify(result.left, "select them")))
+    lines = report.wire_lines(result)
+    if lines:
+        output.print_md("### Wires")
+    for line in lines:
+        output.print_md("- " + line)
+    if result.unwired:
+        output.print_md("%d element%s here missing a wire they have on %s: %s" % (
+            len(result.unwired), "" if len(result.unwired) == 1 else "s", source_name,
+            output.linkify(result.unwired, "select them")))
+
+
+def run():
+    """Make the circuits of one floor on the floors copied from it."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model to copy circuits.", title=TITLE)
+        return
+    source_level, targets = _pick_levels(doc, doc.ActiveView)
+    if source_level is None:
+        return
+    chosen = set(revit_copy.id_int(i) for i in uidoc.Selection.GetElementIds()) or None
+    values = settings.load()
+    tolerance = values["tolerance"] / MM_PER_FOOT
+    source = revit_copy.read_source(doc, source_level, chosen)
+    if not source.circuits:
+        forms.alert("No circuits found with elements on %s%s." % (
+            source_level.Name, " among the selected elements" if chosen else ""), title=TITLE)
+        return
+    if not chosen:
+        keys = _pick_circuits(doc, uidoc, source, doc.ActiveView)
+        if not keys:
+            return
+        if len(keys) < len(source.circuits):
+            source = revit_copy.read_source(doc, source_level, None, keys)
+    which = " (from the selection)" if chosen else " (%s)" % ", ".join(
+        g for g, _ in plan.groups(source.circuits))
+    wires = revit_copy.Wires(doc, source_level) if values["wires"] else None
+
+    results = []
+    group = TransactionGroup(doc, TITLE)
+    group.Start()
+    try:
+        for level in targets:
+            results.extend(revit_copy.copy_to(doc, source, level, tolerance, wires))
+        group.Assimilate()
+    except Exception:
+        if group.HasStarted() and not group.HasEnded():
+            group.RollBack()
+        raise
+
+    made = [m.key for r in results for m in r.made]
+    if made:
+        uidoc.Selection.SetElementIds(List[ElementId](made))
+    output = script.get_output()
+    output.set_title(TITLE)
+    output.print_md("# Circuits of %s copied" % source_level.Name)
+    output.print_md("%d circuit%s read on %s%s; copies matched by family type and plan "
+                    "position within %s mm, at the same spot or mirrored, turned or moved "
+                    "as a whole (another tower)." % (
+                        len(source.circuits), "" if len(source.circuits) == 1 else "s",
+                        source_level.Name, which,
+                        _number(values["tolerance"])))
+    if source.by_height:
+        output.print_md("%d of their elements have another Level than %s but are in its "
+                        "storey, and are copied too." % (source.by_height, source_level.Name))
+    for result in results:
+        _show(output, result, source)
+    output.print_md("*The new circuits are selected in Revit. Undo once to take them all "
+                    "back. Check the circuit numbers in the panel schedules.*")
+
+
+def _number(value):
+    return ("%.1f" % value).rstrip("0").rstrip(".")
+
+
+def edit_settings():
+    values = settings.load()
+    text = forms.ask_for_string(
+        default=_number(values["tolerance"]),
+        prompt="Tolerance in mm: a fixture or panel this near the source one's spot in plan, "
+               "of the same family type, is its copy (up to %s):"
+               % _number(settings.MAX_TOLERANCE),
+        title="%s Settings" % TITLE)
+    if text is None:
+        return
+    value = settings.valid("tolerance", text.replace(",", ".").replace("mm", "").strip())
+    if value is None:
+        forms.alert("Enter a tolerance above 0 and up to %s mm."
+                    % _number(settings.MAX_TOLERANCE), title=TITLE)
+        return
+    values["tolerance"] = value
+    values["wires"] = forms.alert(
+        "Draw the wires again on the copied floors?\n\n"
+        "Yes: each wire in the source floor's plans is drawn in the copied floor's plan "
+        "of the same kind, between the copies. Wires pasted with the fixtures but not "
+        "connected are replaced.\nNo: circuits only.",
+        title="%s Settings" % TITLE, yes=True, no=True)
+    settings.save(values)

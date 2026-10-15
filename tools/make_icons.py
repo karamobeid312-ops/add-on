@@ -314,6 +314,26 @@ def check_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def copy_circuits(c, ink):
+    for y in (4, 18):                                    # two floors
+        c.fill([rect(2, y + 9, 30, y + 10.4)], GRAY)
+        for x in (5, 13):
+            c.fill([circle(x, y + 4, 2.4)], WHITE)       # fixtures
+            stroke(c, circle(x, y + 4, 2.4), 1.2, ink, closed=True)
+        c.fill([rect(22, y + 1, 28, y + 8)], ink)        # panel
+    stroke(c, [(7.4, 8), (10.6, 8)], 1.4, ink)           # circuit on the floor above
+    stroke(c, [(15.4, 8), (22, 8)], 1.4, ink)
+    stroke(c, [(7.4, 22), (10.6, 22)], 1.6, AMBER)       # made again below
+    stroke(c, [(15.4, 22), (22, 22)], 1.6, AMBER)
+
+
+def circuit_settings(c, ink):
+    def glyph(c):
+        c.fill([circle(21.5, 24, 2.2)], WHITE)
+        c.fill([rect(25, 21.5, 28.5, 26.5)], WHITE)
+    settings_gear(c, ink, AMBER, glyph)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -331,6 +351,8 @@ ICONS = [
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
     (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
     (TAB + "Model Check.panel/Settings.pushbutton", check_settings),
+    (TAB + "Circuits.panel/Copy Circuits.pushbutton", copy_circuits),
+    (TAB + "Circuits.panel/Settings.pushbutton", circuit_settings),
 ]
 
 
