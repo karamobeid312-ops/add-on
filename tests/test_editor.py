@@ -66,7 +66,7 @@ def test_what_can_be_edited():
 
 def test_breaker_change_goes_to_the_fed_panel():
     ed = small(vd=False)
-    smdb_way = ed.ways("MDB-1")[0]
+    smdb_way = ed.ways("MDB-1")[1]
     assert smdb_way.values["at"] == "250"
     assert ed.set_way(smdb_way.key, "at", "200") == [smdb_way.key]
     (change,) = ed.changes()
@@ -84,7 +84,7 @@ def test_breaker_change_goes_to_the_fed_panel():
 
 def test_cable_change_and_preview():
     ed = small(vd=False)
-    w = ed.ways("MDB-1")[0]
+    w = ed.ways("MDB-1")[1]
     assert ed.preview(w.key)[0] == u"(4X120)mm² CU/XLPE/SWA/PVC +(1X70)mm² CU/PVC(E)"
     ed.set_way(w.key, "size", "150")
     ed.set_way(w.key, "runs", "2")
@@ -108,7 +108,7 @@ def test_bad_values_are_reported():
 
 def test_voltage_drop_recalculates_downstream():
     ed = small()
-    feeder, lights = ed.ways("MDB-1")[0], ed.ways("SMDB-1")[0]
+    feeder, lights = ed.ways("MDB-1")[1], ed.ways("SMDB-1")[0]
     before = float(lights.vd)
     assert feeder.vd and before > float(feeder.vd)
     changed = ed.set_way(feeder.key, "size", "50")
@@ -135,7 +135,7 @@ def test_spares_set_on_the_board():
     spares = [w for w in ed.ways("SMDB-1") if w.spare]
     assert len(spares) == 4 and spares[0].values["at"] == "40"
     (change,) = [c for c in ed.changes() if c.kind == "spares"]
-    assert change.values == {"count": "4", "rating": "40AT/100AF MCCB"}
+    assert change.values == {"count": "4", "rating": "40AT/100AF MCCB", "spaces": "0"}
     assert ed.set_board("SMDB-1", "fault_level", "35kA") is False
     assert [c.values for c in ed.changes() if c.kind == "fault_level"] == [{"text": "35kA"}]
 
@@ -145,8 +145,8 @@ def test_incomer_is_the_breaker_feeding_the_board():
     smdb = ed.board("SMDB-1")
     assert (smdb.values["incomer_at"], smdb.values["incomer_device"]) == ("250", "MCCB")
     ed.set_board("SMDB-1", "incomer_at", "200")
-    assert ed.ways("MDB-1")[0].values["at"] == "200"
-    ed.set_way(ed.ways("MDB-1")[0].key, "af", "400")
+    assert ed.ways("MDB-1")[1].values["at"] == "200"
+    ed.set_way(ed.ways("MDB-1")[1].key, "af", "400")
     assert smdb.values["incomer_af"] == "400"
     (change,) = ed.changes()
     assert change.kind == "breaker" and change.element_id == "SMDB-1"
@@ -160,3 +160,99 @@ def test_main_board_incomer_change():
     (change,) = ed.changes()
     assert change.kind == "incomer" and change.element_id == "MDB-1"
     assert change.values == {"trip": 1600.0, "frame": None, "device": "ACB"}
+
+
+def test_main_board_has_a_row_for_its_transformer_cable():
+    ed = small()
+    tx = ed.ways("MDB-1")[0]
+    assert tx.incoming and tx.label == "TX" and tx.feeds == "FROM TRANSFORMER"
+    assert tx.values["length"] == "" and tx.vd == ""
+    assert all(tx.editable(f) for f in FIELDS)
+    assert not any(w.incoming for w in ed.ways("SMDB-1"))
+    lights = ed.ways("SMDB-1")[0]
+    # no transformer row yet: the totals start at the main board
+    before = float(lights.vd)
+    changed = ed.set_way(tx.key, "length", "20")
+    ed.set_way(tx.key, "size", "300")
+    assert tx.vd not in ("", "n/a") and lights.key in changed
+    assert float(lights.vd) > before
+    kinds = dict((c.kind, c) for c in ed.changes())
+    assert kinds["length"].element_id == "MDB-1" and kinds["length"].circuit_id is None
+    assert kinds["cable"].element_id == "MDB-1" and "300" in kinds["cable"].values["text"]
+    # its breaker is the main board's incomer
+    ed.set_way(tx.key, "at", "1600")
+    assert ed.board("MDB-1").values["incomer_at"] == "1600"
+    assert "breaker" not in [c.kind for c in ed.changes()]
+    assert [c.values["trip"] for c in ed.changes() if c.kind == "incomer"] == [1600.0]
+    ed.set_board("MDB-1", "incomer_at", "2000")
+    assert tx.values["at"] == "2000"
+
+
+def test_transformer_cable_row_reads_what_is_on_the_board():
+    ed = small()
+    ed.vd["feeders"].append(calc.Feeder("MDB-1", "TR:MDB-1", "TR", "MDB-1", target_id="MDB-1",
+                                        length=15.0, tcl_kw=150.0, source_kind=calc.TRANSFORMER,
+                                        cable=Cable(2, 4, 240, "XLPE/SWA/PVC")))
+    ed2 = Editor(ed.schematic, ed.vd)
+    tx = ed2.ways("MDB-1")[0]
+    assert (tx.values["length"], tx.values["runs"], tx.values["size"]) == ("15", "2", "240")
+    assert tx.vd and not ed2.dirty()
+
+
+def test_transformer_vd_typed_by_hand():
+    ed = small()
+    tx, lights = ed.ways("MDB-1")[0], ed.ways("SMDB-1")[0]
+    before = float(lights.vd)
+    ed.set_board("MDB-1", "tx_vd", "0.8 %")
+    assert ed.board("MDB-1").values["tx_vd"] == "0.8"
+    assert tx.vd == "0.80" and abs(float(lights.vd) - before - 0.8) < 0.01
+    assert [c.values for c in ed.changes() if c.kind == "tx_vd"] == [{"value": 0.8}]
+    ed.set_board("MDB-1", "tx_vd", "abc")
+    assert ed.board("MDB-1").errors and any("transformer V.D" in m for m in ed.warnings())
+    assert not [c for c in ed.changes() if c.kind == "tx_vd"]
+    ed.set_board("MDB-1", "tx_vd", "")
+    assert tx.vd == "" and abs(float(lights.vd) - before) < 0.01
+    assert not ed.has_incoming("SMDB-1") and ed.has_incoming("MDB-1")
+
+
+def test_typed_vd_row_in_the_calculation():
+    rows = calc.calculate([
+        calc.Feeder("MDB", "TR:MDB", "TR", "MDB", target_id="MDB", tcl_kw=100.0,
+                    source_kind=calc.TRANSFORMER, typed_vd=1.2),
+        calc.Feeder("SMDB", "MDB", "MDB", "SMDB", target_id="SMDB", length=20.0, tcl_kw=50.0,
+                    breaker=125.0, cable=Cable(1, 4, 50, "XLPE/SWA/PVC"))]).rows()
+    mdb, smdb = list(rows)
+    assert mdb.vd_percent == 1.2 and mdb.total_percent == 1.2
+    assert not [p for p in mdb.problems if "Length" in p or "size" in p]
+    assert "V.D 1.2% typed" in mdb.remarks()
+    assert abs(smdb.total_percent - (1.2 + smdb.vd_percent)) < 1e-9
+
+
+def test_own_vd_when_the_total_is_not_known():
+    from sld import studio
+    ed = small()
+    ed.set_board("MDB-1", "tx_vd", "")
+    tx = ed.ways("MDB-1")[0]
+    ed.set_way(tx.key, "length", "20")       # no cable size: the row is incomplete
+    lights = ed.ways("SMDB-1")[0]
+    assert lights.vd_partial and lights.vd.endswith(" own")
+    assert studio.way_state(lights) == "warn" and "No total yet" in lights.vd_tip
+
+
+def test_spaces_are_empty_breakers_after_the_spares():
+    from sld.model import SPARE
+    ed = small()
+    ed.set_board("SMDB-1", "spaces", "2")
+    ways = ed.ways("SMDB-1")
+    spaces = [w for w in ways if w.way.is_space]
+    assert [w.feeds for w in spaces] == ["SPACE", "SPACE"]
+    assert ways[-2:] == spaces                       # drawn last
+    assert all(w.way.breaker_lines() == [] and w.way.kind == SPARE for w in spaces)
+    spares = ed.board("SMDB-1").values["spares"]
+    ed.set_board("SMDB-1", "spares", "1")            # spares rebuilt, spaces kept after them
+    ways = ed.ways("SMDB-1")
+    assert [w.feeds for w in ways[-3:]] == ["SPARE", "SPACE", "SPACE"]
+    change = next(c for c in ed.changes() if c.kind == "spares")
+    assert change.values["spaces"] == "2" and change.values["count"] == "1" and spares != "1"
+    ed.set_board("SMDB-1", "spaces", "0")
+    assert not any(w.way.is_space for w in ed.ways("SMDB-1"))

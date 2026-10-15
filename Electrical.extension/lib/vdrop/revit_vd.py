@@ -136,6 +136,22 @@ def _length_of(element, name, notes):
     return value
 
 
+def typed_vd(element):
+    """VD Percent typed on a main board for its cable from the transformer
+    (used when that cable has no length), else None."""
+    p = _parameter(element, P_VD)
+    if p is None:
+        return None
+    try:
+        if p.StorageType == StorageType.Double:
+            value = p.AsDouble()
+        else:
+            value = parse.number(_text(element, P_VD))
+    except Exception:
+        return None
+    return value if value is not None and value >= 0 else None
+
+
 def _bip(element, name):
     """Built-in parameter by name (None when this Revit lacks it)."""
     bip = getattr(BuiltInParameter, name, None)
@@ -476,13 +492,16 @@ def _panel_feeder(panel, system, source, values, model):
         source_id, source_name, kind = "%s:%s" % (TRANSFORMER_SOURCE, panel.id), TRANSFORMER_SOURCE, TRANSFORMER
     else:
         source_id, source_name, kind = source.id, source.name, source.kind
+    # a transformer cable with no length: its V.D can be typed in VD Percent
+    vd = typed_vd(el) if length is None and kind == TRANSFORMER else None
     model.feeders.append(Feeder(
         id=panel.id, source_id=source_id, source=source_name, target=panel.name,
         target_id=panel.id, length=length, phases=panel.phases,
         voltage=_model_voltage(values, panel.voltage or circuit_voltage),
         tcl_kw=tcl, mdl_kw=mdl, power_factor=pf,
         breaker=panel.breaker, installation=_first(typed, _installation, notes),
-        cable=cable, source_kind=kind, order=_order(system), ref=el.Id, notes=notes))
+        cable=cable, source_kind=kind, order=_order(system), ref=el.Id, notes=notes,
+        typed_vd=vd))
     model.elements[panel.id] = el
 
 
@@ -568,7 +587,8 @@ def collect(doc, values):
                 # main board fed straight from the transformer: a row only
                 # when its incoming cable is described on it
                 notes = []
-                if _length(panel.element, notes) is not None or notes:
+                if _length(panel.element, notes) is not None or notes or \
+                        typed_vd(panel.element) is not None:
                     _panel_feeder(panel, None, None, values, model)
         except Exception as error:
             model.warnings.append(u"%s skipped: %s" % (panel.name, error))
@@ -583,7 +603,7 @@ def collect(doc, values):
 
 # ---------------------------------------------------------------- results
 
-def _set_number(element, name, value):
+def set_number(element, name, value):
     try:
         p = element.LookupParameter(name)
     except Exception:
@@ -617,8 +637,8 @@ def write_results(doc, result, elements):
     try:
         written = 0
         for element, row in pairs:
-            done = _set_number(element, P_VD, row.vd_percent)
-            done = _set_number(element, P_TOTAL, row.total_percent) or done
+            done = set_number(element, P_VD, row.vd_percent)
+            done = set_number(element, P_TOTAL, row.total_percent) or done
             written += 1 if done else 0
         t.Commit()
     except Exception:

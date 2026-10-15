@@ -49,7 +49,7 @@ from __future__ import division
 
 
 from Autodesk.Revit.DB import (
-    Arc, BuiltInCategory, BuiltInParameter, Color, CurveArray, ElementId,
+    Arc, BuiltInCategory, BuiltInParameter, Color, CurveArray, CurveElement, ElementId,
     GraphicsStyleType,
     ElementTypeGroup, FilteredElementCollector, HorizontalTextAlignment, Line,
     StorageType, TextNote, TextNoteOptions, TextNoteType, Transaction,
@@ -60,7 +60,7 @@ from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 from sld import style
 from sld.cables import (cable_from_revit_values, conductor_code, construction,
                         format_cable, insulation_code)
-from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, line_length
+from sld.geometry import CENTER, MIDDLE, RIGHT, TOP, fit_scale, line_length, scale_drawing
 from sld.layout import LayoutSettings, layout_schematic
 from sld.model import CircuitInfo, EquipmentInfo, add_fed_by, build_schematic, fed_by_links
 
@@ -423,7 +423,8 @@ def _vd_results(doc, live=None):
         result = calc.calculate(model.feeders, calc_settings)
         if live is not None:
             live.update(feeders=model.feeders, settings=calc_settings,
-                        kinds=dict((k, e.kind) for k, e in model.equipment.items()))
+                        kinds=dict((k, e.kind) for k, e in model.equipment.items()),
+                        elements=model.elements, load_basis=values["load_basis"])
     except Exception as error:
         return {}, {}, {}, u"Lengths and voltage drops not read: %s" % error
 
@@ -484,6 +485,9 @@ def extract(doc, live=None):
             spares=_lookup(el, P_SPARES) or None,
             spare_rating=_lookup(el, P_SPARE_RATING),
             fed_by=_lookup(el, P_FED_BY),
+            feeder_cable=_typed_cable_text([el]),
+            feeder_length=vd.get(el.UniqueId, (None, None))[0],
+            feeder_vd=vd.get(el.UniqueId, (None, None))[1],
         ))
         ids.add(el.UniqueId)
         panels[el.UniqueId] = el
@@ -652,13 +656,62 @@ def line_style(doc, name, colour):
     return sub.GetGraphicsStyle(GraphicsStyleType.Projection)
 
 
-def render(doc, drawing, view_name=VIEW_NAME):
-    """Create a new 1:1 drafting view and draw `drawing` into it.
+# Every line the tool draws has one of its own line styles, so a redraw can
+# take away its own drawing and leave what was added by hand.
+DEFAULT_LINE_STYLE = "SLD Lines"
 
-    Must be called inside an open transaction. Returns the new view.
+
+def _existing_view(doc, view_name):
+    for v in FilteredElementCollector(doc).OfClass(ViewDrafting):
+        if not v.IsTemplate and v.Name == view_name:
+            return v
+    return None
+
+
+def _clear_own_drawing(doc, view, style_names):
+    """Delete what the tool drew in `view`: lines in its line styles and
+    text in its 'SLD ...' text types. A view drawn before the tool had its
+    own line style has none of them: everything in it is cleared once."""
+    from System.Collections.Generic import List
+    curves = [c for c in FilteredElementCollector(doc, view.Id).OfClass(CurveElement)
+              if c.OwnerViewId == view.Id]
+    notes = [n for n in FilteredElementCollector(doc, view.Id).OfClass(TextNote)
+             if n.OwnerViewId == view.Id]
+
+    def style_name(c):
+        try:
+            return c.LineStyle.Name
+        except Exception:
+            return ""
+
+    if any(style_name(c) in style_names for c in curves):
+        curves = [c for c in curves if style_name(c) in style_names]
+        notes = [n for n in notes if (_type_name(doc, n) or "").startswith("SLD ")]
+    ids = List[ElementId]([e.Id for e in curves + notes])
+    if ids.Count:
+        doc.Delete(ids)
+
+
+def _type_name(doc, element):
+    t = doc.GetElement(element.GetTypeId())
+    p = t.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM) if t is not None else None
+    return p.AsString() if p is not None else None
+
+
+def render(doc, drawing, view_name=VIEW_NAME, new_view=False):
+    """Draw `drawing` into the 1:1 drafting view `view_name`: the existing
+    one, with the tool's earlier drawing taken away (kept on its sheets),
+    or a new view when there is none or `new_view` is set.
+
+    Must be called inside an open transaction. Returns the view.
     """
-    view = ViewDrafting.Create(doc, _drafting_view_type(doc).Id)
-    view.Name = _unique_view_name(doc, view_name)
+    styles = getattr(drawing, "styles", {})
+    view = None if new_view else _existing_view(doc, view_name)
+    if view is not None:
+        _clear_own_drawing(doc, view, set(styles) | {DEFAULT_LINE_STYLE})
+    else:
+        view = ViewDrafting.Create(doc, _drafting_view_type(doc).Id)
+        view.Name = _unique_view_name(doc, view_name)
     view.Scale = 1  # 1:1 so layout millimetres == paper millimetres
 
     short = doc.Application.ShortCurveTolerance
@@ -677,9 +730,8 @@ def render(doc, drawing, view_name=VIEW_NAME):
         if curves.IsEmpty:
             continue
         made = doc.Create.NewDetailCurveArray(view, curves)
-        if name is None:
-            continue
-        graphics = line_style(doc, name, getattr(drawing, "styles", {}).get(name, (0, 0, 0)))
+        name = name or DEFAULT_LINE_STYLE
+        graphics = line_style(doc, name, styles.get(name, (0, 0, 0)))
         for curve in made:
             curve.LineStyle = graphics
 
@@ -698,20 +750,40 @@ def render(doc, drawing, view_name=VIEW_NAME):
     return view
 
 
-def generate(doc, settings=None, numbering="slots"):
-    """Build and draw the schematic. Returns (view or None, schematic)."""
+def generate(doc, settings=None, numbering="slots", new_view=False, spares=None, paper="A1",
+             risers=None, generators=None, supplies=None):
+    """Build and draw the schematic. Returns (view or None, schematic).
+    spares: {board name: (count, rating)} kept by Power Studio, used where
+    the panel has no SLD Spares value. risers: bus bar riser specs kept by
+    Power Studio (sld.riser). generators: standby generator specs kept by
+    Power Studio (sld.generator); generators in the model are drawn too.
+    supplies: transformer / PFC typed in Power Studio (sld.supply)."""
     equipment, circuits, phases_of, warnings = extract(doc)
+    if spares:
+        from sld.settings import apply_spares
+        apply_spares(equipment, spares)
     schematic = build_schematic(equipment, circuits, phases_of, numbering)
     schematic.warnings = warnings + schematic.warnings
+    if risers:
+        from sld.riser import apply_risers
+        schematic.warnings += apply_risers(schematic, risers, numbering)
+    if supplies:
+        from sld.supply import apply_supply
+        schematic.warnings += apply_supply(schematic, supplies)
+    from sld.generator import apply_generators
+    schematic.warnings += apply_generators(schematic, generators,
+                                           (settings or LayoutSettings()).utility)
     if schematic.is_empty():
         return None, schematic
 
     layout = layout_schematic(schematic, settings or LayoutSettings())
+    # drawn big enough to fill the sheet (text grows with it)
+    scale_drawing(layout.drawing, fit_scale(layout.drawing, paper))
 
     t = Transaction(doc, "Generate LV Schematic Diagram")
     t.Start()
     try:
-        view = render(doc, layout.drawing)
+        view = render(doc, layout.drawing, new_view=new_view)
         t.Commit()
     except Exception:
         t.RollBack()

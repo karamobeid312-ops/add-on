@@ -33,6 +33,9 @@ MAIN_BOARD = "main_board"
 DB = "db"
 UPS = "ups"
 TRANSFORMER = "transformer"
+ATS = "ats"                # automatic transfer switch: a component, not a board
+PFC_UNIT = "pfc_unit"      # power factor correction bank: drawn as the PFC symbol
+GENERATOR = "generator"    # standby generator: never a board (sld.generator draws it)
 
 # way kinds
 FEEDER = "feeder"          # to another board, via a riser
@@ -45,12 +48,16 @@ PFC = "pfc"                # power factor correction bank
 _SYMBOL_ROLES = {
     "BOARD": BOARD, "SMDB": BOARD, "MAIN": MAIN_BOARD, "MDB": MAIN_BOARD,
     "DB": DB, "UPS": UPS, "TRANSFORMER": TRANSFORMER, "TR": TRANSFORMER,
+    "ATS": ATS, "PFC": PFC_UNIT, "GEN": GENERATOR, "GENERATOR": GENERATOR,
 }
 _SYMBOL_WAYS = {
     "ISOLATOR": ISOLATOR, "LOAD": ISOLATOR, "SPARE": SPARE, "PFC": PFC,
     "DB": DB_BOX,
 }
 _PFC_RE = re.compile(r"\bPFC\b|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
+_ATS_RE = re.compile(r"\bATS\b|TRANSFER\s*SWITCH|CHANGE\s*-?\s*OVER", re.IGNORECASE)
+_GEN_RE = re.compile(r"GENERATOR|GENSET|GEN\s*SET|^GEN\b|^G-?\d+$", re.IGNORECASE)
+_PASS_THROUGH = (UPS, TRANSFORMER, ATS)
 _POLES = {1: "SP", 2: "DP", 3: "TP", 4: "TPN"}
 _AMPS_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
@@ -71,6 +78,17 @@ def split_cable(text):
     on its own line."""
     parts = [p.strip() for p in re.split(r"\s+(?=\+)", text or "") if p.strip()]
     return parts
+
+
+def _with_earth(cable):
+    """A multi-core cable with no earth part gets the office earth (same
+    size up to 16, 16 for 25/35, half above), so it prints as on a DB way:
+    size left of the line, earth right."""
+    from sld import cablespec, sizing
+    spec = cablespec.parse(cable)
+    if spec is None or spec.earth_size or (spec.cores or 0) < 2:
+        return cable
+    return spec.copy(earth_size=sizing.earth_size(spec.size)).text()
 
 
 def frame_rating(trip, frames=None):
@@ -131,7 +149,8 @@ class EquipmentInfo(object):
                  mains_rating=None, incomer_rating=None, incomer_frame="",
                  phases=3, neutral=True, fault_level="", incomer_device="",
                  upstream_protection="", demand_factor=None, spares=None,
-                 spare_rating="", fed_by="", virtual=False):
+                 spare_rating="", fed_by="", virtual=False, spaces=None,
+                 feeder_cable="", feeder_length=None, feeder_vd=None):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -161,6 +180,12 @@ class EquipmentInfo(object):
         self.demand_factor = demand_factor    # its own diversity factor
         self.spares = spares                  # spare ways wanted ('SLD Spares')
         self.spare_rating = spare_rating or ""   # e.g. '63AT/100AF MCCB'
+        self.spaces = spaces                  # empty breaker ways (SPACE), drawn last
+        # its feeder typed on the panel (Feeder_Size/Type, VD Length, VD Percent):
+        # the tap-off cable when it is on a bus bar riser
+        self.feeder_cable = feeder_cable or ""
+        self.feeder_length = feeder_length
+        self.feeder_vd = feeder_vd
 
     def supply_text(self):
         """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
@@ -265,6 +290,8 @@ class Way(object):
         self.label = label        # way number printed at the busbar: 1, R9...
         self.name = name          # text at the end of the way
         self.target = target      # EquipmentInfo fed by this way, if any
+        self.riser = None         # sld.riser.Riser it feeds (kind 'riser')
+        self.pfc_text = ""        # '(300 KVAR)' after the PFC label (sld.supply)
 
     @property
     def target_id(self):
@@ -278,9 +305,16 @@ class Way(object):
                 return trip
         return parse_amps(self.circuit.rating) if self.circuit is not None else None
 
+    @property
+    def is_space(self):
+        """An empty breaker way (SPACE): drawn like a spare, with no rating."""
+        return self.circuit is not None and self.circuit.id.startswith(SPACE_ID)
+
     def breaker_lines(self):
         """Beside the way's breaker: the upstream protection typed on the
         panel it feeds, else the circuit's rating."""
+        if self.is_space:
+            return []
         if self.target is not None and self.target.upstream_protection:
             trip, frame, device = parse_protection(self.target.upstream_protection)
             if trip is not None:
@@ -293,9 +327,13 @@ class Way(object):
     def rating_lines(self):
         """Cable, length and voltage drop, printed along the way (the
         breaker rating is printed beside the breaker)."""
-        if self.circuit is None or self.kind in (SPARE, PFC):
+        if self.circuit is None or self.kind == SPARE or self.riser is not None:
             return []
+        if self.kind == PFC:
+            return list(self.circuit.cable_lines())
         lines = list(self.circuit.cable_lines())
+        if self.kind == ISOLATOR and len(lines) == 1:
+            lines = split_cable(_with_earth(lines[0]))
         vd = self.vd_text()
         if vd:
             lines.append(vd)
@@ -319,6 +357,8 @@ class Way(object):
         Equipment uses its own totals; a final circuit has no demand
         factor, so its DL is its CL.
         """
+        if self.riser is not None:
+            return self.riser.loads()
         if self.circuit is None or self.kind in (SPARE, PFC):
             return None, None
         if self.target is not None:
@@ -329,7 +369,7 @@ class Way(object):
 class PassThrough(object):
     """A UPS (or transformer fed from a board) drawn above its input ways."""
 
-    def __init__(self, equipment, board, input_ways, kind=UPS):
+    def __init__(self, equipment, board, input_ways, kind=UPS):   # UPS, TRANSFORMER or ATS
         self.equipment = equipment
         self.kind = kind                # UPS or TRANSFORMER
         self.board = board              # Board whose ways feed it
@@ -347,6 +387,10 @@ class Board(object):
         self.feed_pass_through = None   # or the PassThrough feeding this
         self.parent = None              # parent Board
         self.transformer = None         # EquipmentInfo drawn under a main board
+        self.ats = None                 # or the transfer switch feeding it (no supply in the model)
+        self.mv_cable = ""              # 'MV CABLE FROM TAQA' under its transformer (sld.supply)
+        self.generator = None           # sld.generator.Generator backing it up, through an ATS
+        self.model_generator = None     # a generator in the model feeding it (or its ATS)
         self.children = []              # Boards fed from this one
         self.phases = 3                 # for counting ways (R/Y/B share one)
 
@@ -411,6 +455,7 @@ class Schematic(object):
         self.roots = roots              # main boards, and boards fed from nothing
         self.warnings = warnings
         self.loose_dbs = loose_dbs or []   # EquipmentInfo of DBs fed from nothing
+        self.risers = []                # sld.riser.Riser, see sld.riser.apply_risers
 
     def is_empty(self):
         return not self.roots and not self.loose_dbs
@@ -419,6 +464,11 @@ class Schematic(object):
         for root in self.roots:
             for b in root.iter_tree():
                 yield b
+        for riser in self.risers:
+            for tap in riser.taps:
+                if not tap.is_typical:
+                    for b in tap.board.iter_tree():
+                        yield b
 
 
 def trim_number(value, decimals=1):
@@ -467,20 +517,63 @@ def way_labels(circuits, phases=3, numbering="slots"):
     return labels
 
 
+def way_phases(circuits, phases=3):
+    """Phase(s) of each circuit, in slot order, as the ways are numbered
+    (R9, Y9, B9): 'R', 'Y' or 'B' for a single-pole circuit, 'RYB' for a
+    three-pole one; '' on a single-phase board."""
+    if phases != 3:
+        return ["" for _ in circuits]
+    out, phase = [], 3
+    for c in circuits:
+        try:
+            poles = int(c.poles)
+        except (TypeError, ValueError):
+            poles = 3
+        if poles == 1:
+            phase = 0 if phase >= 3 else phase
+            out.append("RYB"[phase])
+            phase += 1
+        else:
+            phase = 3
+            out.append("RYB")
+    return out
+
+
 def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transformer):
     if eq.symbol in _SYMBOL_ROLES:
         return _SYMBOL_ROLES[eq.symbol]
     family = eq.family_name.upper()
+    # components, never drawn as boards
+    if _ATS_RE.search(eq.name or "") or _ATS_RE.search(family):
+        return ATS
+    if _PFC_RE.search(eq.name or "") or _PFC_RE.search(family):
+        return PFC_UNIT
+    if _GEN_RE.search((eq.name or "").strip()) or _GEN_RE.search(family):
+        return GENERATOR
     if eq.part_type == "transformer" or "TRANSFORMER" in family:
         return TRANSFORMER
     if "UPS" in family:
         return UPS
     if fed_from_root_transformer or (not has_feeder and is_main_name(eq.name)):
         return MAIN_BOARD
-    if (feeds_equipment or fed_by_role in (UPS, TRANSFORMER) or eq.part_type == "switchboard"
+    if (feeds_equipment or fed_by_role in _PASS_THROUGH or eq.part_type == "switchboard"
             or re.search(style.BOARD_NAME_PATTERN, eq.name or "", re.IGNORECASE)):
         return BOARD
     return DB
+
+
+_NOT_A_BOARD_RE = re.compile(r"EARTH|\bPIT\b|LIGHTNING|TEST\s*LINK|BONDING|\bEBB\b",
+                             re.IGNORECASE)
+_DB_NAME_RE = re.compile(r"DB|BOARD|PANEL|\bPB\b|\bLP\b|\bPP\b|MSB", re.IGNORECASE)
+
+
+def _is_board_like(eq):
+    """Equipment fed from nothing that is worth a DB box: a panel (by its
+    family's part type or name), never an earth pit, bar or the like."""
+    text = "%s %s" % (eq.name or "", eq.family_name or "")
+    if _NOT_A_BOARD_RE.search(text):
+        return False
+    return eq.part_type in ("panelboard", "switchboard") or bool(_DB_NAME_RE.search(text))
 
 
 def is_main_name(name):
@@ -556,7 +649,7 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
         spares or (style.MIN_SPARES, style.MAX_SPARES))
     limit = max_ways or style.MAX_WAYS
     groups = _way_groups(board.ways, phases).values()
-    spare_ways = sum(1 for g in groups if all(w.kind == SPARE for w in g))
+    spare_ways = sum(1 for g in groups if all(w.kind == SPARE and not w.is_space for w in g))
     used = len(groups) - spare_ways
     room = limit if wanted is not None else min(_declared_ways(e.ways) or limit, limit)
     if used + low > room:
@@ -586,6 +679,25 @@ def add_spares(board, numbering="slots", phases=3, spares=None, max_ways=None):
         return ["%s has %d ways (spares included), more than the %d circuit breakers "
                 "allowed on a sub-main board." % (board.name, used + spare_ways + add, limit)]
     return []
+
+
+SPACE_ID = "space:"
+
+
+def add_spaces(board, numbering="slots"):
+    """Empty breaker ways (SPACE, no rating) after the spares: as many as
+    the board's `spaces`, typed in Power Studio. Drawn only."""
+    board.ways = [w for w in board.ways if not w.is_space]
+    try:
+        count = max(int(float(board.equipment.spaces or 0)), 0)
+    except (TypeError, ValueError):
+        count = 0
+    number = _next_way_number([w.label for w in board.ways])
+    for i in range(count):
+        c = CircuitInfo("%s%s:%d" % (SPACE_ID, board.id, i + 1), board.id, poles="3",
+                        is_spare=True)
+        label = str(number + i) if numbering != "revit" else ""
+        board.ways.append(Way(c, SPARE, label, "SPACE"))
 
 
 OTHER_MODEL = "IN ANOTHER MODEL (LINK)"
@@ -706,7 +818,9 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             # Only a transformer with no supply of its own (the utility
             # transformer) makes a main board; one fed from a board is drawn
             # between that board and the panel it feeds.
-            from_root_tr = up_role == TRANSFORMER and primary_feeder(feeder.source_id) is None
+            # (or a transfer switch with no supply in the model)
+            from_root_tr = up_role in (TRANSFORMER, ATS) and \
+                primary_feeder(feeder.source_id) is None
         roles[eq_id] = _role(eq_by_id[eq_id], up_role, eq_id in feeds_equipment,
                              feeder is not None, from_root_tr)
         return roles[eq_id]
@@ -715,8 +829,10 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         role_of(e.id)
 
     for eq_id, lst in feeders.items():
+        if roles[eq_id] == ATS:
+            continue        # normal and standby supplies
         extra = [c for c in lst[1:]
-                 if not (roles[eq_id] in (UPS, TRANSFORMER) and c.source_id == lst[0].source_id)]
+                 if not (roles[eq_id] in _PASS_THROUGH and c.source_id == lst[0].source_id)]
         for c in extra:
             warnings.append("%s is fed by more than one circuit; using %s." % (
                 eq_by_id[eq_id].name, _describe(lst[0], eq_by_id)))
@@ -731,7 +847,7 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         lst = feeders.get(eq_id, [])
         if not lst:
             return False
-        if roles[eq_id] in (UPS, TRANSFORMER):
+        if roles[eq_id] in _PASS_THROUGH:
             return c.source_id == lst[0].source_id
         return lst[0] is c
 
@@ -751,7 +867,8 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
                 kind = SPARE
             elif target is not None:
                 kind = {BOARD: FEEDER, MAIN_BOARD: FEEDER, DB: DB_BOX,
-                        UPS: TO_UPS, TRANSFORMER: TO_UPS}[roles[target]]
+                        UPS: TO_UPS, TRANSFORMER: TO_UPS, ATS: TO_UPS,
+                        PFC_UNIT: PFC, GENERATOR: ISOLATOR}[roles[target]]
             elif _PFC_RE.search(c.load_name or ""):
                 kind = PFC
             else:
@@ -793,6 +910,18 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             pt.outputs.append(board)
             board.feed_pass_through = pt
             board.parent = pt.board
+        elif roles.get(src) == ATS:
+            board.ats = eq_by_id[src]
+            board.equipment.incoming_cable = (board.equipment.incoming_cable or
+                                              feeder.cable_text())
+            gen = next((c.source_id for c in feeders.get(src, [])
+                        if roles.get(c.source_id) == GENERATOR), None)
+            if gen is not None:
+                board.model_generator = eq_by_id[gen]
+        elif roles.get(src) == GENERATOR:
+            board.model_generator = eq_by_id[src]
+            board.equipment.incoming_cable = (board.equipment.incoming_cable or
+                                              feeder.cable_text())
         elif roles.get(src) == TRANSFORMER:
             board.transformer = eq_by_id[src]
             board.equipment.incoming_cable = (board.equipment.incoming_cable or
@@ -829,13 +958,16 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         for b in sorted(boards.values(), key=lambda b: natural_key(b.name)):
             if is_sub_main(b) or b.equipment.spares not in (None, ""):
                 warnings.extend(add_spares(b, numbering, phases_of.get(b.id, 3)))
+            if b.equipment.spaces not in (None, ""):
+                add_spaces(b, numbering)
 
     for b in boards.values():
         if b.equipment.virtual:
             _size_virtual_incomer(b)
 
     drawn = set(w.target_id for b in boards.values() for w in b.ways)
-    loose = sorted([e for e in equipment if roles[e.id] == DB and e.id not in drawn],
+    loose = sorted([e for e in equipment if roles[e.id] == DB and e.id not in drawn and
+                    _is_board_like(e)],
                    key=lambda e: natural_key(e.name))
     return Schematic(roots, warnings, loose)
 

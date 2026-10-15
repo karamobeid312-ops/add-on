@@ -24,6 +24,8 @@ in the order the tools read them):
                                 SC_Rating_kA / No_Of_Ways, else the SLD one
   spares                        SLD Spares + SLD Spare Rating (drawing only)
   fed from                      Fed_By (a panel whose board is in another model)
+  transformer V.D               VD Percent on the main board (used when its
+                                transformer cable has no length)
 
 Only parameters already in the model are written: nothing is added to the
 project. What could not be written is listed for the user.
@@ -101,11 +103,13 @@ class _Writer(object):
     def element(self, unique_id):
         return self.doc.GetElement(unique_id) if unique_id else None
 
-    def write(self, element, name, value, what):
+    def write(self, element, name, value, what, quiet=False):
         p = _param(element, name)
         if _set(p, value):
             self.written += 1
             return True
+        if quiet and p is None:
+            return False
         reason = "not in the model" if p is None else "read-only"
         self.skipped.append(u"%s: %s %s" % (what, name, reason))
         return False
@@ -251,12 +255,23 @@ def _apply(w, change):
             places = [(panel, own)]
         w.first(places, v["text"], what)
 
+    elif change.kind == "tx_vd":
+        # V.D % of the transformer cable typed by hand, kept in the board's VD Percent
+        if _param(panel, revit_vd.P_VD) is None:
+            w.skipped.append(u"%s: no VD Percent to keep the transformer V.D in" % what)
+        elif revit_vd.set_number(panel, revit_vd.P_VD, v["value"]):
+            w.written += 1
+        else:
+            w.skipped.append(u"%s: VD Percent read-only" % what)
+
     elif change.kind == "fed_by":
         w.write(panel, "Fed_By", v["text"], what)
 
     elif change.kind == "spares":
-        w.write(panel, "SLD Spares", v["count"], what)
-        w.write(panel, "SLD Spare Rating", v["rating"] or "", what)
+        # spares are drawn only: without these parameters Power Studio keeps
+        # them itself (sld.settings spares store), so a missing one is no error
+        w.write(panel, "SLD Spares", v["count"], what, quiet=True)
+        w.write(panel, "SLD Spare Rating", v["rating"] or "", what, quiet=True)
 
 
 def save(doc, changes):

@@ -1,107 +1,316 @@
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="LV Schematic Editor" Width="1450" Height="820" MinWidth="900" MinHeight="500"
-        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" FontSize="12">
+        Title="Power Studio" Width="1480" Height="880" MinWidth="980" MinHeight="580"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" FontSize="12"
+        FontFamily="Segoe UI" Background="#FFF6F8FB" Foreground="#FF1D2733">
   <!-- No event attributes and no x:Class: XamlReader cannot bind them, so
-       editor_ui.py wires the events and puts the grid columns in place of the marker below. -->
+       editor_ui.py wires the events, puts the shared theme in place of the
+       THEME marker and the grid columns in place of COLUMNS / VDCOLUMNS. -->
   <Window.Resources>
-    <Style x:Key="EditCombo" TargetType="ComboBox">
+<!--THEME-->
+    <Style x:Key="SectionLabel" TargetType="TextBlock">
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="Margin" Value="0,0,0,6"/>
+    </Style>
+    <Style x:Key="EditCombo" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
       <Setter Property="IsEditable" Value="True"/>
       <Setter Property="IsTextSearchEnabled" Value="False"/>
-    </Style>
-    <Style x:Key="VdCell" TargetType="DataGridCell">
-      <Style.Triggers>
-        <DataTrigger Binding="{Binding vd_over}" Value="True">
-          <Setter Property="Background" Value="#FFFFD6D6"/>
-          <Setter Property="Foreground" Value="#FFC00000"/>
-          <Setter Property="FontWeight" Value="Bold"/>
-        </DataTrigger>
-      </Style.Triggers>
     </Style>
     <Style x:Key="WayRow" TargetType="DataGridRow">
       <Style.Triggers>
         <DataTrigger Binding="{Binding locked}" Value="True">
-          <Setter Property="Foreground" Value="#FF888888"/>
+          <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
         </DataTrigger>
         <DataTrigger Binding="{Binding sized}" Value="True">
-          <Setter Property="Background" Value="#FFDFF5DF"/>
+          <Setter Property="Background" Value="{StaticResource OkBgBrush}"/>
         </DataTrigger>
       </Style.Triggers>
     </Style>
+    <DataTemplate x:Key="VdChip">
+      <Border x:Name="chip" Style="{StaticResource Chip}">
+        <TextBlock x:Name="txt" Text="{Binding vd}" FontWeight="SemiBold"/>
+      </Border>
+      <DataTemplate.Triggers>
+        <DataTrigger Binding="{Binding vd_state}" Value="ok">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource OkBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource OkBrush}"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding vd_state}" Value="warn">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource WarnBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource WarnBrush}"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding vd_state}" Value="bad">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource BadBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource BadBrush}"/>
+        </DataTrigger>
+      </DataTemplate.Triggers>
+    </DataTemplate>
+    <DataTemplate x:Key="StatusChip">
+      <Border x:Name="chip" Style="{StaticResource Chip}">
+        <TextBlock x:Name="txt" Text="{Binding status}" FontWeight="SemiBold"/>
+      </Border>
+      <DataTemplate.Triggers>
+        <DataTrigger Binding="{Binding state}" Value="ok">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource OkBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource OkBrush}"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding state}" Value="warn">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource WarnBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource WarnBrush}"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding state}" Value="bad">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource BadBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource BadBrush}"/>
+        </DataTrigger>
+      </DataTemplate.Triggers>
+    </DataTemplate>
+    <Style x:Key="StepNumber" TargetType="Border">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Width" Value="18"/>
+      <Setter Property="Height" Value="18"/>
+      <Setter Property="Margin" Value="0,0,7,0"/>
+    </Style>
+    <Style x:Key="StepNumberText" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#FFFFFFFF"/>
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+      <Setter Property="Margin" Value="0,0,4,0"/>
+    </Style>
   </Window.Resources>
 
-  <DockPanel Margin="8">
-    <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0" LastChildFill="True">
-      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-        <Button x:Name="AutoSizeButton" Content="Auto Size" Width="100" Margin="4,0"
-                ToolTip="Size the feeder cable and breaker of every SMDB and DB from its connected load (office XLPE/SWA/PVC table)"/>
-        <Button x:Name="CloseButton" Content="Close" Width="90" Margin="4,0"/>
-        <Button x:Name="SaveButton" Content="Save to Revit" Width="120" Margin="4,0"/>
-        <Button x:Name="GenerateButton" Content="Generate SLD" Width="120" Margin="4,0"
-                FontWeight="Bold"/>
-      </StackPanel>
-      <TextBlock x:Name="WarningsText" VerticalAlignment="Center" Foreground="#FFB06000"
-                 TextTrimming="CharacterEllipsis"/>
-    </DockPanel>
+  <DockPanel>
+    <!-- header -->
+    <Border DockPanel.Dock="Top" Style="{StaticResource HeaderBand}">
+      <DockPanel>
+        <Border Style="{StaticResource Badge}">
+          <TextBlock Text="LV" Style="{StaticResource BadgeText}"/>
+        </Border>
+        <TextBlock x:Name="ModelText" DockPanel.Dock="Right" Style="{StaticResource HeaderSub}"
+                   TextAlignment="Right" VerticalAlignment="Center"/>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="Power Studio" Style="{StaticResource HeaderTitle}"/>
+          <TextBlock Text="LV schematic, feeders and voltage drop" Style="{StaticResource HeaderSub}"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
 
-    <TabControl>
-      <TabItem Header="Boards and ways">
+    <!-- footer -->
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource FooterBar}">
+      <DockPanel LastChildFill="True">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="CloseButton" Content="Close" Margin="4,0"/>
+          <Button x:Name="AutoSizeButton" Content="Auto Size" Margin="4,0"
+                  ToolTip="Size the feeder cable and breaker of every SMDB and DB from its connected load (office XLPE/SWA/PVC table)"/>
+          <Button x:Name="ReportButton" Content="Export V.D report" Margin="4,0"
+                  ToolTip="Save the voltage drop report as Excel and PDF, with the values shown here"/>
+          <Button x:Name="SaveButton" Content="Save to Revit" Margin="4,0"
+                  ToolTip="Write the changes and the V.D results into the parameters already in the model"/>
+          <Button x:Name="GenerateButton" Content="Draw SLD" Margin="4,0,0,0"
+                  Style="{StaticResource PrimaryButton}"
+                  ToolTip="Save the changes, then draw the LV schematic in a drafting view"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+          <Ellipse x:Name="StatusDot" Width="10" Height="10" Margin="0,0,8,0"
+                   Fill="{StaticResource NoneBrush}"/>
+          <TextBlock x:Name="WarningsText" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedBrush}"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <TabControl x:Name="Steps" Padding="10">
+      <!-- 1: boards and ways -->
+      <TabItem x:Name="BoardsTab">
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal">
+            <Border Style="{StaticResource StepNumber}">
+              <TextBlock Text="1" Style="{StaticResource StepNumberText}"/>
+            </Border>
+            <TextBlock Text="Boards and ways" VerticalAlignment="Center"/>
+          </StackPanel>
+        </TabItem.Header>
         <Grid>
           <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230"/>
-            <ColumnDefinition Width="5"/>
+            <ColumnDefinition Width="250"/>
+            <ColumnDefinition Width="8"/>
             <ColumnDefinition Width="*"/>
           </Grid.ColumnDefinitions>
-          <TreeView x:Name="BoardsTree" Grid.Column="0"/>
-          <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch"/>
+          <Border Grid.Column="0" Style="{StaticResource Card}" Padding="0">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Boards" Style="{StaticResource SectionTitle}"
+                         Margin="12,10,12,4"/>
+              <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Muted}" Margin="12,6,12,10"
+                         FontSize="11"
+                         Text="Green: OK. Amber: check the board. Red: a way is over the V.D limit or has a wrong value."/>
+              <TreeView x:Name="BoardsTree" BorderThickness="0" Background="Transparent"/>
+            </DockPanel>
+          </Border>
+          <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" Background="Transparent"/>
 
-          <DockPanel Grid.Column="2" Margin="6,0,0,0">
-            <TextBlock x:Name="BoardTitle" DockPanel.Dock="Top" FontSize="15" FontWeight="Bold"
-                       Margin="0,0,0,4"/>
-            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
-              <TextBlock Text="Incomer" VerticalAlignment="Center" Margin="0,0,4,0"/>
-              <ComboBox x:Name="IncomerAT" Width="65" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_incomer_at}" ToolTip="Trip (AT)"/>
-              <TextBlock Text="AT" VerticalAlignment="Center" Margin="2,0,6,0"/>
-              <ComboBox x:Name="IncomerAF" Width="65" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_incomer_af}" ToolTip="Frame (AF)"/>
-              <TextBlock Text="AF" VerticalAlignment="Center" Margin="2,0,6,0"/>
-              <ComboBox x:Name="IncomerDevice" Width="70" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_incomer_device}"/>
-              <TextBlock Text="Fault level" VerticalAlignment="Center" Margin="14,0,4,0"/>
-              <ComboBox x:Name="FaultLevel" Width="65" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_fault_level}"/>
-              <TextBlock Text="Ways" VerticalAlignment="Center" Margin="14,0,4,0"/>
-              <TextBox x:Name="WaysCount" Width="40" VerticalContentAlignment="Center"/>
-              <TextBlock Text="Spares" VerticalAlignment="Center" Margin="14,0,4,0"/>
-              <ComboBox x:Name="SpareCount" Width="45" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_spares}"/>
-              <TextBlock Text="x" VerticalAlignment="Center" Margin="4,0"/>
-              <ComboBox x:Name="SpareAT" Width="65" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_spare_at}" ToolTip="Spare trip (AT)"/>
-              <TextBlock Text="AT" VerticalAlignment="Center" Margin="2,0,6,0"/>
-              <ComboBox x:Name="SpareAF" Width="65" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_spare_af}" ToolTip="Spare frame (AF)"/>
-              <TextBlock Text="AF" VerticalAlignment="Center" Margin="2,0,6,0"/>
-              <ComboBox x:Name="SpareDevice" Width="70" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_spare_device}"/>
-              <Button x:Name="AddSpare" Content="+ Add spare" Margin="8,0,0,0" Padding="6,0"/>
-              <TextBlock Text="Fed from" VerticalAlignment="Center" Margin="14,0,4,0"/>
-              <ComboBox x:Name="FedBy" Width="130" Style="{StaticResource EditCombo}"
-                        ItemsSource="{DynamicResource ch_fed_by}"
-                        ToolTip="For a board no circuit in this model feeds (its MDB is in another link): the board feeding it, saved to Fed_By. A name not in this model is drawn as that MDB, built from the boards it feeds."/>
-              <Button x:Name="RemoveSpare" Content="- Remove spare" Margin="4,0,0,0" Padding="6,0"/>
-            </WrapPanel>
+          <DockPanel Grid.Column="2">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+              <TextBlock x:Name="BoardTitle" DockPanel.Dock="Left" FontSize="18"
+                         FontWeight="SemiBold" VerticalAlignment="Center"/>
+              <Border x:Name="BoardChip" DockPanel.Dock="Left" Style="{StaticResource Chip}"
+                      Margin="10,0,0,0">
+                <TextBlock x:Name="BoardChipText" FontWeight="SemiBold"/>
+              </Border>
+              <TextBlock x:Name="BoardWays" DockPanel.Dock="Right" Style="{StaticResource Muted}"
+                         VerticalAlignment="Center" TextWrapping="NoWrap"/>
+              <TextBlock/>
+            </DockPanel>
 
-            <TextBlock x:Name="PreviewText" DockPanel.Dock="Bottom" Margin="0,6,0,0"
-                       FontFamily="Consolas" FontSize="13" TextWrapping="Wrap"/>
+            <UniformGrid DockPanel.Dock="Top" Rows="1" Columns="5" Margin="0,0,-8,8">
+              <Border Style="{StaticResource Tile}">
+                <StackPanel>
+                  <TextBlock Text="CONNECTED LOAD" Style="{StaticResource TileLabel}"/>
+                  <TextBlock x:Name="KpiConnected" Style="{StaticResource TileValue}"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Tile}">
+                <StackPanel>
+                  <TextBlock Text="DEMAND LOAD" Style="{StaticResource TileLabel}"/>
+                  <TextBlock x:Name="KpiDemand" Style="{StaticResource TileValue}"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Tile}">
+                <StackPanel>
+                  <TextBlock Text="INCOMER" Style="{StaticResource TileLabel}"/>
+                  <TextBlock x:Name="KpiIncomer" Style="{StaticResource TileValue}"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Tile}">
+                <StackPanel>
+                  <TextBlock Text="WORST V.D ON ITS WAYS" Style="{StaticResource TileLabel}"/>
+                  <TextBlock x:Name="KpiVd" Style="{StaticResource TileValue}"/>
+                </StackPanel>
+              </Border>
+              <Border Style="{StaticResource Tile}"
+                      ToolTip="Connected load on each phase: a single-pole way on its phase, a three-pole way a third on each. Unbalance = largest phase's difference from the average.">
+                <StackPanel>
+                  <TextBlock Text="PHASE UNBALANCE" Style="{StaticResource TileLabel}"/>
+                  <TextBlock x:Name="KpiBalance" Style="{StaticResource TileValue}"/>
+                  <TextBlock x:Name="KpiBalanceSub" Style="{StaticResource Muted}" FontSize="11"
+                             TextWrapping="NoWrap"/>
+                </StackPanel>
+              </Border>
+            </UniformGrid>
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,8">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="70"/>
+                  <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="Incomer" Style="{StaticResource SectionLabel}"/>
+                <WrapPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,6">
+                <ComboBox x:Name="IncomerAT" Width="65" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_incomer_at}" ToolTip="Trip (AT)"/>
+                <TextBlock Text="AT" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
+                <ComboBox x:Name="IncomerAF" Width="65" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_incomer_af}" ToolTip="Frame (AF)"/>
+                <TextBlock Text="AF" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
+                <ComboBox x:Name="IncomerDevice" Width="70" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_incomer_device}"/>
+                <TextBlock Text="Fault level" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                <ComboBox x:Name="FaultLevel" Width="65" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_fault_level}"/>
+                <TextBlock Text="Ways" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                <TextBox x:Name="WaysCount" Width="40"/>
+                </WrapPanel>
+                <TextBlock Grid.Row="1" Text="Spares" Style="{StaticResource SectionLabel}"/>
+                <WrapPanel Grid.Row="1" Grid.Column="1" Margin="0,0,0,6">
+                <ComboBox x:Name="SpareCount" Width="45" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_spares}"/>
+                <TextBlock Text="x" Style="{StaticResource FieldLabel}" Margin="4,0"/>
+                <ComboBox x:Name="SpareAT" Width="65" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_spare_at}" ToolTip="Spare trip (AT)"/>
+                <TextBlock Text="AT" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
+                <ComboBox x:Name="SpareAF" Width="65" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_spare_af}" ToolTip="Spare frame (AF)"/>
+                <TextBlock Text="AF" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
+                <ComboBox x:Name="SpareDevice" Width="70" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_spare_device}"/>
+                <Button x:Name="AddSpare" Content="+ Spare" Margin="8,0,0,0"
+                        Style="{StaticResource SmallButton}"/>
+                <Button x:Name="RemoveSpare" Content="- Spare" Margin="4,0,0,0"
+                        Style="{StaticResource SmallButton}"/>
+                <TextBlock Text="Spaces" Style="{StaticResource FieldLabel}" Margin="18,0,4,0"
+                           ToolTip="Empty breaker ways drawn as SPACE (no rating), after the spares"/>
+                <TextBox x:Name="SpaceCount" Width="30"/>
+                <Button x:Name="AddSpace" Content="+ Space" Margin="6,0,0,0"
+                        Style="{StaticResource SmallButton}"/>
+                <Button x:Name="RemoveSpace" Content="- Space" Margin="4,0,0,0"
+                        Style="{StaticResource SmallButton}"/>
+                </WrapPanel>
+                <TextBlock Grid.Row="2" Text="Supply" Style="{StaticResource SectionLabel}"/>
+                <WrapPanel Grid.Row="2" Grid.Column="1">
+                  <StackPanel x:Name="SupplyMain" Orientation="Horizontal">
+                    <CheckBox x:Name="TxCheck" Content="Transformer" VerticalAlignment="Center"
+                              ToolTip="MDB / EMDB: draw its transformer under it (name, kVA, voltage, type, cables typed by you). Kept in Power Studio only: nothing is written to Revit."/>
+                    <Button x:Name="TxEdit" Content="Edit..." Margin="6,0,0,0"
+                            Style="{StaticResource SmallButton}"/>
+                    <TextBlock x:Name="TxText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
+                    <CheckBox x:Name="PfcCheck" Content="PFC" Margin="18,0,0,0" VerticalAlignment="Center"
+                              ToolTip="MDB / EMDB: add a power factor correction bank on a way (kVAR, breaker and cable typed by you). Kept in Power Studio only."/>
+                    <Button x:Name="PfcEdit" Content="Edit..." Margin="6,0,0,0"
+                            Style="{StaticResource SmallButton}"/>
+                    <TextBlock x:Name="PfcText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
+                    <Button x:Name="GeneratorButton" Content="+ Generator" Margin="18,0,0,0"
+                        Style="{StaticResource SmallButton}"
+                        ToolTip="Life safety board (EMDB): adds a standby generator. On the SLD the board is drawn beside the board feeding it, through an ATS: normal supply from that board's way, the generator at the bottom. Sized from CL x 1.2 (kVA) x 1.2, next rating up. Kept in Power Studio only: nothing is written to Revit."/>
+                <TextBlock x:Name="GeneratorText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
+                    <TextBlock Text="Transformer V.D %" Style="{StaticResource FieldLabel}"
+                           Margin="18,0,4,0"/>
+                <TextBox x:Name="TxVd" Width="50"
+                         ToolTip="Main boards: the voltage drop of the cable from the transformer, typed by hand (e.g. 0.8). Used instead of working it out from the TX row, and the totals below start from it. Saved to the board's VD Percent."/>
+                  </StackPanel>
+                  <StackPanel x:Name="SupplySub" Orientation="Horizontal">
+                    <TextBlock Text="Fed from" Style="{StaticResource FieldLabel}" Margin="0,0,4,0"/>
+                <ComboBox x:Name="FedBy" Width="140" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_fed_by}"
+                          ToolTip="For a board no circuit in this model feeds (its MDB is in another link): the board feeding it, saved to Fed_By. A name not in this model is drawn as that MDB, built from the boards it feeds."/>
+                <CheckBox x:Name="OnBusbar" Content="Bus bar riser" Margin="16,0,4,0"
+                          VerticalAlignment="Center"
+                          ToolTip="Fed by a tap-off on a bus bar riser (high-rise towers) instead of its own cable. Drawn on the riser, as the office LV riser. Kept in Power Studio only: nothing is written to Revit."/>
+                <ComboBox x:Name="RiserPick" Width="85" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_riser_names}"
+                          ToolTip="Which riser (RISER-1, RISER-2...): boards with the same name share one bar"/>
+                <TextBlock Text="Typical of" Style="{StaticResource FieldLabel}" Margin="8,0,4,0"/>
+                <ComboBox x:Name="TypicalOf" Width="120" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_typical}"
+                          ToolTip="Drawn as a box 'DB SAME AS ...' on the riser instead of in full. Empty: drawn in full."/>
+                  </StackPanel>
+                </WrapPanel>
+              </Grid>
+            </Border>
+
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource Card}" Margin="0,8,0,0"
+                    Background="{StaticResource BarBrush}">
+              <TextBlock x:Name="PreviewText" FontFamily="Consolas" FontSize="12.5"
+                         TextWrapping="Wrap" Foreground="{StaticResource TextBrush}"
+                         Text="Click a way to see how it prints on the SLD."/>
+            </Border>
 
             <DataGrid x:Name="WaysGrid" AutoGenerateColumns="False" CanUserAddRows="False"
                       CanUserDeleteRows="False" CanUserSortColumns="False"
                       CanUserReorderColumns="False" SelectionMode="Single"
-                      SelectionUnit="Cell" HeadersVisibility="Column"
-                      RowStyle="{StaticResource WayRow}" GridLinesVisibility="All"
-                      HorizontalGridLinesBrush="#FFDDDDDD" VerticalGridLinesBrush="#FFDDDDDD">
+                      SelectionUnit="Cell" RowStyle="{StaticResource WayRow}"
+                      GridLinesVisibility="Horizontal">
               <DataGrid.Columns>
 COLUMNS
               </DataGrid.Columns>
@@ -110,19 +319,124 @@ COLUMNS
         </Grid>
       </TabItem>
 
-      <TabItem Header="Settings">
-        <StackPanel Margin="10" Width="420" HorizontalAlignment="Left">
-          <TextBlock Text="Utility / supply authority (FROM ...)"/>
-          <TextBox x:Name="SetUtility" Margin="0,2,0,10"/>
-          <TextBlock Text="Bottom band label"/>
-          <TextBox x:Name="SetSubstation" Margin="0,2,0,10"/>
-          <CheckBox x:Name="SetShowRatings" Content="Print breaker rating and cable along each way"
-                    Margin="0,0,0,10"/>
-          <TextBlock Text="Way numbering"/>
-          <ComboBox x:Name="SetNumbering" Margin="0,2,0,10"/>
-          <TextBlock TextWrapping="Wrap" Foreground="#FF666666"
-                     Text="A new way numbering is used the next time the editor opens."/>
-        </StackPanel>
+      <!-- 2: voltage drop of every cable -->
+      <TabItem x:Name="VdTab">
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal">
+            <Border Style="{StaticResource StepNumber}">
+              <TextBlock Text="2" Style="{StaticResource StepNumberText}"/>
+            </Border>
+            <TextBlock x:Name="VdTabText" Text="Voltage drop" VerticalAlignment="Center"/>
+            <Ellipse x:Name="VdDot" Width="8" Height="8" Margin="7,0,0,0"
+                     VerticalAlignment="Center" Fill="{StaticResource NoneBrush}"/>
+          </StackPanel>
+        </TabItem.Header>
+        <DockPanel>
+          <UniformGrid DockPanel.Dock="Top" Rows="1" Columns="5" Margin="0,0,-8,8">
+            <Border Style="{StaticResource Tile}">
+              <StackPanel>
+                <TextBlock Text="CABLES" Style="{StaticResource TileLabel}"/>
+                <TextBlock x:Name="VdCables" Style="{StaticResource TileValue}"/>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Tile}">
+              <StackPanel>
+                <TextBlock Text="OK" Style="{StaticResource TileLabel}"/>
+                <TextBlock x:Name="VdOk" Style="{StaticResource TileValue}"
+                           Foreground="{StaticResource OkBrush}"/>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Tile}">
+              <StackPanel>
+                <TextBlock Text="FAILED" Style="{StaticResource TileLabel}"/>
+                <TextBlock x:Name="VdFailed" Style="{StaticResource TileValue}"
+                           Foreground="{StaticResource BadBrush}"/>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Tile}">
+              <StackPanel>
+                <TextBlock Text="INCOMPLETE" Style="{StaticResource TileLabel}"/>
+                <TextBlock x:Name="VdIncomplete" Style="{StaticResource TileValue}"
+                           Foreground="{StaticResource WarnBrush}"/>
+              </StackPanel>
+            </Border>
+            <Border Style="{StaticResource Tile}">
+              <StackPanel>
+                <TextBlock Text="HIGHEST CUMULATIVE V.D" Style="{StaticResource TileLabel}"/>
+                <TextBlock x:Name="VdWorst" Style="{StaticResource TileValue}"/>
+                <TextBlock x:Name="VdWorstWhere" Style="{StaticResource TileLabel}"
+                           TextTrimming="CharacterEllipsis"/>
+              </StackPanel>
+            </Border>
+          </UniformGrid>
+
+          <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,8">
+            <StackPanel>
+              <TextBlock Text="To fix" Style="{StaticResource SectionTitle}"/>
+              <TextBlock x:Name="VdFixes" TextWrapping="Wrap" Foreground="{StaticResource TextBrush}"/>
+            </StackPanel>
+          </Border>
+
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <CheckBox x:Name="VdProblemsOnly" DockPanel.Dock="Right"
+                      Content="Show problems only" VerticalAlignment="Center"/>
+            <TextBlock Text="Search board or load" Style="{StaticResource FieldLabel}"
+                       Margin="0,0,6,0"/>
+            <TextBox x:Name="VdSearch" Width="240" HorizontalAlignment="Left"/>
+          </DockPanel>
+
+          <DataGrid x:Name="VdGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                    CanUserDeleteRows="False" IsReadOnly="True" SelectionMode="Single"
+                    GridLinesVisibility="Horizontal" CanUserReorderColumns="False">
+            <DataGrid.Columns>
+VDCOLUMNS
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </TabItem>
+
+      <!-- 3: settings -->
+      <TabItem x:Name="SettingsTab">
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal">
+            <Border Style="{StaticResource StepNumber}">
+              <TextBlock Text="3" Style="{StaticResource StepNumberText}"/>
+            </Border>
+            <TextBlock Text="Settings" VerticalAlignment="Center"/>
+          </StackPanel>
+        </TabItem.Header>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+          <StackPanel>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="12"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Border Grid.Column="0" Style="{StaticResource Card}" VerticalAlignment="Top"
+                      Padding="14,12">
+                <StackPanel>
+                  <TextBlock Text="SLD drawing" Style="{StaticResource SectionTitle}"/>
+                  <StackPanel x:Name="SldSettingsPanel"/>
+                </StackPanel>
+              </Border>
+              <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top"
+                      Padding="14,12">
+                <StackPanel>
+                  <TextBlock Text="Voltage drop and report" Style="{StaticResource SectionTitle}"/>
+                  <StackPanel x:Name="VdSettingsPanel"/>
+                </StackPanel>
+              </Border>
+            </Grid>
+            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+              <Button x:Name="ApplySettings" Content="Apply settings"
+                      Style="{StaticResource PrimaryButton}"/>
+              <TextBlock x:Name="SettingsNote" Style="{StaticResource Muted}" Margin="12,0,0,0"
+                         VerticalAlignment="Center"
+                         Text="Way numbering, voltage and power factor sources, power factor and load basis are read from the model: the window reads it again when they change."/>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
       </TabItem>
     </TabControl>
   </DockPanel>
