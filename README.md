@@ -75,6 +75,23 @@ set in `style.py`.
     table gives a breaker range (60-80, 225-250) the lower rating is used for
     the lower half of the kW range. Sized rows turn green until saved; a V.D
     over the limit is only flagged.
+  - **Bus bar riser** (board fields, SMDBs and other boards, not main
+    boards): tick it for a board fed by a tap-off on a bus bar riser
+    (high-rise towers) instead of its own cable; pick the riser (`RISER-1`,
+    `RISER-2`...) and, for a typical floor, **Typical of** (drawn as a box
+    `SMDB-T-6 / DB SAME AS SMDB-T-1 / @ 6TH FLOOR`; the others in full).
+    The riser is fed from the board that fed its first board (a circuit or
+    `Fed_By`), else the main board; ways that fed its boards are drawn as
+    one riser way, or one way is added on the SLD. Its rating is the
+    smallest standard bus bar taking the sum of the tap-offs (each the
+    board's incomer: 6 x 160A -> 1000A), its fault level the source's. On
+    the SLD it is drawn compact above that way, as the office LV riser: a
+    tall bar labelled `1000A TPN+E COPPER BUS BAR RISER-1 432.00KW 50KA`
+    (connected load), the tap-offs in floor order, the full boards beside
+    the typical boxes with the tap-off cable (the way that fed it, else
+    `Feeder_Size` / `Feeder_Type` / `Feeder_Length_m`) under the line; the
+    tower floors get no floor band. Kept for the model in Power Studio
+    (pyRevit settings): nothing is written to Revit.
   - **Fed from** (board fields): for a board no circuit in this model feeds
     (its MDB is in another link), the board feeding it, saved to the panel's
     `Fed_By`. A panel's `Fed_By` is only used when no circuit feeds it. A
@@ -110,26 +127,7 @@ set in `style.py`.
    double-click a cable to open the board it starts from. **Export V.D
    report** saves the office sheet (Excel, then PDF made by Excel) of these
    values, see [Voltage drop](#voltage-drop).
-3. **Bus bar risers** – for towers where the boards are fed by tap-offs on
-   a bus bar riser instead of each by its own cable. **+ New riser**, then
-   its name (`RISER-1`), rating (A), copper or aluminium, fault level, the
-   board feeding it and the way (**New way** draws one more way on that
-   board; the Revit panel is not changed). Tick the boards on it; each has a
-   tap-off rating (its incomer by default) and **Typical of**: a typical
-   board is drawn as a box `SMDB-T-6 / DB SAME AS SMDB-T-1 / @ 6TH FLOOR`,
-   the others in full with their ways. **Suggest typicals** marks the ticked
-   boards with the same ways as one on a lower floor. The tower boards can
-   be circuited from the MDB or not connected at all: ways that fed them
-   are drawn as the one riser way (the first of them, unless a way is
-   chosen). On the SLD the riser is drawn compact above that way, as the
-   office SLD: a tall bar labelled `1000A TPN+E COPPER BUS BAR RISER-1
-   432.00KW 50KA` (connected load of its boards), the tap-offs in floor
-   order, the full boards beside the typical boxes with the tap-off cable
-   (the way that fed it, else `Feeder_Size` / `Feeder_Type` /
-   `Feeder_Length_m` on the board) under the line; the tower floors get no
-   floor band. Risers are kept for the model in Power Studio (pyRevit
-   settings): nothing is written to Revit and no parameter is added.
-4. **Settings** – SLD drawing: utility name (`TAQA`), bottom band label
+3. **Settings** – SLD drawing: utility name (`TAQA`), bottom band label
    (`SUBSTATION`), ratings on/off and way numbering (ways in order, or Revit
    circuit numbers). Voltage drop and report: voltages, power factor, demand
    (MDL) or connected (TCL) load, limits, default cable and installation,
@@ -137,6 +135,14 @@ set in `style.py`.
    voltage drop out again; way numbering, the voltage and power factor
    sources, the power factor and the load basis are read with the model, so
    the window reads the model again for them.
+
+PFC banks and transfer switches are components, not boards: equipment
+named or of a family with PFC / POWER FACTOR / CAPACITOR is drawn as the
+PFC symbol at the end of its way, and ATS / TRANSFER SWITCH / CHANGEOVER
+as the office ATS box (switch inside, `630A,4P`, location) between the way
+feeding it and the board it feeds; an ATS with no supply in the model is
+drawn under the board it feeds, in the substation band. `SLD Symbol` = ATS
+or PFC forces it.
 
 ## How the model is read
 

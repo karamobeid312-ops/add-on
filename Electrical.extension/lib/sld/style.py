@@ -148,3 +148,8 @@ TAP_TO_BOARD = 5.0          # tap-off line -> bottom of a board drawn in full
 TAP_BOARD_GAP = 8.0         # typical boxes -> boards drawn in full
 TAP_BOARD_STACK = 6.0       # a full board's content -> next tap-off above
 TYPICAL_TEXT = "DB SAME AS %s"
+
+# ---------------------------------------------------------------- transfer switch (ATS)
+ATS_SIZE = 6.0              # square box with the switch inside
+TEXT_ATS = 1.8              # ATS name beside the box
+TEXT_ATS_INFO = 1.2         # 630A,4P / LOCATION

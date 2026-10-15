@@ -1,0 +1,50 @@
+# -*- coding: utf-8 -*-
+"""PFC banks and transfer switches are components, never drawn as boards."""
+import sample_tower
+from sld.layout import layout_schematic
+from sld.model import ATS, PFC, TO_UPS, CircuitInfo, EquipmentInfo, build_schematic
+from test_layout import overlaps
+
+
+def model():
+    eq, c = sample_tower.build(tower_floors=0)
+    eq += [EquipmentInfo("pfc", "PFC-01", "Ground Floor", 0.0, family_name="Capacitor Bank"),
+           EquipmentInfo("ats", "ATS-01", "Ground Floor", 0.0, location="LV RM", mains_rating="630"),
+           EquipmentInfo("emdb", "EMDB-G", "Ground Floor", 0.0),
+           EquipmentInfo("ats2", "ATS-02", "Ground Floor", 0.0, mains_rating="400"),
+           EquipmentInfo("emdb2", "EMDB-2", "Ground Floor", 0.0)]
+    c += [CircuitInfo("c-pfc", "mdb", "3", rating="800", poles="3", fed_equipment_ids=["pfc"]),
+          CircuitInfo("c-ats", "mdb", "4", rating="630", poles="3", fed_equipment_ids=["ats"]),
+          # the generator side of ATS-01: a second supply is no warning
+          CircuitInfo("c-gen", "smdb-g", "9", rating="630", poles="3", fed_equipment_ids=["ats"]),
+          CircuitInfo("c-e", "ats", "1", poles="3", fed_equipment_ids=["emdb"]),
+          CircuitInfo("c-e2", "ats2", "1", poles="3", fed_equipment_ids=["emdb2"],
+                      cable="(4X150)mm2 FR6")]
+    for i in range(3):
+        c.append(CircuitInfo("c-e%d" % i, "emdb", str(i + 1), "LOAD %d" % i, rating="63", poles="3"))
+        c.append(CircuitInfo("c-f%d" % i, "emdb2", str(i + 1), "FAN %d" % i, rating="32", poles="3"))
+    return build_schematic(eq, c)
+
+
+def test_pfc_and_ats_are_not_boards():
+    s = model()
+    names = sorted(b.name for b in s.boards())
+    assert names == ["EMDB-2", "EMDB-G", "MDB-01", "SMDB-G"]
+    assert not s.warnings
+    mdb = next(b for b in s.boards() if b.name == "MDB-01")
+    kinds = dict((w.name, w.kind) for w in mdb.ways)
+    assert kinds["PFC-01"] == PFC and kinds["ATS-01"] == TO_UPS
+    assert mdb.pass_throughs[0].kind == ATS
+    emdb = next(b for b in s.boards() if b.name == "EMDB-G")
+    assert emdb.parent is mdb and emdb.feed_pass_through is mdb.pass_throughs[0]
+    # an ATS with no supply in the model: the board it feeds is drawn with it below
+    emdb2 = next(b for b in s.boards() if b.name == "EMDB-2")
+    assert emdb2.is_main and emdb2.ats.name == "ATS-02"
+
+
+def test_components_drawn_clear():
+    lay = layout_schematic(model())
+    texts = [t.text for t in lay.drawing.texts]
+    assert "ATS-01" in texts and "ATS-02" in texts and "630A,4P" in "\n".join(texts)
+    assert "FROM TAQA" in texts and texts.count("FROM TAQA") == 1     # not under EMDB-2
+    assert not overlaps(lay.drawing)

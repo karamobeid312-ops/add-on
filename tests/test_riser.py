@@ -90,23 +90,36 @@ def test_two_risers_stack_without_crossing():
     assert not overlaps(lay.drawing)
 
 
-def test_suggest_typicals_and_grid_helpers():
+def test_suggest_typicals():
     s = build_schematic(*sample_tower.build(tower_floors=4))
     boards = list(s.boards())
     assert rs.suggest_typicals([b for b in boards if b.name.startswith("SMDB-T")]) == {
         "SMDB-T-2": "SMDB-T-1", "SMDB-T-3": "SMDB-T-1", "SMDB-T-4": "SMDB-T-1"}
-    spec = rs.new_spec([], boards)
-    assert spec["name"] == "RISER-1" and spec["source"] == "MDB-01" and spec["fault"] == "50"
-    assert rs.new_spec([spec], boards)["name"] == "RISER-2"
-    rows = rs.riser_rows(spec, boards)
-    assert [r["board"] for r in rows] == ["SMDB-G"] + ["SMDB-T-%d" % f for f in range(1, 5)]
-    assert rows[1]["rating"] == "160" and not rows[1]["on"]
-    for r in rows[1:]:
-        r["on"] = True
-    assert rs.suggest_rows(rows, boards) == 3
-    spec["taps"] = rs.taps_from_rows(rows)
-    assert [t["typical"] for t in spec["taps"]] == ["", "SMDB-T-1", "SMDB-T-1", "SMDB-T-1"]
-    assert rs.riser_rows(spec, boards, taken=["SMDB-G"])[0]["board"] == "SMDB-T-1"
-    assert rs.way_choices(boards, "MDB-01") == [rs.NEW_WAY, "1"]
-    assert rs.clean_specs([spec])[0]["taps"][1] == {"board": "SMDB-T-2", "rating": "160",
-                                                    "typical": "SMDB-T-1"}
+
+
+def test_board_ticks_make_the_specs():
+    specs = rs.set_mark([], "SMDB-T-1", True)
+    specs = rs.set_mark(specs, "SMDB-T-2", True, "riser-1", "SMDB-T-1")
+    specs = rs.set_mark(specs, "SMDB-T-3", True, "RISER-2")
+    assert [s["name"] for s in specs] == ["RISER-1", "RISER-2"]
+    assert rs.board_mark(specs, "smdb-t-2") == (True, "RISER-1", "SMDB-T-1")
+    assert rs.board_mark(specs, "SMDB-G") == (False, "", "")
+    assert rs.riser_names(specs) == ["RISER-1", "RISER-2", "RISER-3"]
+    specs = rs.set_mark(specs, "SMDB-T-3", False)
+    assert [s["name"] for s in specs] == ["RISER-1"]       # empty riser dropped
+    specs = rs.set_mark(specs, "SMDB-T-2", True, "RISER-1", "")
+    assert rs.board_mark(specs, "SMDB-T-2") == (True, "RISER-1", "")
+
+
+def test_ticked_boards_get_source_rating_and_fault_by_themselves():
+    for connected in (False, True):
+        specs = []
+        for f in range(1, 7):
+            specs = rs.set_mark(specs, "SMDB-T-%d" % f, True, "", "" if f == 1 else "SMDB-T-1")
+        s, warnings = tower(connected=connected, specs=specs)
+        assert warnings == []
+        r = s.risers[0]
+        assert r.source.name == "MDB-01"           # fed it, else the main board
+        assert r.rating == 1000.0                    # 6 x 160A -> 1000A
+        assert r.label() == "1000A TPN+E COPPER BUS BAR RISER-1   432.00KW   50KA"
+    assert rs.auto_rating([160] * 5) == 800.0 and rs.auto_rating([None]) is None

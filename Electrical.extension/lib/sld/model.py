@@ -33,6 +33,8 @@ MAIN_BOARD = "main_board"
 DB = "db"
 UPS = "ups"
 TRANSFORMER = "transformer"
+ATS = "ats"                # automatic transfer switch: a component, not a board
+PFC_UNIT = "pfc_unit"      # power factor correction bank: drawn as the PFC symbol
 
 # way kinds
 FEEDER = "feeder"          # to another board, via a riser
@@ -45,12 +47,15 @@ PFC = "pfc"                # power factor correction bank
 _SYMBOL_ROLES = {
     "BOARD": BOARD, "SMDB": BOARD, "MAIN": MAIN_BOARD, "MDB": MAIN_BOARD,
     "DB": DB, "UPS": UPS, "TRANSFORMER": TRANSFORMER, "TR": TRANSFORMER,
+    "ATS": ATS, "PFC": PFC_UNIT,
 }
 _SYMBOL_WAYS = {
     "ISOLATOR": ISOLATOR, "LOAD": ISOLATOR, "SPARE": SPARE, "PFC": PFC,
     "DB": DB_BOX,
 }
 _PFC_RE = re.compile(r"\bPFC\b|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
+_ATS_RE = re.compile(r"\bATS\b|TRANSFER\s*SWITCH|CHANGE\s*-?\s*OVER", re.IGNORECASE)
+_PASS_THROUGH = (UPS, TRANSFORMER, ATS)
 _POLES = {1: "SP", 2: "DP", 3: "TP", 4: "TPN"}
 _AMPS_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
@@ -346,7 +351,7 @@ class Way(object):
 class PassThrough(object):
     """A UPS (or transformer fed from a board) drawn above its input ways."""
 
-    def __init__(self, equipment, board, input_ways, kind=UPS):
+    def __init__(self, equipment, board, input_ways, kind=UPS):   # UPS, TRANSFORMER or ATS
         self.equipment = equipment
         self.kind = kind                # UPS or TRANSFORMER
         self.board = board              # Board whose ways feed it
@@ -364,6 +369,7 @@ class Board(object):
         self.feed_pass_through = None   # or the PassThrough feeding this
         self.parent = None              # parent Board
         self.transformer = None         # EquipmentInfo drawn under a main board
+        self.ats = None                 # or the transfer switch feeding it (no supply in the model)
         self.children = []              # Boards fed from this one
         self.phases = 3                 # for counting ways (R/Y/B share one)
 
@@ -516,13 +522,18 @@ def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transforme
     if eq.symbol in _SYMBOL_ROLES:
         return _SYMBOL_ROLES[eq.symbol]
     family = eq.family_name.upper()
+    # components, never drawn as boards
+    if _ATS_RE.search(eq.name or "") or _ATS_RE.search(family):
+        return ATS
+    if _PFC_RE.search(eq.name or "") or _PFC_RE.search(family):
+        return PFC_UNIT
     if eq.part_type == "transformer" or "TRANSFORMER" in family:
         return TRANSFORMER
     if "UPS" in family:
         return UPS
     if fed_from_root_transformer or (not has_feeder and is_main_name(eq.name)):
         return MAIN_BOARD
-    if (feeds_equipment or fed_by_role in (UPS, TRANSFORMER) or eq.part_type == "switchboard"
+    if (feeds_equipment or fed_by_role in _PASS_THROUGH or eq.part_type == "switchboard"
             or re.search(style.BOARD_NAME_PATTERN, eq.name or "", re.IGNORECASE)):
         return BOARD
     return DB
@@ -770,7 +781,9 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             # Only a transformer with no supply of its own (the utility
             # transformer) makes a main board; one fed from a board is drawn
             # between that board and the panel it feeds.
-            from_root_tr = up_role == TRANSFORMER and primary_feeder(feeder.source_id) is None
+            # (or a transfer switch with no supply in the model)
+            from_root_tr = up_role in (TRANSFORMER, ATS) and \
+                primary_feeder(feeder.source_id) is None
         roles[eq_id] = _role(eq_by_id[eq_id], up_role, eq_id in feeds_equipment,
                              feeder is not None, from_root_tr)
         return roles[eq_id]
@@ -779,8 +792,10 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         role_of(e.id)
 
     for eq_id, lst in feeders.items():
+        if roles[eq_id] == ATS:
+            continue        # normal and standby supplies
         extra = [c for c in lst[1:]
-                 if not (roles[eq_id] in (UPS, TRANSFORMER) and c.source_id == lst[0].source_id)]
+                 if not (roles[eq_id] in _PASS_THROUGH and c.source_id == lst[0].source_id)]
         for c in extra:
             warnings.append("%s is fed by more than one circuit; using %s." % (
                 eq_by_id[eq_id].name, _describe(lst[0], eq_by_id)))
@@ -795,7 +810,7 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
         lst = feeders.get(eq_id, [])
         if not lst:
             return False
-        if roles[eq_id] in (UPS, TRANSFORMER):
+        if roles[eq_id] in _PASS_THROUGH:
             return c.source_id == lst[0].source_id
         return lst[0] is c
 
@@ -815,7 +830,8 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
                 kind = SPARE
             elif target is not None:
                 kind = {BOARD: FEEDER, MAIN_BOARD: FEEDER, DB: DB_BOX,
-                        UPS: TO_UPS, TRANSFORMER: TO_UPS}[roles[target]]
+                        UPS: TO_UPS, TRANSFORMER: TO_UPS, ATS: TO_UPS,
+                        PFC_UNIT: PFC}[roles[target]]
             elif _PFC_RE.search(c.load_name or ""):
                 kind = PFC
             else:
@@ -857,6 +873,10 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             pt.outputs.append(board)
             board.feed_pass_through = pt
             board.parent = pt.board
+        elif roles.get(src) == ATS:
+            board.ats = eq_by_id[src]
+            board.equipment.incoming_cable = (board.equipment.incoming_cable or
+                                              feeder.cable_text())
         elif roles.get(src) == TRANSFORMER:
             board.transformer = eq_by_id[src]
             board.equipment.incoming_cable = (board.equipment.incoming_cable or

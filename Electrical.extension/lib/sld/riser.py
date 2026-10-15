@@ -141,28 +141,29 @@ def apply_risers(schematic, specs, numbering="slots"):
     taken = set()
     for spec in specs or []:
         name = (spec.get("name") or "").strip() or "RISER-%d" % (len(risers) + 1)
-        source = by_name.get((spec.get("source") or "").strip().upper())
-        if source is None:
-            warnings.append("%s: the board feeding it (%s) is not in the model; not drawn." % (
-                name, spec.get("source") or "none chosen"))
-            continue
         boards = []
         for t in spec.get("taps") or []:
             b = by_name.get((t.get("board") or "").strip().upper())
             if b is None:
                 warnings.append("%s: %s is not in the model." % (name, t.get("board")))
                 continue
-            if b is source or b.is_main or b.id in taken:
+            if b.is_main or b.id in taken:
                 warnings.append("%s: %s cannot be on this riser." % (name, b.name))
                 continue
             boards.append((b, t))
             taken.add(b.id)
         if not boards:
-            warnings.append("%s has no boards on it; not drawn." % name)
             continue
+        typed = (spec.get("source") or "").strip()
+        source = by_name.get(typed.upper()) if typed else _auto_source(schematic, by_name, boards)
+        if source is None:
+            warnings.append("%s: the board feeding it (%s) is not in the model; not drawn." % (
+                name, typed or "none found"))
+            continue
+        boards = [(b, t) for b, t in boards if b is not source]
 
         riser = Riser(name, parse_amps(spec.get("rating")), spec.get("material") or "COPPER",
-                      spec.get("fault") or "")
+                      spec.get("fault") or source.equipment.fault_level or "")
         riser.source = source
         old_ways = []
         for b, t in boards:
@@ -180,6 +181,8 @@ def apply_risers(schematic, specs, numbering="slots"):
                 else e.feeder_vd
             riser.taps.append(tap)
         riser.taps.sort(key=lambda t: _floor_key(t.board))
+        if riser.rating is None:
+            riser.rating = auto_rating([t.rating for t in riser.taps])
         names = set(t.board.name.upper() for t in riser.taps)
         for t in riser.taps:
             if t.typical_of and (t.typical_of.upper() not in names or
@@ -277,79 +280,73 @@ def clean_specs(specs):
 
 
 
+# ---------------------------------------------------------------- automatic values
+
+RATINGS = (400, 630, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000)
+
+
+def auto_rating(tap_ratings):
+    """Riser rating: the smallest standard bus bar that takes the sum of its
+    tap-offs (5 x 160A -> 800A, 6 x 160A -> 1000A); None when unknown."""
+    known = [r for r in tap_ratings if r]
+    if not known:
+        return None
+    total = sum(known)
+    return float(next((r for r in RATINGS if r >= total - 1e-6), RATINGS[-1]))
+
+
+def _auto_source(schematic, by_name, boards):
+    """The board feeding a riser when none is typed: the board that fed its
+    first board (a circuit or Fed_By), else the first main board."""
+    for b, _ in boards:
+        if b.parent is not None:
+            return b.parent
+        fed_by = by_name.get((b.equipment.fed_by or "").strip().upper())
+        if fed_by is not None:
+            return fed_by
+    return next((r for r in schematic.roots if r.is_main), None)
+
+
 # ---------------------------------------------------------------- Power Studio
+# Each board's "Bus bar riser" tick, riser name and "Typical of" (board
+# fields) are kept as the riser specs above.
 
-NEW_WAY = "New way"
-RATINGS = ("400", "630", "800", "1000", "1250", "1600", "2000", "2500", "3200", "4000")
-# riser grid: (data column, header, width, kind)
-COLUMNS = (("on", "On riser", 65, "check"), ("board", "Board", 150, "ro"),
-           ("floor", "Floor", 130, "ro"), ("rating", "Tap-off A", 75, "text"),
-           ("typical", "Typical of", 150, "combo"))
+DEFAULT_RISER = "RISER-1"
 
 
-def tap_boards(boards):
-    """Boards that can go on a riser (not main boards), lowest floor first."""
-    return sorted([b for b in boards if not b.is_main and not b.equipment.virtual],
-                  key=_floor_key)
+def board_mark(specs, board_name):
+    """(on a riser, riser name, typical of) of a board."""
+    key = (board_name or "").upper()
+    for s in specs or []:
+        for t in s.get("taps") or []:
+            if (t.get("board") or "").upper() == key:
+                return True, s.get("name") or DEFAULT_RISER, t.get("typical") or ""
+    return False, "", ""
 
 
-def source_names(boards):
-    """Boards a riser can be fed from: main boards first."""
-    return [b.name for b in sorted(boards, key=lambda b: (not b.is_main, natural_key(b.name)))]
+def set_mark(specs, board_name, on, riser_name="", typical=""):
+    """Specs with the board on riser `riser_name` (or on none); risers
+    left with no boards are dropped."""
+    key = (board_name or "").upper()
+    out = []
+    for s in specs or []:
+        s = dict(s)
+        s["taps"] = [t for t in s.get("taps") or [] if (t.get("board") or "").upper() != key]
+        out.append(s)
+    if on:
+        name = (riser_name or DEFAULT_RISER).strip().upper()
+        spec = next((s for s in out if (s.get("name") or "").upper() == name), None)
+        if spec is None:
+            spec = dict(name=name, rating="", material="COPPER", fault="", source="", way="",
+                        taps=[])
+            out.append(spec)
+        spec["taps"].append(dict(board=board_name, rating="", typical=(typical or "").strip()))
+    return [s for s in out if s["taps"]]
 
 
-def new_spec(specs, boards):
-    names = set((s.get("name") or "").upper() for s in specs)
+def riser_names(specs):
+    names = [s.get("name") for s in specs or [] if s.get("name")]
     n = 1
     while "RISER-%d" % n in names:
         n += 1
-    main = next((b for b in sorted(boards, key=lambda b: natural_key(b.name)) if b.is_main), None)
-    fault = parse_amps(main.equipment.fault_level) if main is not None else None
-    return dict(name="RISER-%d" % n, rating="", material="COPPER",
-                fault=trim_number(fault, 1) if fault else "",
-                source=main.name if main is not None else "", way="", taps=[])
-
-
-def way_choices(boards, source):
-    """'New way' and the ways of the source board (not spares)."""
-    board = next((b for b in boards if b.name.upper() == (source or "").upper()), None)
-    labels = [w.label for w in board.ways if w.label and w.kind != "spare"] if board else []
-    return [NEW_WAY] + labels
-
-
-def riser_rows(spec, boards, taken=()):
-    """Rows of the riser grid: every board that can go on a riser.
-    taken: names of boards on other risers (not listed)."""
-    taps = dict(((t.get("board") or "").upper(), t) for t in spec.get("taps") or [])
-    rows = []
-    for b in tap_boards(boards):
-        if b.name.upper() in set(n.upper() for n in taken):
-            continue
-        t = taps.get(b.name.upper())
-        default = tap_rating(b)
-        rows.append(dict(on=t is not None, board=b.name, floor=b.equipment.level_name,
-                         rating=(t.get("rating") if t and t.get("rating") else
-                                 (trim_number(default, 1) if default else "")),
-                         typical=(t.get("typical") or "") if t else ""))
-    return rows
-
-
-def taps_from_rows(rows):
-    return [dict(board=r["board"], rating=r.get("rating") or "", typical=r.get("typical") or "")
-            for r in rows if r.get("on")]
-
-
-def suggest_rows(rows, boards):
-    """Mark the ticked boards that match one on a lower floor as typical of it."""
-    by_name = dict((b.name, b) for b in boards)
-    on = [by_name[r["board"]] for r in rows if r.get("on") and r["board"] in by_name]
-    found = suggest_typicals(on)
-    for r in rows:
-        if r.get("on"):
-            r["typical"] = found.get(r["board"], "")
-    return len(found)
-
-
-def specs_taken(specs, current):
-    """Names of the boards on risers other than `current`."""
-    return [t["board"] for s in specs if s is not current for t in s.get("taps") or []]
+    return names + ["RISER-%d" % n]

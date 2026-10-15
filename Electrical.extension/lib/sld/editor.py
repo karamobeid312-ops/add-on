@@ -246,7 +246,8 @@ class Editor(object):
                 b.feed_pass_through is not None:
             return None
         f = self._vd_feeder(b.id)
-        name = u"FROM %s" % b.transformer.name if b.transformer is not None else INCOMING_NAME
+        source = b.transformer if b.transformer is not None else b.ats
+        name = u"FROM %s" % source.name if source is not None else INCOMING_NAME
         circuit = CircuitInfo(INCOMING + b.id, None, load_name=name, poles="3",
                               length_m=f.length if f is not None else None)
         w = WayItem(Way(circuit, FEEDER, INCOMING_LABEL, name, target=b.equipment), b)

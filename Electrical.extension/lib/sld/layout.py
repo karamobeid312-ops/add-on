@@ -22,7 +22,7 @@ from __future__ import division
 from sld import style, symbols
 from sld.geometry import (BOTTOM, CENTER, LEFT, MIDDLE, RIGHT, TOP, Drawing,
                           text_height, text_width, wrap)
-from sld.model import (DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS, split_cable,
+from sld.model import (ATS, DB_BOX, FEEDER, ISOLATOR, PFC, SPARE, TO_UPS, split_cable,
                        TRANSFORMER, trim_number)
 
 SUBSTATION_BAND = -1
@@ -142,6 +142,8 @@ class BoardGeom(object):
     def pt_body_top(self, pt):
         if pt.kind == TRANSFORMER:
             return self.pt_bottom(pt) + 3.4 * style.PT_TRANSFORMER_RADIUS
+        if pt.kind == ATS:
+            return self.pt_bottom(pt) + style.ATS_SIZE
         return self.pt_bottom(pt) + style.UPS_HEIGHT
 
     def pt_output_y(self, pt):
@@ -152,7 +154,7 @@ class BoardGeom(object):
     def ups_output_x(self, pt, board):
         n = len(pt.outputs)
         i = pt.outputs.index(board)
-        if pt.kind == TRANSFORMER:
+        if pt.kind in (TRANSFORMER, ATS):
             return self.pt_center(pt) + (i - (n - 1) / 2) * 3.0
         left, right = self.ups_span(pt)
         return left + (right - left) * (i + 1) / (n + 1)
@@ -183,6 +185,7 @@ class BoardGeom(object):
             elif w.kind == TO_UPS:
                 h = max(h, style.UPS_ABOVE_BOARD + style.UPS_HEIGHT + 4.0,
                         style.UPS_ABOVE_BOARD + 3.4 * style.PT_TRANSFORMER_RADIUS + 4.0,
+                        style.UPS_ABOVE_BOARD + style.ATS_SIZE + 4.0,
                         style.UPS_ABOVE_BOARD + 1.0 + symbols.vertical_length(w.name, style.TEXT_LOAD))
             elif w.kind == PFC:
                 h = max(h, style.PFC_ABOVE_BOARD + style.PFC_SIZE + 2.0 +
@@ -689,6 +692,14 @@ def _draw_board(d, g, settings):
 
 def _draw_pass_through(d, g, pt):
     y0 = g.pt_bottom(pt)
+    if pt.kind == ATS:
+        xs = g.pt_inputs(pt)
+        cx = g.pt_center(pt)
+        if len(xs) > 1:
+            d.line(min(xs), y0 - 1.5, max(xs), y0 - 1.5)
+            d.line(cx, y0 - 1.5, cx, y0)
+        symbols.ats(d, cx, y0, pt.equipment.name, symbols.ats_info(pt.equipment))
+        return
     if pt.kind != TRANSFORMER:
         left, right = g.ups_span(pt)
         symbols.ups_box(d, left, right, y0, pt.equipment.name)
@@ -741,7 +752,7 @@ def _draw_way_end(d, g, w, x, settings):
         symbols.pfc(d, x, y0)
     elif w.kind == TO_UPS:
         pt = next(p for p in g.board.pass_throughs if w in p.input_ways)
-        joined = pt.kind == TRANSFORMER and len(pt.input_ways) > 1
+        joined = pt.kind in (TRANSFORMER, ATS) and len(pt.input_ways) > 1
         d.line(x, t, x, g.pt_bottom(pt) - (1.5 if joined else 0.0))
     # FEEDER: the riser is drawn by _draw_feed.
 
@@ -785,6 +796,12 @@ def _draw_source(d, g, floor_y, settings):
     d.line(x, y, x, y_cable + 0.6)
     symbols.cable_mark(d, x, y_cable, _cable_label(cable) if cable else None)
     y = y_cable - 0.6
+    if b.ats is not None:
+        # fed through a transfer switch (its supplies are not in the model)
+        y_ats = y - 3.0 - style.ATS_SIZE
+        d.line(x, y, x, y_ats + style.ATS_SIZE)
+        symbols.ats(d, x, y_ats, b.ats.name, symbols.ats_info(b.ats))
+        return
     if settings.meter_label:
         trip = b.equipment._incomer()[0]
         ratio = "%sA/5A" % trim_number(trip, 0) if trip else ""

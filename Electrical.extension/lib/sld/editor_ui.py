@@ -50,9 +50,7 @@ NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
          "VdWorstWhere", "VdFixes", "VdProblemsOnly", "VdSearch", "VdGrid",
          "SldSettingsPanel", "VdSettingsPanel", "ApplySettings", "SettingsNote",
-         "RisersTab", "RiserList", "NewRiser", "DeleteRiser", "RiserName", "RiserRating",
-         "RiserMaterial", "RiserFault", "RiserSource", "RiserWay", "SuggestTypicals",
-         "RiserGrid") + \
+         "OnBusbar", "RiserPick", "TypicalOf") + \
     tuple(n for n, _ in BOARD_CONTROLS)
 STATE_TEXT = {studio.OK: u"OK", studio.WARN: u"Check", studio.BAD: u"Problem"}
 
@@ -79,14 +77,6 @@ def column_xaml(field, header, width, kind):
         '</DataGridTemplateColumn>' % {"h": header, "w": width, "f": field})
 
 
-def riser_column_xaml(field, header, width, kind):
-    if kind == "check":
-        return ('<DataGridCheckBoxColumn Header="%s" Width="%d" '
-                'Binding="{Binding %s, UpdateSourceTrigger=PropertyChanged}"/>'
-                % (header, width, field))
-    return column_xaml(field, header, width, kind)
-
-
 def vd_column_xaml(field, header, width):
     """XAML of one voltage drop grid column (the result is a chip)."""
     if field == "status":
@@ -104,8 +94,6 @@ def window_xaml():
     columns = "\n".join(column_xaml(*c) for c in COLUMNS)
     vd_columns = "\n".join(vd_column_xaml(*c) for c in studio.VD_COLUMNS)
     text = text.replace("\nCOLUMNS\n", "\n" + columns + "\n", 1)
-    riser_columns = "\n".join(riser_column_xaml(*c) for c in rs.COLUMNS)
-    text = text.replace("\nRISERCOLUMNS\n", "\n" + riser_columns + "\n", 1)
     return text.replace("\nVDCOLUMNS\n", "\n" + vd_columns + "\n", 1)
 
 
@@ -208,8 +196,6 @@ class EditorWindow(object):
         self._busy = False
         self._vd_stale = True
         self.risers = [dict(s) for s in actions.get("risers") or []]
-        self.riser_index = None
-        self.riser_table = None
         self._risers_dirty = False
         self.win = ui.load_window(window_xaml(), ACCENT)
         for name in NAMES:
@@ -218,7 +204,6 @@ class EditorWindow(object):
         self._fill_choices()
         self._fill_settings()
         self._fill_tree()
-        self._fill_risers(0)
         self._wire()
         self._show_states()
         self._fill_vd()
@@ -229,13 +214,9 @@ class EditorWindow(object):
         for key, values in ed.CHOICES.items():
             self.win.Resources["ch_%s" % key] = ui.strings(values)
         self.win.Resources["ch_fed_by"] = ui.strings(self.editor.board_names())
-        boards = self._model_boards()
-        self.win.Resources["ch_riser_rating"] = ui.strings(rs.RATINGS)
-        self.win.Resources["ch_riser_material"] = ui.strings(rs.MATERIALS)
-        self.win.Resources["ch_riser_source"] = ui.strings(rs.source_names(boards))
-        self.win.Resources["ch_riser_way"] = ui.strings([rs.NEW_WAY])
+        self.win.Resources["ch_riser_names"] = ui.strings(rs.riser_names(self.risers))
         self.win.Resources["ch_typical"] = ui.strings(
-            [u""] + [b.name for b in rs.tap_boards(boards)])
+            [u""] + [b.name for b in self.editor.boards if not b.board.is_main])
 
     def _setting_row(self, key, label, unit, kind, value):
         from System.Windows import (GridLength, HorizontalAlignment, TextWrapping, Thickness,
@@ -345,15 +326,10 @@ class EditorWindow(object):
         self.AddSpace.Click += self.on_add_space
         self.RemoveSpace.Click += self.on_remove_space
         self.ApplySettings.Click += self.on_apply_settings
-        self.RiserList.SelectionChanged += self.on_riser_pick
-        self.NewRiser.Click += self.on_new_riser
-        self.DeleteRiser.Click += self.on_delete_riser
-        self.SuggestTypicals.Click += self.on_suggest_typicals
-        for control in (self.RiserName, self.RiserRating, self.RiserMaterial, self.RiserFault,
-                        self.RiserSource, self.RiserWay):
-            control.LostKeyboardFocus += self.on_riser_field
-            if hasattr(control, "DropDownClosed"):
-                control.DropDownClosed += self.on_riser_field
+        self.OnBusbar.Click += self.on_busbar
+        for control in (self.RiserPick, self.TypicalOf):
+            control.LostKeyboardFocus += self.on_busbar
+            control.DropDownClosed += self.on_busbar
         self.win.Closing += self.on_closing
         for name, _ in BOARD_CONTROLS:
             control = getattr(self, name)
@@ -418,6 +394,7 @@ class EditorWindow(object):
             self.TxVd.IsEnabled = self.editor.has_incoming(board_id)
         finally:
             self._busy = False
+        self._show_busbar(board)
         table = DataTable("Ways")
         for name in HIDDEN + tuple(c[0] for c in COLUMNS):
             table.Columns.Add(name, String).DefaultValue = u""
@@ -546,147 +523,43 @@ class EditorWindow(object):
 
     # ------------------------------------------------------------ bus bar risers
 
-    def _model_boards(self):
-        return [b.board for b in self.editor.boards]
-
-    def _fill_risers(self, select=None):
+    def _show_busbar(self, board):
+        on, name, typical = rs.board_mark(self.risers, board.name)
+        allowed = not board.board.is_main and not board.virtual
         self._busy = True
         try:
-            self.RiserList.Items.Clear()
-            for spec in self.risers:
-                self.RiserList.Items.Add(spec.get("name") or u"(no name)")
-            if select is not None and self.risers:
-                select = min(max(select, 0), len(self.risers) - 1)
-                self.RiserList.SelectedIndex = select
+            self.OnBusbar.IsChecked = on
+            self.RiserPick.Text = name
+            self.TypicalOf.Text = typical
         finally:
             self._busy = False
-        self._show_riser(self.RiserList.SelectedIndex if self.risers else None)
+        self.OnBusbar.IsEnabled = allowed
+        self.RiserPick.IsEnabled = self.TypicalOf.IsEnabled = allowed and on
 
-    def _show_riser(self, index):
-        from System import Boolean, String
-        from System.Data import DataTable
-        self.riser_index = index if index is not None and index >= 0 else None
-        spec = self.risers[self.riser_index] if self.riser_index is not None else None
-        enabled = spec is not None
-        for control in (self.RiserName, self.RiserRating, self.RiserMaterial, self.RiserFault,
-                        self.RiserSource, self.RiserWay, self.SuggestTypicals, self.RiserGrid,
-                        self.DeleteRiser):
-            control.IsEnabled = enabled
-        boards = self._model_boards()
-        self._busy = True
-        try:
-            self.RiserName.Text = spec.get("name", u"") if spec else u""
-            self.RiserRating.Text = spec.get("rating", u"") if spec else u""
-            self.RiserMaterial.Text = spec.get("material", u"COPPER") if spec else u""
-            self.RiserFault.Text = spec.get("fault", u"") if spec else u""
-            self.RiserSource.Text = spec.get("source", u"") if spec else u""
-            self.win.Resources["ch_riser_way"] = ui.strings(
-                rs.way_choices(boards, spec.get("source")) if spec else [rs.NEW_WAY])
-            self.RiserWay.Text = (spec.get("way") or rs.NEW_WAY) if spec else u""
-        finally:
-            self._busy = False
-        table = DataTable("Riser")
-        for field, _, _, kind in rs.COLUMNS:
-            table.Columns.Add(field, Boolean if kind == "check" else String).DefaultValue = \
-                False if kind == "check" else u""
-        if spec is not None:
-            taken = rs.specs_taken(self.risers, spec)
-            for values in rs.riser_rows(spec, boards, taken):
-                row = table.NewRow()
-                for field, _, _, kind in rs.COLUMNS:
-                    row[field] = bool(values[field]) if kind == "check" else \
-                        u"%s" % (values[field] or u"")
-                table.Rows.Add(row)
-        table.AcceptChanges()
-        self.riser_table = table
-        self.RiserGrid.ItemsSource = table.DefaultView
-
-    def _grid_rows(self):
-        from System.Windows.Controls import DataGridEditingUnit
-        self.RiserGrid.CommitEdit(DataGridEditingUnit.Row, True)
-        rows = []
-        if self.riser_table is None:
-            return rows
-        for row in self.riser_table.Rows:
-            values = {}
-            for field, _, _, kind in rs.COLUMNS:
-                value = row[field]
-                values[field] = bool(value) if kind == "check" else (
-                    u"" if value is None else u"%s" % value)
-            rows.append(values)
-        return rows
-
-    def _read_riser(self):
-        """The shown riser's fields and grid into its spec."""
-        if self.riser_index is None or self._busy:
+    def on_busbar(self, sender, args):
+        if self._busy or self.current is None:
             return
-        spec = self.risers[self.riser_index]
-        way = (self.RiserWay.Text or u"").strip()
-        new = dict(name=(self.RiserName.Text or u"").strip().upper(),
-                   rating=(self.RiserRating.Text or u"").strip(),
-                   material=(self.RiserMaterial.Text or u"COPPER").strip().upper(),
-                   fault=(self.RiserFault.Text or u"").strip(),
-                   source=(self.RiserSource.Text or u"").strip(),
-                   way=u"" if way == rs.NEW_WAY else way,
-                   taps=rs.taps_from_rows(self._grid_rows()))
-        if new != dict((k, spec.get(k)) for k in new):
-            spec.update(new)
-            self._risers_dirty = True
+        self._safe(self._set_busbar)
+
+    def _set_busbar(self):
+        board = self.editor.board(self.current)
+        on = bool(self.OnBusbar.IsChecked)
+        name = (self.RiserPick.Text or u"").strip().upper() or rs.DEFAULT_RISER
+        typical = (self.TypicalOf.Text or u"").strip()
+        if typical.upper() == board.name.upper():
+            typical = u""
+        if (on, name if on else u"", typical if on else u"") == rs.board_mark(self.risers,
+                                                                               board.name):
+            return
+        self.risers = rs.set_mark(self.risers, board.name, on, name, typical)
+        self._risers_dirty = True
+        self.win.Resources["ch_riser_names"] = ui.strings(rs.riser_names(self.risers))
+        self._show_busbar(board)
 
     def _keep_risers(self):
-        self._read_riser()
         if self._risers_dirty and "save_risers" in self.actions:
             self.actions["save_risers"](self.risers)
             self._risers_dirty = False
-
-    def on_riser_pick(self, sender, args):
-        if self._busy:
-            return
-        self._safe(self._read_riser)
-        self._safe(self._show_riser, self.RiserList.SelectedIndex)
-
-    def on_riser_field(self, sender, args):
-        if self._busy or self.riser_index is None:
-            return
-        old = self.risers[self.riser_index]
-        name, source = old.get("name"), old.get("source")
-        self._safe(self._read_riser)
-        spec = self.risers[self.riser_index]
-        if spec.get("name") != name:
-            self._fill_risers(self.riser_index)
-        elif spec.get("source") != source:
-            self._show_riser(self.riser_index)
-
-    def on_new_riser(self, sender, args):
-        self._safe(self._read_riser)
-        self.risers.append(rs.new_spec(self.risers, self._model_boards()))
-        self._risers_dirty = True
-        self._fill_risers(len(self.risers) - 1)
-
-    def on_delete_riser(self, sender, args):
-        if self.riser_index is None:
-            return
-        del self.risers[self.riser_index]
-        self.riser_index = None
-        self._risers_dirty = True
-        self._fill_risers(0)
-
-    def on_suggest_typicals(self, sender, args):
-        self._safe(self._suggest)
-
-    def _suggest(self):
-        self._read_riser()
-        rows = self._grid_rows()
-        if not any(r["on"] for r in rows):
-            self._alert(u"Tick the boards on the riser first.")
-            return
-        n = rs.suggest_rows(rows, self._model_boards())
-        for row, values in zip(self.riser_table.Rows, rows):
-            row["typical"] = values["typical"]
-        self._read_riser()
-        self._alert(u"%d board(s) marked typical of a board on a lower floor with the same "
-                    u"ways. Check the Typical of column." % n if n else
-                    u"No two ticked boards have the same ways.")
 
     # ------------------------------------------------------------ events
 

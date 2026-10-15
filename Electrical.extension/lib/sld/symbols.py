@@ -391,3 +391,41 @@ def typical_box(d, left, y_mid, lines, width=None):
         d.text(left + w - style.TAP_BOX_PAD, y, text, size, align=RIGHT, valign=TOP)
         y -= size * style.LINE_SPACING
     return left + w
+
+
+def ats_info(equipment):
+    """Lines beside an ATS: its rating and poles, location."""
+    lines = []
+    rating = equipment.mains_rating or equipment.incomer_rating
+    from sld.model import parse_amps, trim_number
+    amps = parse_amps(rating)
+    if amps:
+        lines.append("%sA,4P" % trim_number(amps, 1))
+    if equipment.location:
+        lines.append("LOCATION: %s" % equipment.location)
+    return lines
+
+
+def ats(d, x, y0, name, info=()):
+    """Automatic transfer switch, as the office SLD: a box with the switch
+    inside, the supply in at the bottom (x), the standby supply's contact
+    beside it, out at the top (x). Name and info on the right. Returns the
+    top y."""
+    s = style.ATS_SIZE
+    top = y0 + s
+    d.rect(x - s / 2, y0, x + s / 2, top)
+    a = (x, y0 + 1.6)                 # normal supply contact
+    b = (x + 1.8, y0 + 1.6)           # standby supply contact
+    c = (x, top - 1.6)                # common, out
+    d.line(x, y0, a[0], a[1])
+    d.line(b[0], y0, b[0], b[1])
+    d.line(c[0], c[1], x, top)
+    for px, py in (a, b, c):
+        d.circle(px, py, 0.25)
+    d.line(a[0] + 0.15, a[1] + 0.2, c[0] + 1.3, c[1] - 0.4)   # the blade, open towards C
+    tx = x + s / 2 + 1.0
+    d.text(tx, top, name, style.TEXT_ATS, align=LEFT, valign=TOP)
+    if info:
+        d.text(tx, top - style.TEXT_ATS * style.LINE_SPACING, "\n".join(info),
+               style.TEXT_ATS_INFO, align=LEFT, valign=TOP)
+    return top
