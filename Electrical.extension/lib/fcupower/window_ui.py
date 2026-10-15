@@ -24,7 +24,7 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "TagParamCombo", "SocketTypeCombo", "AddButton", "FloorCombo", "PanelCombo",
          "WireTypeCombo", "WireTagCombo", "CircuitButton", "CircuitInfo", "SetupButton",
          "SetupPanel", "SetupDone", "MissingGrid", "CircuitGrid", "PowerTabText",
-         "MissingTabText", "CircuitTabText", "Steps")
+         "MissingTabText", "CircuitTabText", "Steps", "TickAllButton", "TickNoneButton")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
 ALL_FLOORS = u"All floors"
@@ -101,6 +101,7 @@ class FcuWindow(object):
         self.current = None             # the sheet whose columns are shown
         self.fcus, self.unused = [], []
         self.overrides = {}             # FCU key -> write ticked by hand
+        self.circuit_ticked = set()     # FCU keys ticked in Circuit + wire
         self.tag_param = None           # picked by hand; None: the best match
         self.units = revit.get("units") or []   # linked FCUs (x, y, z, tag)
         self.missing = []               # indexes in units: in the schedule, no socket
@@ -175,6 +176,8 @@ class FcuWindow(object):
         self.ShowCombo.SelectionChanged += lambda s, e: self._fill_grid()
         self.TagParamCombo.SelectionChanged += self.on_tag_param
         self.SearchText.TextChanged += lambda s, e: self._fill_grid()
+        self.TickAllButton.Click += lambda s, e: self._tick_circuits(True)
+        self.TickNoneButton.Click += lambda s, e: self._tick_circuits(False)
         self.SetupButton.Click += lambda s, e: self._setup(True)
         self.SetupDone.Click += lambda s, e: self._setup(False)
 
@@ -467,22 +470,47 @@ class FcuWindow(object):
         return [f for f in self.floor_fcus()
                 if not f.circuited or (f.panel == panel and not f.wired)]
 
-    def _fill_circuit_info(self):
-        todo = self.to_circuit()
-        n = len(todo)
+    def _circuit_count(self):
+        keys = set(f.key for f in self.to_circuit())
+        n = len(keys & self.circuit_ticked)
         self.CircuitButton.Content = u"Circuit + wire (%d)" % n
         self.CircuitButton.IsEnabled = bool(n)
-        self.CircuitTabText.Text = u"Circuit + wire (%d)" % n
+
+    def _fill_circuit_info(self):
+        todo = self.to_circuit()
+        self.CircuitTabText.Text = u"Circuit + wire (%d)" % len(todo)
         floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
         self.CircuitInfo.Text = (u"Outlets of %s with no circuit, or on this panel with no wire. "
-                                 u"Each gets its own circuit, a home-run wire and the wire tag." % floor)
+                                 u"Tick the ones fed from this panel." % floor)
         items = []
         for f in sorted(todo, key=lambda f: m.tokens(f.tag)):
-            items.append(({"tag": f.tag or u"id %d" % f.key, "room": f.room,
+            items.append(({"key": u"%d" % f.key, "tag": f.tag or u"id %d" % f.key, "room": f.room,
                            "space": f.panel or u"-",
                            "status": u"Wire + tag" if f.circuited else u"New circuit + wire + tag",
-                           "state": m.OK}, False, False))
-        self.CircuitGrid.ItemsSource = self._table(items).DefaultView
+                           "state": m.OK}, f.key in self.circuit_ticked, True))
+        table = self._table(items)
+        table.ColumnChanged += self.on_circuit_tick
+        self.circuit_table = table
+        self.CircuitGrid.ItemsSource = table.DefaultView
+        self._circuit_count()
+
+    def on_circuit_tick(self, sender, args):
+        if args.Column.ColumnName != "write":
+            return
+        key = int(u"%s" % args.Row["key"])
+        if bool(args.ProposedValue):
+            self.circuit_ticked.add(key)
+        else:
+            self.circuit_ticked.discard(key)
+        self._circuit_count()
+
+    def _tick_circuits(self, tick):
+        keys = set(f.key for f in self.to_circuit())
+        if tick:
+            self.circuit_ticked |= keys
+        else:
+            self.circuit_ticked -= keys
+        self._fill_circuit_info()
 
     def _fill_missing(self, grid=True):
         span = self._floor_range()
@@ -512,7 +540,10 @@ class FcuWindow(object):
 
     def on_circuit(self, sender, args):
         from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult
-        todo = self.to_circuit()
+        todo = [f for f in self.to_circuit() if f.key in self.circuit_ticked]
+        if not todo:
+            self._alert(u"Tick the outlets to circuit to this panel first.")
+            return
         panel = (self.PanelCombo.Text or u"").strip()
         names = [u"%s" % n for n in self.PanelCombo.Items]
         if panel not in names:
@@ -544,6 +575,7 @@ class FcuWindow(object):
             self.revit["keep_panel"](panel)
         except Exception:
             pass
+        self.circuit_ticked -= set(f.key for f in todo)
         self.refresh()
         text = u"%d circuit(s) made on %s, %d wire(s) and %d tag(s) drawn." % (made, panel, wired, tagged)
         if failed:

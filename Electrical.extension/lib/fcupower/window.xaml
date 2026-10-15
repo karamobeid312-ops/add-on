@@ -107,12 +107,47 @@
 
     <Grid>
       <TabControl x:Name="Steps" Padding="10">
-        <!-- 1: Real_Power_W -->
+        <!-- 1: sockets for the linked FCUs that have none -->
         <TabItem>
           <TabItem.Header>
             <StackPanel Orientation="Horizontal">
               <Border Style="{StaticResource StepNumber}">
                 <TextBlock Text="1" Style="{StaticResource StepNumberText}"/>
+              </Border>
+              <TextBlock x:Name="MissingTabText" Text="Missing sockets" VerticalAlignment="Center"/>
+            </StackPanel>
+          </TabItem.Header>
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,8"
+                       Text="FCUs of the mechanical link on this floor that are in the schedule and have no socket within 3 m. Each gets a socket on the slab underside above it."/>
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+              <Button x:Name="AddButton" DockPanel.Dock="Right" Content="Add missing sockets"
+                      Style="{StaticResource PrimaryButton}"
+                      ToolTip="Place a socket on the slab above each FCU listed"/>
+              <TextBlock Text="Socket type" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+              <ComboBox x:Name="SocketTypeCombo" Width="300" HorizontalAlignment="Left"
+                        ToolTip="Face-based or level-based types of the ticked families"/>
+            </DockPanel>
+            <DataGrid x:Name="MissingGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserDeleteRows="False" IsReadOnly="True" SelectionMode="Single"
+                      GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                      HorizontalScrollBarVisibility="Disabled">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="FCU tag" Binding="{Binding tag}" Width="2*"/>
+                <DataGridTextColumn Header="Schedule space" Binding="{Binding space}" Width="3*"/>
+                <DataGridTextColumn Header="Power W" Binding="{Binding new}" Width="70"/>
+                <DataGridTemplateColumn Header="Status" Width="3*" CellTemplate="{StaticResource StatusChip}"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </TabItem>
+
+        <!-- 2: Real_Power_W -->
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal">
+              <Border Style="{StaticResource StepNumber}">
+                <TextBlock Text="2" Style="{StaticResource StepNumberText}"/>
               </Border>
               <TextBlock x:Name="PowerTabText" Text="Power" VerticalAlignment="Center"/>
             </StackPanel>
@@ -184,41 +219,6 @@
           </DockPanel>
         </TabItem>
 
-        <!-- 2: sockets for the linked FCUs that have none -->
-        <TabItem>
-          <TabItem.Header>
-            <StackPanel Orientation="Horizontal">
-              <Border Style="{StaticResource StepNumber}">
-                <TextBlock Text="2" Style="{StaticResource StepNumberText}"/>
-              </Border>
-              <TextBlock x:Name="MissingTabText" Text="Missing sockets" VerticalAlignment="Center"/>
-            </StackPanel>
-          </TabItem.Header>
-          <DockPanel>
-            <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,8"
-                       Text="FCUs of the mechanical link on this floor that are in the schedule and have no socket within 3 m. Each gets a socket on the slab underside above it."/>
-            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-              <Button x:Name="AddButton" DockPanel.Dock="Right" Content="Add missing sockets"
-                      Style="{StaticResource PrimaryButton}"
-                      ToolTip="Place a socket on the slab above each FCU listed"/>
-              <TextBlock Text="Socket type" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-              <ComboBox x:Name="SocketTypeCombo" Width="300" HorizontalAlignment="Left"
-                        ToolTip="Face-based or level-based types of the ticked families"/>
-            </DockPanel>
-            <DataGrid x:Name="MissingGrid" AutoGenerateColumns="False" CanUserAddRows="False"
-                      CanUserDeleteRows="False" IsReadOnly="True" SelectionMode="Single"
-                      GridLinesVisibility="Horizontal" HeadersVisibility="Column"
-                      HorizontalScrollBarVisibility="Disabled">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="FCU tag" Binding="{Binding tag}" Width="2*"/>
-                <DataGridTextColumn Header="Schedule space" Binding="{Binding space}" Width="3*"/>
-                <DataGridTextColumn Header="Power W" Binding="{Binding new}" Width="70"/>
-                <DataGridTemplateColumn Header="Status" Width="3*" CellTemplate="{StaticResource StatusChip}"/>
-              </DataGrid.Columns>
-            </DataGrid>
-          </DockPanel>
-        </TabItem>
-
         <!-- 3: circuits, wires and tags -->
         <TabItem>
           <TabItem.Header>
@@ -239,6 +239,10 @@
               <ComboBox x:Name="WireTagCombo" Width="260"/>
             </WrapPanel>
             <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+              <Button x:Name="TickAllButton" DockPanel.Dock="Left" Content="Tick all"
+                      Style="{StaticResource SmallButton}" Margin="0,0,6,0"/>
+              <Button x:Name="TickNoneButton" DockPanel.Dock="Left" Content="Untick all"
+                      Style="{StaticResource SmallButton}" Margin="0,0,12,0"/>
               <Button x:Name="CircuitButton" DockPanel.Dock="Right" Content="Circuit + wire"
                       Style="{StaticResource PrimaryButton}"
                       ToolTip="Each outlet listed gets its own circuit on the panel, a home-run wire towards it and a wire tag"/>
@@ -246,14 +250,16 @@
                          TextWrapping="Wrap" Margin="0,0,12,0"/>
             </DockPanel>
             <DataGrid x:Name="CircuitGrid" AutoGenerateColumns="False" CanUserAddRows="False"
-                      CanUserDeleteRows="False" IsReadOnly="True" SelectionMode="Single"
+                      CanUserDeleteRows="False" SelectionMode="Single"
                       GridLinesVisibility="Horizontal" HeadersVisibility="Column"
                       HorizontalScrollBarVisibility="Disabled">
               <DataGrid.Columns>
-                <DataGridTextColumn Header="FCU tag" Binding="{Binding tag}" Width="2*"/>
-                <DataGridTextColumn Header="Room" Binding="{Binding room}" Width="2*"/>
-                <DataGridTextColumn Header="Panel now" Binding="{Binding space}" Width="2*"/>
-                <DataGridTemplateColumn Header="Will do" Width="3*" CellTemplate="{StaticResource StatusChip}"/>
+                <DataGridTemplateColumn Header="Do" Width="46" CellTemplate="{StaticResource WriteBox}"/>
+                <DataGridTextColumn Header="FCU tag" Binding="{Binding tag}" Width="2*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Room" Binding="{Binding room}" Width="2*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Panel now" Binding="{Binding space}" Width="2*" IsReadOnly="True"/>
+                <DataGridTemplateColumn Header="Will do" Width="3*" IsReadOnly="True"
+                                        CellTemplate="{StaticResource StatusChip}"/>
               </DataGrid.Columns>
             </DataGrid>
           </DockPanel>

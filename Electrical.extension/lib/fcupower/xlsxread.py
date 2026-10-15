@@ -157,8 +157,28 @@ def _sheet_paths(zf):
     return out
 
 
+_CACHE = {}                      # (path, size, mtime) -> sheets, while Revit runs
+
+
 def read(path):
-    """[(sheet name, rows)] of an .xlsx / .xlsm file."""
+    """[(sheet name, rows)] of an .xlsx / .xlsm file (kept while the file
+    is unchanged: a cloud-synced file is slow to read)."""
+    import os
+    try:
+        st = os.stat(path)
+        key = (path, st.st_size, st.st_mtime)
+    except OSError:
+        key = None
+    if key is not None and key in _CACHE:
+        return _CACHE[key]
+    sheets = _read(path)
+    if key is not None:
+        _CACHE.clear()
+        _CACHE[key] = sheets
+    return sheets
+
+
+def _read(path):
     try:
         zf = zipfile.ZipFile(path)
     except (zipfile.BadZipfile, IOError, OSError):
