@@ -170,6 +170,11 @@ class BoardGeom(object):
         left, right = self.ups_span(pt)
         return left + (right - left) * (i + 1) / (n + 1)
 
+    def db_height(self):
+        """One height for all the DB boxes on the board, so they line up."""
+        return max([symbols.db_box_height(w.name, w.loads()) for w in self.board.ways
+                    if w.kind == DB_BOX and w not in self.remote_ways] or [0.0])
+
     def extent_right(self):
         """Right of the board and of the risers drawn above it."""
         right = max([self.right] + [b.right() for b in self.riser_blocks])
@@ -232,6 +237,7 @@ class BoxGeom(object):
     def __init__(self, way=None, equipment=None):
         self.way = way
         self.equipment = equipment
+        self.box_height = 0.0   # shared by the DB boxes on its floor (set by layout)
         self.left = 0.0
         self.bottom = 0.0       # board bottom of its row
         self.band = 0
@@ -273,7 +279,7 @@ class BoxGeom(object):
         return self.feed_y
 
     def content_height(self):
-        return symbols.db_box_height(self.name, self.loads())
+        return max(symbols.db_box_height(self.name, self.loads()), self.box_height)
 
 
 class Feed(object):
@@ -408,6 +414,13 @@ def layout_schematic(schematic, settings=None):
     band_names, boxes = _assign_rows(schematic, geoms)
     for box in boxes:
         geoms[box.key] = box
+    # DB boxes on one floor line up: one height for all of them
+    tallest = {}
+    for box in boxes:
+        tallest[box.row] = max(tallest.get(box.row, 0.0),
+                               symbols.db_box_height(box.name, box.loads()))
+    for box in boxes:
+        box.box_height = tallest[box.row]
     feeds = _collect_feeds(schematic, geoms, boxes)
     rows = sorted(set(g.row for g in geoms.values()))
     _place_x(schematic, geoms, feeds, rows)
@@ -425,7 +438,7 @@ def layout_schematic(schematic, settings=None):
         _draw_riser(d, block)
     for box in boxes:
         if box.way is None:
-            symbols.db_box(d, box.incomer_x, box.feed_y, box.name, box.loads())
+            symbols.db_box(d, box.incomer_x, box.feed_y, box.name, box.loads(), box.box_height)
     for root in schematic.roots:
         if root.generator is not None:
             _draw_generator(d, geoms, geoms[root.id])
@@ -943,7 +956,7 @@ def _draw_way_end(d, g, w, x, settings):
         pass  # riser + box drawn by _draw_feed
     elif w.kind == DB_BOX:
         d.line(x, t, x, t + style.TERMINAL_BASE)
-        symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name, w.loads())
+        symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name, w.loads(), g.db_height())
     elif w.kind == ISOLATOR:
         d.line(x, t, x, t + style.TERMINAL_BASE)
         symbols.isolator(d, x, t + style.TERMINAL_BASE, w.name, _isolator_rating(w),
@@ -979,7 +992,7 @@ def _draw_way_end(d, g, w, x, settings):
 def _draw_feed(d, f, row_base):
     xt, yt = f.target.incomer_x, f.target.feed_y
     if isinstance(f.target, BoxGeom):
-        symbols.db_box(d, xt, yt, f.target.name, f.target.loads())
+        symbols.db_box(d, xt, yt, f.target.name, f.target.loads(), f.target.box_height)
     points = _feed_points(f, row_base)
     f.points = points
     d.polyline(points)

@@ -177,3 +177,25 @@ def test_a_riser_passing_under_a_board_keeps_clear_of_its_incomer():
                                  poles="3"))
     lay = layout_schematic(build_schematic(eq, c))
     assert not _riser_crossings(lay)
+
+
+def test_db_boxes_on_a_board_line_up(monkeypatch):
+    from sld import symbols
+    eq, c = sample_tower.build(tower_floors=0)
+    names = ["DB-GF-01A", "DB-ROBOLAB", "DB-FOODLAB02", "DB-K"]
+    for i, n in enumerate(names):
+        eq.append(EquipmentInfo("db%d" % i, n, "Ground Floor", 0.0, connected_kw=10.0 + i,
+                                demand_kw=8.0))
+        c.append(CircuitInfo("cdb%d" % i, "smdb-g", str(20 + i), rating="40", poles="3",
+                             fed_equipment_ids=["db%d" % i]))
+    drawn = {}
+    real = symbols.db_box
+
+    def record(d, x, y0, name, loads=None, height=None):
+        top = real(d, x, y0, name, loads, height)
+        drawn[name] = (round(y0, 3), round(top, 3))
+        return top
+    monkeypatch.setattr(symbols, "db_box", record)
+    layout_schematic(build_schematic(eq, c))
+    assert set(names) <= set(drawn)
+    assert len(set(drawn[n] for n in names)) == 1      # same bottom and top

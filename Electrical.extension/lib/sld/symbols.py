@@ -48,10 +48,11 @@ def db_box_height(name, loads=None):
                sum(beside) + 1.0 * len(beside) + 1.0)
 
 
-def db_box(d, x, y0, name, loads=None):
+def db_box(d, x, y0, name, loads=None, height=None):
     """Final distribution board: tall box with its name inside, and its
-    connected (CL) and demand (DL) loads reading up on its right."""
-    h = db_box_height(name, loads)
+    connected (CL) and demand (DL) loads reading up on its right. height:
+    the height shared by the boxes it is aligned with (taller if needed)."""
+    h = max(db_box_height(name, loads), height or 0.0)
     w = style.DB_BOX_WIDTH
     d.rect(x - w / 2, y0, x + w / 2, y0 + h)
     d.text(x, y0 + h / 2, name, style.TEXT_LOAD, align=CENTER, valign=MIDDLE,
