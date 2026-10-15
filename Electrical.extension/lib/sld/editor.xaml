@@ -252,6 +252,10 @@
                 <ComboBox x:Name="TypicalOf" Width="120" Style="{StaticResource EditCombo}"
                           ItemsSource="{DynamicResource ch_typical}"
                           ToolTip="Drawn as a box 'DB SAME AS ...' on the riser instead of in full. Empty: drawn in full."/>
+                <Button x:Name="GeneratorButton" Content="+ Generator" Margin="16,0,0,0"
+                        Style="{StaticResource SmallButton}"
+                        ToolTip="Life safety board (EMDB): adds a standby generator. On the SLD the board is drawn beside the board feeding it, through an ATS: normal supply from that board's way, the generator at the bottom. Sized from CL x 1.2 (kVA) x 1.2, next rating up. Kept in Power Studio only: nothing is written to Revit."/>
+                <TextBlock x:Name="GeneratorText" Style="{StaticResource FieldLabel}" Margin="6,0,0,0"/>
                 <TextBlock Text="Transformer V.D %" Style="{StaticResource FieldLabel}"
                            Margin="16,0,4,0"/>
                 <TextBox x:Name="TxVd" Width="50"

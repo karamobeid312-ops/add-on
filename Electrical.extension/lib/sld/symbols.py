@@ -451,3 +451,94 @@ def ats(d, x, y0, name, info=()):
         d.text(tx, top - style.TEXT_ATS * style.LINE_SPACING, "\n".join(info),
                style.TEXT_ATS_INFO, align=LEFT, valign=TOP)
     return top
+
+
+def ats_standby(d, x, y0, name, info=()):
+    """ATS under a board with a generator, as the office SLD: normal
+    supply in from the left side, generator out of the bottom (standby
+    contact on the right), out at the top (x). Returns
+    (top, normal contact y, standby contact x)."""
+    s = style.ATS_SIZE
+    top = y0 + s
+    d.rect(x - s / 2, y0, x + s / 2, top)
+    a = (x - 1.4, y0 + 2.0)           # normal supply contact
+    b = (x + 1.4, y0 + 2.0)           # standby (generator) contact
+    c = (x, top - 1.5)                # common, out
+    d.line(x - s / 2, a[1], a[0], a[1])
+    d.line(b[0], y0, b[0], b[1])
+    d.line(c[0], c[1], x, top)
+    for px, py in (a, b, c):
+        d.circle(px, py, 0.25)
+    d.line(a[0] + 0.2, a[1] + 0.2, c[0] - 0.1, c[1] - 0.3)   # blade on the normal supply
+    tx = x + s / 2 + 1.0
+    d.text(tx, top, name, style.TEXT_ATS, align=LEFT, valign=TOP)
+    if info:
+        d.text(tx, top - style.TEXT_ATS * style.LINE_SPACING, "\n".join(info),
+               style.TEXT_ATS_INFO, align=LEFT, valign=TOP)
+    return top, a[1], b[0]
+
+
+def earth_pit(d, x, y):
+    """Earth pit: an oval on the line, the earth under it."""
+    r, half = 0.6, 0.9
+    d.arc(x - half, y, r, HALF_PI, 3 * HALF_PI)
+    d.arc(x + half, y, r, -HALF_PI, HALF_PI)
+    d.line(x - half, y + r, x + half, y + r)
+    d.line(x - half, y - r, x + half, y - r)
+    d.line(x - half - r, y, x + half + r, y)
+    earth(d, x, y - r)
+
+
+def generator_width(cable, lines=()):
+    """Generator drawing right of the ATS standby contact, mm."""
+    from sld.generator import EARTH_TEXT
+    return (generator_offset(cable) + _earth_offsets(lines)[1] +
+            max(style.GEN_EARTH_TAIL, line_length(EARTH_TEXT, style.TEXT_GEN_CABLE) + 3.0))
+
+
+def _earth_offsets(lines):
+    """Generator centre -> its two earth pits, clear of the text under it."""
+    text_right = -style.GEN_RADIUS - 2.0 + max(
+        [line_length(l, style.TEXT_GEN) for l in lines] or [0.0])
+    e1 = max(style.GEN_EARTH_1, text_right + 4.0)
+    return e1, e1 + style.GEN_EARTH_2 - style.GEN_EARTH_1
+
+
+def generator_offset(cable):
+    """Standby contact -> generator centre."""
+    return max(style.GEN_FROM_ATS, line_length(cable or "", style.TEXT_GEN_CABLE) + 6.0) + \
+        style.GEN_RADIUS
+
+
+def generator_height():
+    """ATS bottom -> lowest point of the generator drawing."""
+    return style.GEN_BELOW_ATS + max(style.GEN_RADIUS + 1.5 + 3 * style.TEXT_GEN * style.LINE_SPACING,
+                                     style.GEN_EARTH_DROP + 4.0)
+
+
+def generator(d, x_contact, y_ats, cable, lines):
+    """Generator below-right of the ATS standby contact, as the office SLD:
+    the cable down then across into the 'G' circle (cable text above the
+    line), name / voltage / kVA under it, earthed to two earth pits."""
+    from sld.generator import EARTH_TEXT
+    r = style.GEN_RADIUS
+    cy = y_ats - style.GEN_BELOW_ATS
+    cx = x_contact + generator_offset(cable)
+    d.polyline([(x_contact, y_ats), (x_contact, cy), (cx - r, cy)])
+    if cable:
+        d.text((x_contact + cx - r) / 2, cy + 0.6, cable, style.TEXT_GEN_CABLE,
+               align=CENTER, valign=BOTTOM)
+    d.circle(cx, cy, r)
+    d.text(cx, cy, "G", style.TEXT_GEN_LETTER, align=CENTER, valign=MIDDLE)
+    d.text(cx - r - 2.0, cy - r - 1.5, "\n".join(lines), style.TEXT_GEN, align=LEFT, valign=TOP)
+    o1, o2 = _earth_offsets(lines)
+    e1, e2 = cx + o1, cx + o2
+    y_pit = cy - style.GEN_EARTH_DROP
+    d.polyline([(cx + r * 0.6, cy - r * 0.8), (e1, cy - r * 0.8), (e1, y_pit + 0.6)])
+    d.polyline([(cx + r * 0.6, cy + r * 0.8), (e2, cy + r * 0.8), (e2, y_pit + 0.6)])
+    earth_pit(d, e1, y_pit)
+    earth_pit(d, e2, y_pit)
+    d.line(e1 + 1.5, y_pit, e2 - 1.5, y_pit)
+    tail = e2 + max(style.GEN_EARTH_TAIL, line_length(EARTH_TEXT, style.TEXT_GEN_CABLE) + 3.0)
+    d.line(e2 + 1.5, y_pit, tail, y_pit)
+    d.text(e2 + 2.5, y_pit + 0.5, EARTH_TEXT, style.TEXT_GEN_CABLE, align=LEFT, valign=BOTTOM)

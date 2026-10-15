@@ -88,6 +88,14 @@ class BoardGeom(object):
         self.riser_blocks = []     # RiserBlock fed from this board
         self.riser_height = 0.0    # their height above the box top
         self.on_riser = None       # RiserBlock this board is drawn on
+        self.below = 0.0           # drawing under the box (generator + ATS)
+        self.gen_drop = 0.0        # box bottom -> ATS top
+        gen = board.generator
+        if gen is not None:
+            text = "\n".join(split_cable(gen.cable))
+            self.gen_drop = max(style.GEN_BOARD_TO_ATS,
+                                symbols.vertical_length(text, style.TEXT_RATING) + 4.0)
+            self.below = self.gen_drop + style.ATS_SIZE + symbols.generator_height()
 
     @property
     def key(self):
@@ -161,7 +169,15 @@ class BoardGeom(object):
 
     def extent_right(self):
         """Right of the board and of the risers drawn above it."""
-        return max([self.right] + [b.right() for b in self.riser_blocks])
+        right = max([self.right] + [b.right() for b in self.riser_blocks])
+        gen = self.board.generator
+        if gen is not None:
+            info = [gen.ats.name] + gen.ats.info()
+            right = max(right,
+                        self.incomer_x + 1.4 + symbols.generator_width(gen.gen_cable, gen.lines()),
+                        self.incomer_x + style.ATS_SIZE / 2 + 1.0 +
+                        max(text_width(l, style.TEXT_ATS) for l in info))
+        return right
 
     def content_height(self):
         """Height of everything drawn above the box top."""
@@ -400,7 +416,9 @@ def layout_schematic(schematic, settings=None):
         if box.way is None:
             symbols.db_box(d, box.incomer_x, box.feed_y, box.name, box.loads())
     for root in schematic.roots:
-        if root.is_main:
+        if root.generator is not None:
+            _draw_generator(d, geoms, geoms[root.id])
+        elif root.is_main:
             _draw_source(d, geoms[root.id], floor_ys[SUBSTATION_BAND], settings)
 
     x0, _, x1, _ = d.bounds()
@@ -438,7 +456,7 @@ def _assign_rows(schematic, geoms):
 
     def visit(board, parent_geom):
         g = geoms[board.id]
-        if board.is_main or g.on_riser is not None:
+        if board.is_main or g.on_riser is not None or board.generator is not None:
             # a board on a bus bar riser is drawn beside it, above its supply
             g.band, g.tier = SUBSTATION_BAND, 0
         elif parent_geom is None:
@@ -586,7 +604,8 @@ def _place_y(geoms, rows, jog_counts):
         if row[1] == 0:
             floor_ys[row[0]] = y
         if row[0] == SUBSTATION_BAND:
-            bottom = y + style.SUBSTATION_STACK
+            bottom = y + max([style.SUBSTATION_STACK] +
+                             [g.below + 4.0 for g in in_row if isinstance(g, BoardGeom)])
         else:
             bottom = y + style.JOG_BOTTOM_MARGIN + max(n, 1) * style.JOG_TRACK + style.JOG_FIRST
         row_base[row] = bottom
@@ -831,6 +850,51 @@ def _draw_source(d, g, floor_y, settings):
     d.line(x, y, x, end_y)
     d.text(x, end_y - 1.0, "FROM %s" % settings.utility, style.TEXT_SUPPLY,
            align=CENTER, valign=TOP)
+
+
+def _draw_generator(d, geoms, g):
+    """Under a board with a generator (office SLD): its cable down to the
+    ATS, the normal supply into the ATS from the left (from the way that
+    fed the board), the generator at the bottom."""
+    gen = g.board.generator
+    x = g.incomer_x
+    y_top = g.bottom - g.gen_drop
+    y0 = y_top - style.ATS_SIZE
+    d.line(x, g.bottom, x, y_top)
+    lines = split_cable(gen.cable)
+    if lines:
+        first, rest = lines[0], "\n".join(lines[1:])
+        ys = y_top + 1.5
+        if rest:
+            d.text(x - 0.3, ys, first, style.TEXT_RATING, align=LEFT, valign=BOTTOM,
+                   rotation=symbols.VERTICAL)
+        d.text(x + 0.3, ys, rest or first, style.TEXT_RATING, align=LEFT, valign=TOP,
+               rotation=symbols.VERTICAL)
+    _, y_normal, x_standby = symbols.ats_standby(d, x, y0, gen.ats.name, gen.ats.info())
+    symbols.generator(d, x_standby, y0, gen.gen_cable, gen.lines())
+
+    x_in = x - style.ATS_SIZE / 2
+    src = geoms.get(gen.normal_board.id) if gen.normal_board is not None else None
+    if src is not None and src.band == SUBSTATION_BAND and gen.normal_way in src.board.ways:
+        wx = src.way_x(gen.normal_way)
+        y_h = src.top + src.content_height() + style.GEN_NORMAL_ABOVE
+        x_v = src.extent_right() + style.GEN_NORMAL_GAP
+        if x_v > x_in - 2.0:
+            x_v = x_in - 2.0
+        d.polyline([(wx, src.top), (wx, y_h), (x_v, y_h), (x_v, y_normal), (x_in, y_normal)])
+        return
+    if src is not None and gen.normal_way in src.board.ways:
+        # the board feeding it is on a floor: its way ends 'TO ATS (board)'
+        wx = src.way_x(gen.normal_way)
+        y1 = src.top + style.TERMINAL_BASE
+        d.line(wx, src.top, wx, y1)
+        symbols.vertical_text(d, wx, y1 + 0.8, "TO ATS (%s)" % g.board.name, style.TEXT_LOAD)
+    text = gen.normal_text or ("FROM %s" % gen.normal_board.name if gen.normal_board else "")
+    x_end = x_in - 3.0 - max(text_width(t, style.TEXT_GEN_CABLE) for t in ("NORMAL SUPPLY", text))
+    d.line(x_end, y_normal, x_in, y_normal)
+    d.text(x_end, y_normal + 0.5, "NORMAL SUPPLY", style.TEXT_GEN_CABLE, align=LEFT, valign=BOTTOM)
+    if text:
+        d.text(x_end, y_normal - 0.5, text, style.TEXT_GEN_CABLE, align=LEFT, valign=TOP)
 
 
 def _cable_label(cable):

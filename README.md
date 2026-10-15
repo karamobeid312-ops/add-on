@@ -144,6 +144,18 @@ feeding it and the board it feeds; an ATS with no supply in the model is
 drawn under the board it feeds, in the substation band. `SLD Symbol` = ATS
 or PFC forces it.
 
+**Standby generator.** In Power Studio, **+ Generator** on a life safety
+board (EMDB) adds a generator (G-01, G-02...), kept per project in Power
+Studio only (nothing is written to Revit). On the SLD the board is drawn in
+the substation band beside the board feeding it, with an ATS under its
+incomer: the normal supply comes from that board's way into the ATS from
+the left, the generator from the bottom (`G` circle, `G-01 PRIME
+GENERATOR / 0.4kV, 50Hz, 1500 RPM / 300 kVA`, two earth pits with
+`2C 150mm² CU CABLE`). Size: CL (kW) x 1.2 to kVA, x 1.2 margin, then the
+next standard rating. Generator equipment in the model (GEN / GENERATOR /
+GENSET, or `SLD Symbol` = GEN) is never drawn as a panel; one feeding a
+board or its ATS is drawn the same way.
+
 ## How the model is read
 
 | Drawing | Revit |

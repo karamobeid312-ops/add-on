@@ -35,6 +35,7 @@ UPS = "ups"
 TRANSFORMER = "transformer"
 ATS = "ats"                # automatic transfer switch: a component, not a board
 PFC_UNIT = "pfc_unit"      # power factor correction bank: drawn as the PFC symbol
+GENERATOR = "generator"    # standby generator: never a board (sld.generator draws it)
 
 # way kinds
 FEEDER = "feeder"          # to another board, via a riser
@@ -47,7 +48,7 @@ PFC = "pfc"                # power factor correction bank
 _SYMBOL_ROLES = {
     "BOARD": BOARD, "SMDB": BOARD, "MAIN": MAIN_BOARD, "MDB": MAIN_BOARD,
     "DB": DB, "UPS": UPS, "TRANSFORMER": TRANSFORMER, "TR": TRANSFORMER,
-    "ATS": ATS, "PFC": PFC_UNIT,
+    "ATS": ATS, "PFC": PFC_UNIT, "GEN": GENERATOR, "GENERATOR": GENERATOR,
 }
 _SYMBOL_WAYS = {
     "ISOLATOR": ISOLATOR, "LOAD": ISOLATOR, "SPARE": SPARE, "PFC": PFC,
@@ -55,6 +56,7 @@ _SYMBOL_WAYS = {
 }
 _PFC_RE = re.compile(r"\bPFC\b|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
 _ATS_RE = re.compile(r"\bATS\b|TRANSFER\s*SWITCH|CHANGE\s*-?\s*OVER", re.IGNORECASE)
+_GEN_RE = re.compile(r"GENERATOR|GENSET|GEN\s*SET|^GEN\b|^G-?\d+$", re.IGNORECASE)
 _PASS_THROUGH = (UPS, TRANSFORMER, ATS)
 _POLES = {1: "SP", 2: "DP", 3: "TP", 4: "TPN"}
 _AMPS_RE = re.compile(r"\d+(?:[.,]\d+)?")
@@ -383,6 +385,8 @@ class Board(object):
         self.parent = None              # parent Board
         self.transformer = None         # EquipmentInfo drawn under a main board
         self.ats = None                 # or the transfer switch feeding it (no supply in the model)
+        self.generator = None           # sld.generator.Generator backing it up, through an ATS
+        self.model_generator = None     # a generator in the model feeding it (or its ATS)
         self.children = []              # Boards fed from this one
         self.phases = 3                 # for counting ways (R/Y/B share one)
 
@@ -540,6 +544,8 @@ def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transforme
         return ATS
     if _PFC_RE.search(eq.name or "") or _PFC_RE.search(family):
         return PFC_UNIT
+    if _GEN_RE.search((eq.name or "").strip()) or _GEN_RE.search(family):
+        return GENERATOR
     if eq.part_type == "transformer" or "TRANSFORMER" in family:
         return TRANSFORMER
     if "UPS" in family:
@@ -844,7 +850,7 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             elif target is not None:
                 kind = {BOARD: FEEDER, MAIN_BOARD: FEEDER, DB: DB_BOX,
                         UPS: TO_UPS, TRANSFORMER: TO_UPS, ATS: TO_UPS,
-                        PFC_UNIT: PFC}[roles[target]]
+                        PFC_UNIT: PFC, GENERATOR: ISOLATOR}[roles[target]]
             elif _PFC_RE.search(c.load_name or ""):
                 kind = PFC
             else:
@@ -888,6 +894,14 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             board.parent = pt.board
         elif roles.get(src) == ATS:
             board.ats = eq_by_id[src]
+            board.equipment.incoming_cable = (board.equipment.incoming_cable or
+                                              feeder.cable_text())
+            gen = next((c.source_id for c in feeders.get(src, [])
+                        if roles.get(c.source_id) == GENERATOR), None)
+            if gen is not None:
+                board.model_generator = eq_by_id[gen]
+        elif roles.get(src) == GENERATOR:
+            board.model_generator = eq_by_id[src]
             board.equipment.incoming_cable = (board.equipment.incoming_cable or
                                               feeder.cable_text())
         elif roles.get(src) == TRANSFORMER:

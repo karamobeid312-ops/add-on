@@ -14,6 +14,7 @@ import os
 
 import elecui as ui
 from sld import editor as ed
+from sld import generator as gn
 from sld import riser as rs
 from sld import studio
 
@@ -50,7 +51,7 @@ NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
          "VdWorstWhere", "VdFixes", "VdProblemsOnly", "VdSearch", "VdGrid",
          "SldSettingsPanel", "VdSettingsPanel", "ApplySettings", "SettingsNote",
-         "OnBusbar", "RiserPick", "TypicalOf") + \
+         "OnBusbar", "RiserPick", "TypicalOf", "GeneratorButton", "GeneratorText") + \
     tuple(n for n, _ in BOARD_CONTROLS)
 STATE_TEXT = {studio.OK: u"OK", studio.WARN: u"Check", studio.BAD: u"Problem"}
 
@@ -179,6 +180,8 @@ class EditorWindow(object):
       report_name -> default file name of the report
       risers -> bus bar riser specs kept for this model (sld.riser)
       save_risers(specs)                keep them
+      generators -> standby generator specs kept for this model (sld.generator)
+      save_generators(specs)            keep them
     """
 
     def __init__(self, editor, sld_values, vd_values, actions, model_text=u""):
@@ -197,6 +200,8 @@ class EditorWindow(object):
         self._vd_stale = True
         self.risers = [dict(s) for s in actions.get("risers") or []]
         self._risers_dirty = False
+        self.generators = [dict(s) for s in actions.get("generators") or []]
+        self._generators_dirty = False
         self.win = ui.load_window(window_xaml(), ACCENT)
         for name in NAMES:
             setattr(self, name, self.win.FindName(name))
@@ -327,6 +332,7 @@ class EditorWindow(object):
         self.RemoveSpace.Click += self.on_remove_space
         self.ApplySettings.Click += self.on_apply_settings
         self.OnBusbar.Click += self.on_busbar
+        self.GeneratorButton.Click += self.on_generator
         for control in (self.RiserPick, self.TypicalOf):
             control.LostKeyboardFocus += self.on_busbar
             control.DropDownClosed += self.on_busbar
@@ -395,6 +401,7 @@ class EditorWindow(object):
         finally:
             self._busy = False
         self._show_busbar(board)
+        self._show_generator(board)
         table = DataTable("Ways")
         for name in HIDDEN + tuple(c[0] for c in COLUMNS):
             table.Columns.Add(name, String).DefaultValue = u""
@@ -555,11 +562,41 @@ class EditorWindow(object):
         self._risers_dirty = True
         self.win.Resources["ch_riser_names"] = ui.strings(rs.riser_names(self.risers))
         self._show_busbar(board)
+        self._show_generator(board)
 
     def _keep_risers(self):
         if self._risers_dirty and "save_risers" in self.actions:
             self.actions["save_risers"](self.risers)
             self._risers_dirty = False
+        if self._generators_dirty and "save_generators" in self.actions:
+            self.actions["save_generators"](self.generators)
+            self._generators_dirty = False
+
+    # ------------------------------------------------------------ standby generator
+
+    def _show_generator(self, board):
+        spec = gn.board_generator(self.generators, board.name)
+        allowed = not board.virtual and not rs.board_mark(self.risers, board.name)[0]
+        self.GeneratorButton.Content = u"- Generator" if spec else u"+ Generator"
+        self.GeneratorButton.IsEnabled = allowed or spec is not None
+        if spec is None:
+            self.GeneratorText.Text = u""
+            return
+        kva = gn.parse_amps(spec.get("kva")) or gn.auto_kva((board.board.load_totals() or (None,))[0])
+        self.GeneratorText.Text = u"%s  %s kVA, through an ATS" % (
+            spec.get("name") or u"G", gn.trim_number(kva, 0) if kva else u"?")
+
+    def on_generator(self, sender, args):
+        if self._busy or self.current is None:
+            return
+        self._safe(self._toggle_generator)
+
+    def _toggle_generator(self):
+        board = self.editor.board(self.current)
+        on = gn.board_generator(self.generators, board.name) is None
+        self.generators = gn.set_generator(self.generators, board.name, on)
+        self._generators_dirty = True
+        self._show_generator(board)
 
     # ------------------------------------------------------------ events
 

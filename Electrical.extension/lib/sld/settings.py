@@ -111,3 +111,29 @@ def save_risers(project, risers):
     setattr(cfg, _risers_key(project), json.dumps(clean_specs(risers), ensure_ascii=True,
                                                   sort_keys=True))
     script.save_config()
+
+
+# ---------------------------------------------------------------- generators
+# Standby generators added in Power Studio (sld.generator), per project.
+
+def _generators_key(project):
+    return "generators_" + _spares_key(project)[len("spares_"):]
+
+
+def load_generators(project):
+    import json
+    try:
+        text = _config().get_option(_generators_key(project), "")
+        return json.loads(text) if text else []
+    except Exception:
+        return []
+
+
+def save_generators(project, generators):
+    import json
+    from pyrevit import script
+    from sld.generator import clean_specs
+    cfg = _config()
+    setattr(cfg, _generators_key(project), json.dumps(clean_specs(generators), ensure_ascii=True,
+                                                      sort_keys=True))
+    script.save_config()

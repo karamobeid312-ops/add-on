@@ -156,3 +156,18 @@ TYPICAL_TEXT = "DB SAME AS %s"
 ATS_SIZE = 6.0              # square box with the switch inside
 TEXT_ATS = 1.8              # ATS name beside the box
 TEXT_ATS_INFO = 1.2         # 630A,4P / LOCATION
+
+# ---------------------------------------------------------------- standby generator (sld.generator)
+GEN_RADIUS = 3.0            # the 'G' circle
+TEXT_GEN_LETTER = 3.2
+TEXT_GEN = 1.8              # G-01 PRIME GENERATOR / 0.4kV... / 300 kVA
+TEXT_GEN_CABLE = 1.5        # generator cable above its line, earth cable
+GEN_BOARD_TO_ATS = 10.0     # min line from the board down to the ATS (cable text on it)
+GEN_BELOW_ATS = 9.0         # ATS bottom -> generator centre
+GEN_FROM_ATS = 21.0         # min ATS standby contact -> generator circle
+GEN_EARTH_1 = 22.0          # generator centre -> first earth pit
+GEN_EARTH_2 = 28.0          # ... second earth pit
+GEN_EARTH_DROP = 9.0        # generator centre -> earth pits
+GEN_EARTH_TAIL = 22.0       # earth cable line right of the second pit
+GEN_NORMAL_GAP = 6.0        # normal supply line right of the board feeding it
+GEN_NORMAL_ABOVE = 3.0      # normal supply line above that board's content
