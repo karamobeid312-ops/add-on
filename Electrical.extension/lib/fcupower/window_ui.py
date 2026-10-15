@@ -24,7 +24,8 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "TagParamCombo", "SocketTypeCombo", "AddButton", "FloorCombo", "PanelCombo",
          "WireTypeCombo", "WireTagCombo", "CircuitButton", "CircuitInfo", "SetupButton",
          "SetupPanel", "SetupDone", "MissingGrid", "CircuitGrid", "PowerTabText",
-         "MissingTabText", "CircuitTabText", "Steps", "TickAllButton", "TickNoneButton")
+         "MissingTabText", "CircuitTabText", "Steps", "TickAllButton", "TickNoneButton",
+         "TickSelectedButton", "UntickSelectedButton")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
 ALL_FLOORS = u"All floors"
@@ -176,6 +177,9 @@ class FcuWindow(object):
         self.ShowCombo.SelectionChanged += lambda s, e: self._fill_grid()
         self.TagParamCombo.SelectionChanged += self.on_tag_param
         self.SearchText.TextChanged += lambda s, e: self._fill_grid()
+        self.TickSelectedButton.Click += lambda s, e: self._tick_selected(True)
+        self.UntickSelectedButton.Click += lambda s, e: self._tick_selected(False)
+        self.CircuitGrid.PreviewKeyDown += self.on_circuit_key
         self.TickAllButton.Click += lambda s, e: self._tick_circuits(True)
         self.TickNoneButton.Click += lambda s, e: self._tick_circuits(False)
         self.SetupButton.Click += lambda s, e: self._setup(True)
@@ -495,14 +499,60 @@ class FcuWindow(object):
         self._circuit_count()
 
     def on_circuit_tick(self, sender, args):
-        if args.Column.ColumnName != "write":
+        if args.Column.ColumnName != "write" or getattr(self, "_ticking", False):
             return
         key = int(u"%s" % args.Row["key"])
-        if bool(args.ProposedValue):
+        value = bool(args.ProposedValue)
+        if value:
             self.circuit_ticked.add(key)
         else:
             self.circuit_ticked.discard(key)
+        # a box ticked on one of the selected rows ticks all of them
+        selected = self._selected_rows()
+        if any(int(u"%s" % r["key"]) == key for r in selected):
+            self._set_rows(selected, value)
         self._circuit_count()
+
+    def _selected_rows(self):
+        rows = []
+        for item in self.CircuitGrid.SelectedItems:
+            try:
+                rows.append(item.Row)
+            except Exception:
+                pass
+        return rows
+
+    def _set_rows(self, rows, value):
+        self._ticking = True
+        try:
+            for row in rows:
+                key = int(u"%s" % row["key"])
+                if value:
+                    self.circuit_ticked.add(key)
+                else:
+                    self.circuit_ticked.discard(key)
+                if bool(row["write"]) != value:
+                    row["write"] = value
+        finally:
+            self._ticking = False
+        self._circuit_count()
+
+    def _tick_selected(self, value):
+        rows = self._selected_rows()
+        if not rows:
+            self._status(u"Select rows first: click one, then Shift + click another.", "warn")
+            return
+        self._set_rows(rows, value)
+
+    def on_circuit_key(self, sender, args):
+        from System.Windows.Input import Key
+        if args.Key != Key.Space:
+            return
+        rows = self._selected_rows()
+        if rows:
+            # Space ticks the selection, or unticks it when all are ticked
+            self._set_rows(rows, not all(bool(r["write"]) for r in rows))
+            args.Handled = True
 
     def _tick_circuits(self, tick):
         keys = set(f.key for f in self.to_circuit())
