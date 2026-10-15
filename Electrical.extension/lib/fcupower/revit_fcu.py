@@ -337,6 +337,7 @@ def _set_watts(param, watts):
 # ---------------------------------------------------------------- linked FCUs
 
 LINKED_TAG = u"Linked FCU Comments"
+STOREY_SLACK = 0.05 / FEET       # a storey runs from 5 cm under its level to 5 cm under the next
 NEAR = 3.0 / FEET               # how far the linked FCU may be from the socket (plan)
 
 
@@ -371,11 +372,12 @@ class LinkedFcus(object):
         self.levels = sorted(l.ProjectElevation for l in FilteredElementCollector(doc).OfClass(Level))
 
     def _storey(self, element):
-        floor = _floor(element)
-        if floor is None:
-            point = _location(element)
-            below = [e for e in self.levels if point is not None and e <= point.Z + 0.01]
-            floor = below[-1] if below else None
+        """(floor, top) of the storey the socket is in, by its height, not
+        its Level: a socket under the slab of L4 serves an FCU of L3, but
+        Revit may give it L4 as its level."""
+        point = _location(element)
+        below = [e for e in self.levels if point is not None and e <= point.Z + STOREY_SLACK]
+        floor = below[-1] if below else _floor(element)
         if floor is None:
             return None, None
         above = [e for e in self.levels if e > floor + 1.0 / FEET]
@@ -394,7 +396,7 @@ class LinkedFcus(object):
                 for i in self.cells.get((cx + dx, cy + dy), ())]
         for i in near:
             x, y, z, tag = self.units[i]
-            if floor is not None and not (floor - 0.3 / FEET <= z < top):
+            if floor is not None and not (floor - STOREY_SLACK <= z < top - STOREY_SLACK):
                 continue
             d = ((x - point.X) ** 2 + (y - point.Y) ** 2) ** 0.5
             if d <= NEAR and (best is None or d < best[0]):

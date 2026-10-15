@@ -173,6 +173,26 @@ def _level_below(levels, z):
         (min(levels, key=lambda l: l.ProjectElevation) if levels else None)
 
 
+SAME_SPOT = 0.5 / FEET          # a socket this close in plan is already the FCU's
+SAME_HEIGHT = 1.0 / FEET
+
+
+def _existing_points(doc, symbol):
+    """(x, y, z) of the instances of the socket's category: no second socket
+    is put on a spot that already has one."""
+    from Autodesk.Revit.DB import FamilyInstance
+    out = []
+    try:
+        category = symbol.Category.Id
+    except Exception:
+        return out
+    for e in FilteredElementCollector(doc).OfCategoryId(category).OfClass(FamilyInstance):
+        point = getattr(e.Location, "Point", None)
+        if point is not None:
+            out.append((point.X, point.Y, point.Z))
+    return out
+
+
 def add_sockets(doc, units, symbol, title="FCU sockets on slab"):
     """Place `symbol` on the slab above each unit (x, y, z, tag), in one
     undo. Returns (placed, [failures])."""
@@ -180,6 +200,7 @@ def add_sockets(doc, units, symbol, title="FCU sockets on slab"):
     if kind not in (FACE, LEVEL):
         return 0, [u"%s cannot go on a slab (%s family)" % (type_label(symbol), kind or u"this")]
     finder = SlabFinder(doc, units)
+    existing = _existing_points(doc, symbol)
     levels = list(FilteredElementCollector(doc).OfClass(Level))
     placed, failed = 0, []
     t = Transaction(doc, title)
@@ -193,6 +214,12 @@ def add_sockets(doc, units, symbol, title="FCU sockets on slab"):
             if hit is None:
                 failed.append(u"%s: no slab found above the FCU" % tag)
                 continue
+            p = hit.point
+            if any(abs(ex - p.X) < SAME_SPOT and abs(ey - p.Y) < SAME_SPOT and abs(ez - p.Z) < SAME_HEIGHT
+                   for ex, ey, ez in existing):
+                failed.append(u"%s: a socket is already there, none added" % tag)
+                continue
+            existing.append((p.X, p.Y, p.Z))
             try:
                 _place(doc, symbol, kind, hit, XYZ.BasisX, _level_below(levels, hit.point.Z), 0.0)
             except Exception as error:

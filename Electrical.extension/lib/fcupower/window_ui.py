@@ -421,7 +421,8 @@ class FcuWindow(object):
         i = names.index(name)
         bottom = self.levels[i][1]
         top = next((z for _, z in self.levels[i + 1:] if z > bottom + 1.0 / 0.3048), bottom + 6.0 / 0.3048)
-        return bottom - 0.3 / 0.3048, top
+        # a socket under the next slab (z just below the next level) is this floor's
+        return bottom - 0.05 / 0.3048, top - 0.05 / 0.3048
 
     def floor_fcus(self):
         """The FCUs (sockets) of the floor picked."""
