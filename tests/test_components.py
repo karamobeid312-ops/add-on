@@ -48,3 +48,11 @@ def test_components_drawn_clear():
     assert "ATS-01" in texts and "ATS-02" in texts and "630A,4P" in "\n".join(texts)
     assert "FROM TAQA" in texts and texts.count("FROM TAQA") == 1     # not under EMDB-2
     assert not overlaps(lay.drawing)
+
+
+def test_isolator_cable_split_like_a_db_way():
+    s = build_schematic(*sample_tower.build(tower_floors=0))
+    smdb = next(b for b in s.boards() if b.name == "SMDB-G")
+    lift = next(w for w in smdb.ways if w.name == "LIFT 1")
+    # no earth part in the model: the office earth is added, printed right of the line
+    assert lift.rating_lines() == [u"(4X10)mm² CU/XLPE/SWA/PVC", u"+(1X10)mm² CU/PVC(E)"]

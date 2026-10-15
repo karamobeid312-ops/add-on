@@ -78,6 +78,17 @@ def split_cable(text):
     return parts
 
 
+def _with_earth(cable):
+    """A multi-core cable with no earth part gets the office earth (same
+    size up to 16, 16 for 25/35, half above), so it prints as on a DB way:
+    size left of the line, earth right."""
+    from sld import cablespec, sizing
+    spec = cablespec.parse(cable)
+    if spec is None or spec.earth_size or (spec.cores or 0) < 2:
+        return cable
+    return spec.copy(earth_size=sizing.earth_size(spec.size)).text()
+
+
 def frame_rating(trip, frames=None):
     """Smallest standard frame (AF) that takes the trip rating (AT)."""
     if trip is None:
@@ -316,6 +327,8 @@ class Way(object):
         if self.circuit is None or self.kind in (SPARE, PFC) or self.riser is not None:
             return []
         lines = list(self.circuit.cable_lines())
+        if self.kind == ISOLATOR and len(lines) == 1:
+            lines = split_cable(_with_earth(lines[0]))
         vd = self.vd_text()
         if vd:
             lines.append(vd)
