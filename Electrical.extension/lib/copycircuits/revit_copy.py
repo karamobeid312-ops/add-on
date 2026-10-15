@@ -569,6 +569,31 @@ def _find_there(existing, view_keys, points, tolerance, claimed=()):
     return None, None
 
 
+def _trimmed(points, conns):
+    """The points without the ends on a connector: Revit adds the connector's
+    origin as that end vertex itself, so passing it too adds a vertex. The
+    points as they are when nothing would be left between the ends."""
+    start = 1 if conns[0] is not None else 0
+    end = len(points) - 1 if conns[1] is not None else len(points)
+    inner = list(points[start:end])
+    return inner if inner else list(points)
+
+
+def _no_doubles(wire, tolerance):
+    """Remove vertices Revit added next to another one (at a connector)."""
+    try:
+        i = 1
+        while i < wire.NumberOfVertices:
+            a, b = wire.GetVertex(i - 1), wire.GetVertex(i)
+            if wire.NumberOfVertices > 2 and \
+                    ((a.X - b.X) ** 2 + (a.Y - b.Y) ** 2) ** 0.5 <= tolerance:
+                wire.RemoveVertex(i if i < wire.NumberOfVertices - 1 else i - 1)
+            else:
+                i += 1
+    except Exception:
+        pass
+
+
 def _snapped(points, conns):
     """The points with the wire's ends on its connectors."""
     points = list(points)
@@ -725,7 +750,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             result.wires["removed"] += 1
         view = wires.views[view_key]
         new, error = None, None
-        for attempt in (points, _snapped(points, conns)):
+        for attempt in (_trimmed(points, conns), points, _snapped(points, conns)):
             try:
                 new = Wire.Create(wires.doc, wire.GetTypeId(), view.Id, wire.WiringType,
                                   List[XYZ](attempt), conns[0], conns[1])
@@ -738,6 +763,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
                 result.wire_errors.append(error)
             _unwired(result, targets, wanted)
             continue
+        _no_doubles(new, tolerance)
         copy_parameters(wire, new)
         wires.add(new, view_key)
         if linked is not None and link is not None:
