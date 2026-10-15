@@ -106,3 +106,22 @@ def test_incomer_never_sits_on_a_way_line():
     for g in lay.geoms.values():
         if hasattr(g, "way_offsets"):
             assert all(abs(o - g.incomer_offset) > 1.0 for o in g.way_offsets), g.name
+
+
+def _riser_crossings(lay):
+    hs, vs = [], []
+    for i, f in enumerate(lay.feeds):
+        for a, b in zip(f.points, f.points[1:]):
+            if abs(a[1] - b[1]) < 1e-6 and abs(a[0] - b[0]) > 1e-6:
+                hs.append((i, min(a[0], b[0]), max(a[0], b[0]), a[1]))
+            elif abs(a[0] - b[0]) < 1e-6:
+                vs.append((i, a[0], min(a[1], b[1]), max(a[1], b[1])))
+    return [(h, v) for h in hs for v in vs if h[0] != v[0] and
+            h[1] + 1e-6 < v[1] < h[2] - 1e-6 and v[2] + 1e-6 < h[3] < v[3] - 1e-6]
+
+
+def test_tower_risers_never_cross_each_other():
+    for floors in (6, 10):
+        eq, c = sample_tower.build(connected=True, tower_floors=floors)
+        lay = layout_schematic(build_schematic(eq, c))
+        assert not _riser_crossings(lay), floors

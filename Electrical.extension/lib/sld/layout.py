@@ -562,10 +562,14 @@ def _route(geoms, feeds, rows):
 
     A riser goes straight up from its way. In every row it passes through,
     if a board is in the way it jogs (just below that row's boards) to the
-    side of the board nearer its destination. In the fed board's row it
-    jogs to line up with the incomer. Returns {row: number of jogs}.
+    side of the board nearer its destination. Risers beside the same side
+    of a board run in lanes, in the order they come up, so they do not
+    cross (a riser already running there takes its lane too). In the fed
+    board's row it jogs to line up with the incomer. Returns
+    {row: number of jogs}.
     """
     clearance = style.RISER_CLEARANCE
+    lane = style.RISER_LANE
     by_row = {}
     for g in geoms.values():
         by_row.setdefault(g.row, []).append(g)
@@ -578,26 +582,47 @@ def _route(geoms, feeds, rows):
                 return g
         return None
 
-    per_row = {}
-    lanes = {}          # (board, side) -> risers already jogged around it there
+    xs = {}
     for f in feeds:
-        x = f.source_x()
-        target_x = f.target.incomer_x
         f.jogs = []
-        for row in rows:
-            if not (f.source.row < row < f.target.row):
-                continue
+        xs[f] = f.source_x()
+    for row in rows:
+        passing = [f for f in feeds if f.source.row < row < f.target.row]
+        groups = {}             # (board, side) -> [feed]
+        for f in passing:
+            x = xs[f]
             g = blocker(row, x)
             if g is None:
                 continue
-            # each riser round the same side of a board gets its own lane
-            sides = [(-1, g.left - clearance - lanes.get((g.key, -1), 0) * style.RISER_LANE),
-                     (1, g.right + clearance + lanes.get((g.key, 1), 0) * style.RISER_LANE)]
-            options = [(side, c) for side, c in sides if blocker(row, c) is None] or [sides[1]]
-            side, nx = min(options, key=lambda o: abs(o[1] - target_x))
-            lanes[(g.key, side)] = lanes.get((g.key, side), 0) + 1
-            f.jogs.append([row, x, nx, 0])
-            x = nx
+            target_x = f.target.incomer_x
+            sides = [(-1, g.left - clearance), (1, g.right + clearance)]
+            options = [o for o in sides if blocker(row, o[1]) is None] or [sides[1]]
+            side = min(options, key=lambda o: abs(o[1] - target_x))[0]
+            groups.setdefault((g, side), []).append(f)
+        taken = set(f for fs in groups.values() for f in fs)
+        for (g, side), fs in groups.items():
+            start = g.right + clearance if side > 0 else g.left - clearance
+            # risers already running in the band of lanes join it
+            while True:
+                end = start + side * (len(fs) + 0.5) * lane
+                lo, hi = min(start, end), max(start, end)
+                more = [f for f in passing if f not in taken and lo - 1e-6 <= xs[f] <= hi]
+                if not more:
+                    break
+                fs.extend(more)
+                taken.update(more)
+            # in the order they come up: nearest the board first on its side
+            fs.sort(key=lambda f: (xs[f] * side, f.target.incomer_x * side))
+            for n, f in enumerate(fs):
+                nx = start + side * n * lane
+                if blocker(row, nx) is not None:
+                    nx = start
+                if abs(nx - xs[f]) > 1e-6:
+                    f.jogs.append([row, xs[f], nx, 0])
+                    xs[f] = nx
+    per_row = {}
+    for f in feeds:
+        x, target_x = xs[f], f.target.incomer_x
         if abs(x - target_x) > 1e-6:
             f.jogs.append([f.target.row, x, target_x, 0])
         for jog in f.jogs:
