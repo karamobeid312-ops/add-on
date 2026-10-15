@@ -50,7 +50,7 @@
                    TextAlignment="Right" VerticalAlignment="Center"/>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="FCU Power" Style="{StaticResource HeaderTitle}"/>
-          <TextBlock Text="Real_Power_W of the FCUs from the mechanical schedule (tag = Comments)"
+          <TextBlock Text="Real_Power_W of the FCUs from the mechanical schedule (tag = Comments or the parameter you pick)"
                      Style="{StaticResource HeaderSub}"/>
         </StackPanel>
       </DockPanel>
@@ -121,6 +121,9 @@
         <Border Grid.Row="2" Style="{StaticResource Card}">
           <DockPanel>
             <TextBlock DockPanel.Dock="Top" Text="2  FCU families in the model" Style="{StaticResource SectionTitle}"/>
+            <TextBlock DockPanel.Dock="Top" Text="Parameter holding the FCU tag" Style="{StaticResource FieldLabel}"/>
+            <ComboBox x:Name="TagParamCombo" DockPanel.Dock="Top" Margin="0,0,0,6"
+                      ToolTip="Picked by itself: the text parameter whose values match the most schedule tags (Comments when none do)"/>
             <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Muted}" FontSize="11"
                        Margin="0,6,0,0" TextWrapping="Wrap"
                        Text="Families with Real_Power_W, or with FCU in their name. Names with FCU are ticked at first."/>
@@ -179,7 +182,7 @@
                     HeadersVisibility="Column" BorderThickness="0">
             <DataGrid.Columns>
               <DataGridTemplateColumn Header="Write" Width="46" CellTemplate="{StaticResource WriteBox}"/>
-              <DataGridTextColumn Header="FCU tag (Comments)" Binding="{Binding tag}" Width="150" IsReadOnly="True"/>
+              <DataGridTextColumn Header="FCU tag" Binding="{Binding tag}" Width="150" IsReadOnly="True"/>
               <DataGridTextColumn Header="Room in model" Binding="{Binding room}" Width="180" IsReadOnly="True"/>
               <DataGridTextColumn Header="Schedule space" Binding="{Binding space}" Width="180" IsReadOnly="True"/>
               <DataGridTextColumn Header="Schedule row" Binding="{Binding where}" Width="120" IsReadOnly="True"/>

@@ -128,3 +128,19 @@ def test_unused_rows(tmp_path):
     t1, _ = _sheets(tmp_path)
     unused = m.match([m.Fcu(1, "T1-GF-FCU-01", "GF-20", "Corridor")], t1.fcu_rows())
     assert [r.tag for r in unused] == ["T1-GF-FCU-06", "T1-L1-FCU", "T1-L2-FCU-01"]
+
+
+def test_tag_parameter_picked_by_matches(tmp_path):
+    t1, _ = _sheets(tmp_path)
+    rows = t1.fcu_rows()
+    a, b = m.Fcu(1, ""), m.Fcu(2, "")
+    a.texts = {"Comments": "", "Mark": "T1-GF-FCU-01", "Type: Type Comments": "FCU"}
+    b.texts = {"Comments": "", "Mark": "T1-GF-FCU-06"}
+    params = m.tag_parameters([a, b], rows)
+    assert params[0] == ("Mark", 2, 2)
+    m.use_tag_parameter([a, b], "Mark")
+    m.match([a, b], rows)
+    assert a.watts == 140 and b.watts == 240
+    m.use_tag_parameter([a, b], "Comments")
+    m.match([a, b], rows)
+    assert a.status == "No tag in Comments"

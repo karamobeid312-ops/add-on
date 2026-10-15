@@ -20,7 +20,8 @@ ACCENT = "#2F7FD8"              # mechanical blue
 NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "BrowseButton", "FileText", "SheetList", "SheetTitle", "TagCombo", "RoomCombo",
          "PowerCombo", "UnitCombo", "SheetInfo", "FamilyList", "KpiWrite", "KpiSame",
-         "KpiCheck", "KpiBad", "KpiUnused", "ShowCombo", "SearchText", "ResultGrid")
+         "KpiCheck", "KpiBad", "KpiUnused", "ShowCombo", "SearchText", "ResultGrid",
+         "TagParamCombo")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
 SHOW = ((u"all", u"All FCUs"), (u"write", u"To write"), (u"check", u"Check (amber)"),
@@ -91,6 +92,8 @@ class FcuWindow(object):
         self.current = None             # the sheet whose columns are shown
         self.fcus, self.unused = [], []
         self.overrides = {}             # FCU key -> write ticked by hand
+        self.tag_param = None           # picked by hand; None: the best match
+        self.tag_params = []
         self.table = None
         self._quiet = False
         self.win = ui.load_window(window_xaml(), ACCENT)
@@ -122,6 +125,7 @@ class FcuWindow(object):
         for combo in (self.TagCombo, self.RoomCombo, self.PowerCombo, self.UnitCombo):
             combo.SelectionChanged += self.on_column
         self.ShowCombo.SelectionChanged += lambda s, e: self._fill_grid()
+        self.TagParamCombo.SelectionChanged += self.on_tag_param
         self.SearchText.TextChanged += lambda s, e: self._fill_grid()
 
     def _check_item(self, text, tag, ticked, handler):
@@ -263,7 +267,9 @@ class FcuWindow(object):
             def progress(done, count):
                 self._status(u"Finding the room of each FCU... %d / %d" % (done, count), "")
             self.fcus = self.revit["read"](fams, progress)
-        self.unused = m.match(self.fcus, self.schedule_rows())
+        rows = self.schedule_rows()
+        self._fill_tag_params(rows)
+        self.unused = m.match(self.fcus, rows)
         for fcu in self.fcus:
             fcu.can = fcu.write
             key = fcu.key
@@ -271,6 +277,22 @@ class FcuWindow(object):
                 fcu.write = self.overrides[key]
         self._fill_tiles()
         self._fill_grid()
+
+    def _fill_tag_params(self, rows):
+        """List the FCUs' text parameters (best match first) and read the
+        tags from the one picked, or the best one."""
+        self.tag_params = m.tag_parameters(self.fcus, rows)
+        names = [n for n, _, _ in self.tag_params]
+        name = self.tag_param if self.tag_param in names else names[0]
+        self._quiet = True
+        try:
+            self.TagParamCombo.Items.Clear()
+            for n, filled, found in self.tag_params:
+                self.TagParamCombo.Items.Add(u"%s   (%d filled, %d in schedule)" % (n, filled, found))
+            self.TagParamCombo.SelectedIndex = names.index(name)
+        finally:
+            self._quiet = False
+        m.use_tag_parameter(self.fcus, name)
 
     def _fill_tiles(self):
         s = m.summary(self.fcus, self.unused)
@@ -390,6 +412,15 @@ class FcuWindow(object):
             if item.Tag == sheet.name:
                 item.Content.Content = u"%s   (%d FCU rows)" % (sheet.name, len(sheet.fcu_rows()))
         self.refresh(reread=False)
+
+    def on_tag_param(self, sender, args):
+        if self._quiet:
+            return
+        index = self.TagParamCombo.SelectedIndex
+        if 0 <= index < len(self.tag_params):
+            self.tag_param = self.tag_params[index][0]
+            self.overrides = {}
+            self.refresh(reread=False)
 
     def on_tick(self, sender, args):
         if args.Column.ColumnName != "write":

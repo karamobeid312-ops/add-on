@@ -14,6 +14,7 @@ OK, WARN, BAD = "ok", "warn", "bad"
 
 FULL, PARTIAL, NONE, UNKNOWN = "full", "partial", "none", "unknown"
 SAME_WATTS = 0.5                 # W: the value already in the model is kept
+TAG_NAME = [u"Comments"]         # the parameter read as the tag (shown in statuses)
 
 
 def tokens(text):
@@ -77,6 +78,7 @@ class Fcu(object):
         self.status = u""
         self.write = False
         self.can = False            # may be ticked to write (set by the window)
+        self.texts = {}             # {parameter name: text}: where the tag may be
 
     @property
     def room(self):
@@ -105,7 +107,7 @@ def match_one(fcu, by_tag, count_in_model=1):
     """Fill fcu.watts / state / status / write from the schedule rows."""
     fcu.watts, fcu.rows, fcu.write = None, [], False
     if not tag_key(fcu.tag):
-        fcu.state, fcu.status = BAD, u"No tag in Comments"
+        fcu.state, fcu.status = BAD, u"No tag in %s" % TAG_NAME[0]
         return fcu
     rows = by_tag.get(tag_key(fcu.tag), [])
     if not rows:
@@ -170,6 +172,29 @@ def match(fcus, rows):
             used.add(id(r))
     in_model = set(k for k in counts if k)
     return [r for r in rows if id(r) not in used and tag_key(r.tag) not in in_model]
+
+
+def tag_parameters(fcus, rows):
+    """[(parameter name, FCUs with a value, values found in the schedule)]
+    of the FCUs' text parameters, best first: the one whose values match
+    the most schedule tags, then Comments."""
+    keys = set(tag_key(r.tag) for r in rows)
+    stats = {}
+    for fcu in fcus:
+        for name, value in fcu.texts.items():
+            filled, found = stats.get(name, (0, 0))
+            stats[name] = (filled + (1 if value else 0),
+                           found + (1 if value and tag_key(value) in keys else 0))
+    stats.setdefault(u"Comments", (0, 0))
+    order = sorted(stats.items(), key=lambda kv: (-kv[1][1], kv[0] != u"Comments", -kv[1][0], kv[0]))
+    return [(name, filled, found) for name, (filled, found) in order]
+
+
+def use_tag_parameter(fcus, name):
+    TAG_NAME[0] = name
+    for fcu in fcus:
+        if fcu.texts:
+            fcu.tag = fcu.texts.get(name, u"")
 
 
 def summary(fcus, unused):

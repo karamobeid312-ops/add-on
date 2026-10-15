@@ -45,6 +45,38 @@ def comments(element):
     return _bip_text(element, "ALL_MODEL_INSTANCE_COMMENTS").strip()
 
 
+TYPE_PREFIX = u"Type: "
+
+
+def _texts_of(owner, prefix, out):
+    try:
+        params = list(owner.Parameters)
+    except Exception:
+        return
+    for p in params:
+        try:
+            if p.StorageType != StorageType.String:
+                continue
+            value = (p.AsString() or u"").strip()
+            name = prefix + p.Definition.Name
+        except Exception:
+            continue
+        if value and name not in out:
+            out[name] = value
+
+
+def text_values(element):
+    """{parameter name: text} of the element's filled-in text parameters,
+    type parameters as 'Type: name'. Comments is always there."""
+    out = {u"Comments": comments(element)}
+    _texts_of(element, u"", out)
+    try:
+        _texts_of(element.Symbol, TYPE_PREFIX, out)
+    except Exception:
+        pass
+    return out
+
+
 # ---------------------------------------------------------------- families
 
 class Family(object):
@@ -279,8 +311,10 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None):
                 progress(i, len(todo))
         number, name = rooms_cache[key]
         param, problem = power_param(element)
-        out.append(Fcu(key, comments(element), number, name, read_watts(param),
-                       family=family_name(element), problem=problem))
+        fcu = Fcu(key, comments(element), number, name, read_watts(param),
+                  family=family_name(element), problem=problem)
+        fcu.texts = text_values(element)
+        out.append(fcu)
     return out
 
 
