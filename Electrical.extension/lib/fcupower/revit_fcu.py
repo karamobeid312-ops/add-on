@@ -65,15 +65,24 @@ def _texts_of(owner, prefix, out):
             out[name] = value
 
 
+_TYPE_TEXTS = {}                 # type id -> its texts, for one read
+
+
 def text_values(element):
     """{parameter name: text} of the element's filled-in text parameters,
     type parameters as 'Type: name'. Comments is always there."""
     out = {u"Comments": comments(element)}
     _texts_of(element, u"", out)
-    try:
-        _texts_of(element.Symbol, TYPE_PREFIX, out)
-    except Exception:
-        pass
+    key = id_int(element.GetTypeId())
+    if key not in _TYPE_TEXTS:
+        texts = {}
+        try:
+            _texts_of(element.Symbol, TYPE_PREFIX, texts)
+        except Exception:
+            pass
+        _TYPE_TEXTS[key] = texts
+    for name, value in _TYPE_TEXTS[key].items():
+        out.setdefault(name, value)
     return out
 
 
@@ -94,17 +103,25 @@ def families(doc):
     """[Family] of the model's family instances that have Real_Power_W,
     or whose name has FCU; by name."""
     found = {}
+    by_type = {}                 # type id -> Family (family name read once per type)
+    checked = set()              # families whose first instance was checked
     for element in FilteredElementCollector(doc).OfClass(FamilyInstance) \
             .WhereElementIsNotElementType():
-        name = family_name(element)
-        if not name:
-            continue
-        fam = found.get(name)
+        key = id_int(element.GetTypeId())
+        fam = by_type.get(key, False)
+        if fam is False:
+            name = family_name(element)
+            fam = (found.get(name) or found.setdefault(name, Family(name))) if name else None
+            by_type[key] = fam
         if fam is None:
-            fam = found[name] = Family(name)
+            continue
         fam.elements.append(element)
-        if element.LookupParameter(PARAM) is not None:
-            fam.with_param += 1
+        if fam.name not in checked:
+            # Real_Power_W is bound by category: one instance tells for the family
+            checked.add(fam.name)
+            fam.has_param = element.LookupParameter(PARAM) is not None
+    for fam in found.values():
+        fam.with_param = len(fam.elements) if getattr(fam, "has_param", False) else 0
     out = [f for f in found.values() if f.with_param or f.default]
     return sorted(out, key=lambda f: (not f.default, f.name.lower()))
 
@@ -174,13 +191,19 @@ def _location(element):
     return None
 
 
+_LEVELS = {}                     # level id -> elevation
+
+
 def _floor(element):
     doc = element.Document
     level_id = getattr(element, "LevelId", None)
     if level_id is not None and id_int(level_id) > 0:
-        level = doc.GetElement(level_id)
-        if level is not None:
-            return level.ProjectElevation
+        key = id_int(level_id)
+        if key not in _LEVELS:
+            level = doc.GetElement(level_id)
+            _LEVELS[key] = level.ProjectElevation if level is not None else None
+        if _LEVELS[key] is not None:
+            return _LEVELS[key]
     for name in ("FAMILY_LEVEL_PARAM", "INSTANCE_REFERENCE_LEVEL_PARAM",
                  "INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM"):
         try:
@@ -341,6 +364,10 @@ class LinkedFcus(object):
                 if point is not None:
                     p = to_host.OfPoint(point)
                     self.units.append((p.X, p.Y, p.Z, tag))
+        # units by plan cell of NEAR: a socket only looks at the 9 cells around it
+        self.cells = {}
+        for i, (x, y, z, tag) in enumerate(self.units):
+            self.cells.setdefault((int(x // NEAR), int(y // NEAR)), []).append(i)
         self.levels = sorted(l.ProjectElevation for l in FilteredElementCollector(doc).OfClass(Level))
 
     def _storey(self, element):
@@ -362,7 +389,11 @@ class LinkedFcus(object):
             return u"", None, None
         floor, top = self._storey(element)
         best = None
-        for i, (x, y, z, tag) in enumerate(self.units):
+        cx, cy = int(point.X // NEAR), int(point.Y // NEAR)
+        near = [i for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                for i in self.cells.get((cx + dx, cy + dy), ())]
+        for i in near:
+            x, y, z, tag = self.units[i]
             if floor is not None and not (floor - 0.3 / FEET <= z < top):
                 continue
             d = ((x - point.X) ** 2 + (y - point.Y) ** 2) ** 0.5
@@ -373,13 +404,37 @@ class LinkedFcus(object):
         return best[1], best[0] * FEET, best[2]
 
 
+class _Lazy(object):
+    """A list read the first time it is used."""
+
+    def __init__(self, read):
+        self._read, self._items = read, None
+
+    def _get(self):
+        if self._items is None:
+            self._items = self._read()
+        return self._items
+
+    def __iter__(self):
+        return iter(self._get())
+
+    def __len__(self):
+        return len(self._get())
+
+    def __bool__(self):
+        return True
+    __nonzero__ = __bool__
+
+
 def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=None, span=None):
     """[Fcu] of the ticked families (rooms cached by element id; `elements`
     gets {element id: element} for writing)."""
     out = []
     todo = [e for f in fams for e in f.elements]
     from fcupower import circuit
-    ends = circuit.wire_ends(doc)
+    _TYPE_TEXTS.clear()
+    _LEVELS.clear()
+    ends = _Lazy(lambda: circuit.wire_ends(doc))   # read only if an outlet needs it
     for i, element in enumerate(todo):
         key = id_int(element.Id)
         elements[key] = element

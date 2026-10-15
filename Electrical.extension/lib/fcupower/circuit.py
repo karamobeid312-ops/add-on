@@ -122,7 +122,7 @@ def wired(element, ends=None):
     except Exception:
         pass
     start = wire_start(element, connector)
-    if ends and start is not None and start.DistanceTo(connector.Origin) > 0.01:
+    if ends is not None and start is not None and start.DistanceTo(connector.Origin) > 0.01:
         return any(abs(x - start.X) < NEAR_END and abs(y - start.Y) < NEAR_END for x, y in ends)
     return False
 

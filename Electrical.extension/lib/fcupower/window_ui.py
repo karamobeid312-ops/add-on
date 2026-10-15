@@ -125,15 +125,34 @@ class FcuWindow(object):
         names = [n for n, _ in self.levels]
         active = revit.get("active_level")
         self.FloorCombo.SelectedIndex = names.index(active) + 1 if active in names else 0
-        self._fill_circuit_choices()
         self._wire()
-        path = revit.get("path") or u""
-        if path and os.path.isfile(path):
-            self._open(path, quiet=True)
-        else:
+        self._status(u"Loading the FCUs...", "")
+        # the window shows at once; the model is read once it has painted
+        self.win.ContentRendered += self._first_load
+
+    def _first_load(self, sender, args):
+        import time
+        if getattr(self, "_loaded", False):
+            return
+        self._loaded = True
+        start = time.time()
+        self._fill_circuit_choices()
+        circuit_s = time.time() - start
+        path = self.revit.get("path") or u""
+        opened = path and os.path.isfile(path) and self._open(path, quiet=True)
+        if not opened:
             self._show_sheet(None)
-            self._status(u"Pick the mechanical schedule (.xlsx) to start.", "")
+        excel_s = time.time() - start - circuit_s
         self.refresh()
+        read_s = time.time() - start - circuit_s - excel_s
+        before = self.revit.get("timing") or []
+        parts = [(name, sec) for name, sec in before] + [
+            (u"panels/wires", circuit_s), (u"Excel", excel_s), (u"FCUs + rooms", read_s)]
+        total = sum(sec for _, sec in parts)
+        self.ModelText.Text = self.ModelText.Text + u"\nOpened in %.1f s (%s)" % (
+            total, u", ".join(u"%s %.1f" % (n, sec) for n, sec in parts))
+        if not opened:
+            self._status(u"Pick the mechanical schedule (.xlsx) to start.", "")
 
     # ------------------------------------------------------------ setup
 

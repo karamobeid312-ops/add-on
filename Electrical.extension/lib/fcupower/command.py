@@ -99,20 +99,42 @@ def _active_level(doc):
         return None
 
 
+def _busiest_level(doc, fams):
+    """Level holding the most FCUs of the default families: the floor shown
+    when the active view has no level (rooms are found per floor, all floors
+    at once is the slow case)."""
+    counts = {}
+    for fam in fams:
+        if not fam.default:
+            continue
+        for e in fam.elements:
+            level_id = getattr(e, "LevelId", None)
+            if level_id is not None:
+                counts[level_id] = counts.get(level_id, 0) + 1
+    if not counts:
+        return None
+    level = doc.GetElement(max(counts, key=lambda k: counts[k]))
+    return level.Name if level is not None else None
+
+
 def run():
     doc = revit.doc
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model to use FCU Power.", exitscript=True)
 
+    import time
     from fcupower import circuit, place, revit_fcu
     from fcupower.window_ui import show_window
+    start = time.time()
     fams = revit_fcu.families(doc)
+    families_s = time.time() - start
     if not fams:
         forms.alert("No family in this model has a Real_Power_W parameter or FCU in its name.",
                     exitscript=True)
     models = revit_fcu.room_models(doc)
     rooms, elements = {}, {}
     linked = revit_fcu.LinkedFcus(doc)      # the tags are on the FCUs of the mechanical link
+    links_s = time.time() - start - families_s
     callbacks = {
         "families": fams,
         "read": lambda ticked, progress, span=None: revit_fcu.read_fcus(
@@ -123,7 +145,8 @@ def run():
         "families_ticked": _last_families(),
         "units": linked.units,
         "levels": _levels(doc),
-        "active_level": _active_level(doc),
+        "active_level": _active_level(doc) or _busiest_level(doc, fams),
+        "timing": [(u"families", families_s), (u"links", links_s)],
         "socket_types": lambda names: place.socket_types(doc, names),
         "default_type": lambda labels, fams: place.most_used(
             labels, [e for f in fams for e in f.elements]),
