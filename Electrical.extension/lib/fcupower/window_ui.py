@@ -22,14 +22,15 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "PowerCombo", "UnitCombo", "SheetInfo", "FamilyList", "KpiWrite", "KpiSame",
          "KpiCheck", "KpiBad", "KpiUnused", "ShowCombo", "SearchText", "ResultGrid",
          "TagParamCombo", "SocketTypeCombo", "AddButton", "FloorCombo", "PanelCombo",
-         "WireTypeCombo", "WireTagCombo", "CircuitButton", "CircuitInfo")
+         "WireTypeCombo", "WireTagCombo", "CircuitButton", "CircuitInfo", "SetupButton",
+         "SetupPanel", "SetupDone", "MissingGrid", "CircuitGrid", "PowerTabText",
+         "MissingTabText", "CircuitTabText", "Steps")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
 ALL_FLOORS = u"All floors"
 SHOW = ((u"all", u"All FCUs"), (u"write", u"To write"), (u"check", u"Check (amber)"),
         (u"bad", u"Problems (red)"), (u"same", u"Already set"),
-        (u"unused", u"Schedule rows not in the model"),
-        (u"nosocket", u"Linked FCUs with no socket"))
+        (u"unused", u"Schedule rows not in the model"))
 
 
 def window_xaml():
@@ -142,6 +143,9 @@ class FcuWindow(object):
         opened = path and os.path.isfile(path) and self._open(path, quiet=True)
         if not opened:
             self._show_sheet(None)
+        elif any(sh.usable and sh.power is not None and sh.unit == schedule.NO_UNIT
+                 for sh in self.sheets if sh.name in self.ticked_sheets):
+            self._setup(True)       # the power unit needs picking
         excel_s = time.time() - start - circuit_s
         self.refresh()
         read_s = time.time() - start - circuit_s - excel_s
@@ -171,6 +175,12 @@ class FcuWindow(object):
         self.ShowCombo.SelectionChanged += lambda s, e: self._fill_grid()
         self.TagParamCombo.SelectionChanged += self.on_tag_param
         self.SearchText.TextChanged += lambda s, e: self._fill_grid()
+        self.SetupButton.Click += lambda s, e: self._setup(True)
+        self.SetupDone.Click += lambda s, e: self._setup(False)
+
+    def _setup(self, show):
+        from System.Windows import Visibility
+        self.SetupPanel.Visibility = Visibility.Visible if show else Visibility.Collapsed
 
     def _check_item(self, text, tag, ticked, handler):
         from System.Windows.Controls import CheckBox, ListBoxItem
@@ -366,6 +376,7 @@ class FcuWindow(object):
         self.KpiCheck.Text = u"%d" % s["check"]
         self.KpiBad.Text = u"%d" % s["bad"]
         self.KpiUnused.Text = u"%d" % s["unused"]
+        self.PowerTabText.Text = u"Power (%d to write)" % sum(1 for f in fcus if f.write)
         if not self.sheets:
             return
         if not fcus:
@@ -377,29 +388,17 @@ class FcuWindow(object):
         else:
             self._status(u"Every FCU matches the schedule.", "ok")
 
-    def _fill_grid(self):
+    @staticmethod
+    def _table(items):
+        """DataTable of [(values, write, can)]."""
         from System import Boolean, String
         from System.Data import DataTable
-        show = SHOW[max(self.ShowCombo.SelectedIndex, 0)][0]
-        search = (self.SearchText.Text or u"").strip()
-        table = DataTable("Fcus")
+        table = DataTable("Rows")
         for name in TEXT_COLUMNS:
             table.Columns.Add(name, String).DefaultValue = u""
         table.Columns.Add("write", Boolean).DefaultValue = False
         table.Columns.Add("can", Boolean).DefaultValue = False
-        items = []
-        if show == u"unused":
-            items = [(row_values(r), False, False) for r in self.unused]
-        elif show == u"nosocket":
-            items = [(self._missing_values(i), False, False) for i in self.missing]
-        else:
-            order = {m.BAD: 0, m.WARN: 1, m.OK: 2}
-            for fcu in sorted(self.floor_fcus(), key=lambda f: (order.get(f.state, 3), m.tokens(f.tag))):
-                if shown(fcu, show):
-                    items.append((fcu_values(fcu), bool(fcu.write), bool(fcu.can)))
         for values, write, can in items:
-            if not found(values, search):
-                continue
             row = table.NewRow()
             for name in TEXT_COLUMNS:
                 row[name] = String(values.get(name) or u"")
@@ -407,6 +406,20 @@ class FcuWindow(object):
             row["can"] = can
             table.Rows.Add(row)
         table.AcceptChanges()
+        return table
+
+    def _fill_grid(self):
+        show = SHOW[max(self.ShowCombo.SelectedIndex, 0)][0]
+        search = (self.SearchText.Text or u"").strip()
+        items = []
+        if show == u"unused":
+            items = [(row_values(r), False, False) for r in self.unused]
+        else:
+            order = {m.BAD: 0, m.WARN: 1, m.OK: 2}
+            for fcu in sorted(self.floor_fcus(), key=lambda f: (order.get(f.state, 3), m.tokens(f.tag))):
+                if shown(fcu, show):
+                    items.append((fcu_values(fcu), bool(fcu.write), bool(fcu.can)))
+        table = self._table([i for i in items if found(i[0], search)])
         table.ColumnChanged += self.on_tick
         self.table = table
         self.ResultGrid.ItemsSource = table.DefaultView
@@ -455,13 +468,21 @@ class FcuWindow(object):
                 if not f.circuited or (f.panel == panel and not f.wired)]
 
     def _fill_circuit_info(self):
-        n = len(self.to_circuit())
+        todo = self.to_circuit()
+        n = len(todo)
         self.CircuitButton.Content = u"Circuit + wire (%d)" % n
         self.CircuitButton.IsEnabled = bool(n)
+        self.CircuitTabText.Text = u"Circuit + wire (%d)" % n
         floor = u"%s" % (self.FloorCombo.SelectedItem or ALL_FLOORS)
-        self.CircuitInfo.Text = (u"%d outlet(s) of %s with no circuit (or on this panel with no "
-                                 u"wire). Each gets its own circuit on the panel, a home-run wire "
-                                 u"towards it and the wire tag, in the open plan view." % (n, floor))
+        self.CircuitInfo.Text = (u"Outlets of %s with no circuit, or on this panel with no wire. "
+                                 u"Each gets its own circuit, a home-run wire and the wire tag." % floor)
+        items = []
+        for f in sorted(todo, key=lambda f: m.tokens(f.tag)):
+            items.append(({"tag": f.tag or u"id %d" % f.key, "room": f.room,
+                           "space": f.panel or u"-",
+                           "status": u"Wire + tag" if f.circuited else u"New circuit + wire + tag",
+                           "state": m.OK}, False, False))
+        self.CircuitGrid.ItemsSource = self._table(items).DefaultView
 
     def _fill_missing(self, grid=True):
         span = self._floor_range()
@@ -469,6 +490,9 @@ class FcuWindow(object):
                         if span is None or span[0] <= self.units[i][2] < span[1]]
         self.AddButton.Content = u"Add missing sockets (%d)" % len(self.missing)
         self.AddButton.IsEnabled = bool(self.missing)
+        self.MissingTabText.Text = u"Missing sockets (%d)" % len(self.missing)
+        self.MissingGrid.ItemsSource = self._table(
+            [(self._missing_values(i), False, False) for i in self.missing]).DefaultView
         self._fill_circuit_info()
         if grid:
             self._fill_grid()
@@ -481,7 +505,7 @@ class FcuWindow(object):
                 "space": u", ".join(sorted(set(r.room for r in rows if r.room))),
                 "where": u", ".join(r.where for r in rows[:2]), "now": u"",
                 "new": m.watts_text(watts),
-                "status": u"No socket within 3 m: Add missing sockets puts one on the slab",
+                "status": u"No socket within 3 m",
                 "state": m.WARN}
 
     # ------------------------------------------------------------ events
