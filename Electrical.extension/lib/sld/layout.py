@@ -69,8 +69,10 @@ class BoardGeom(object):
             span = first + max(n - 1, 0) * style.WAY_PITCH + style.BOARD_MARGIN
             self.info_text = wrap(self.info_text, style.TEXT_BOARD_INFO, 50.0)
             # Taller box when the name + info block would reach the busbar.
+            # (way numbers sit just under the busbar)
             below_bus = (1.0 + style.TEXT_BOARD_NAME * style.LINE_SPACING +
-                         text_height(self.info_text, style.TEXT_BOARD_INFO) + 1.5)
+                         text_height(self.info_text, style.TEXT_BOARD_INFO) + 1.8 +
+                         style.TEXT_WAY * style.LINE_SPACING)
             self.height = max(style.BOARD_HEIGHT, below_bus + self.bus_below_top)
             # Incomer to the right of the name/info block in the corner.
             block = max(text_width(self.name_text, style.TEXT_BOARD_NAME),
@@ -587,11 +589,49 @@ def _route(geoms, feeds, rows):
         for jog in f.jogs:
             per_row.setdefault(jog[0], []).append(jog)
     for row, jogs in per_row.items():
-        # Longer jogs lower down, so short ones do not cross them.
-        jogs.sort(key=lambda j: (min(j[1], j[2]), -abs(j[2] - j[1])))
-        for i, jog in enumerate(jogs):
+        for i, jog in enumerate(_order_jogs(jogs)):
             jog[3] = i
     return dict((row, len(jogs)) for row, jogs in per_row.items())
+
+
+def _order_jogs(jogs):
+    """Jogs of one row, top track first, with as few lines crossing
+    another jog's riser as can be: a jog over the riser coming up to
+    another jog (its from x) goes above that jog (the riser stops below
+    it); over the riser leaving another jog upwards (its to x) it goes
+    below it. Ties keep the old rule: longer jogs lower down."""
+    def spans(j, x):
+        lo, hi = min(j[1], j[2]), max(j[1], j[2])
+        return lo + 1e-6 < x < hi - 1e-6
+
+    n = len(jogs)
+    # cost[i][k]: crossings when jog i is above jog k
+    cost = [[0] * n for _ in range(n)]
+    for i in range(n):
+        for k in range(n):
+            if i != k:
+                cost[i][k] = (spans(jogs[i], jogs[k][2]) +   # k's riser up, through i
+                              spans(jogs[k], jogs[i][1]))    # i's riser from below, through k
+    start = sorted(range(n), key=lambda i: (min(jogs[i][1], jogs[i][2]),
+                                            -abs(jogs[i][2] - jogs[i][1])))
+
+    def total(order):
+        return sum(cost[a][b] for x, a in enumerate(order) for b in order[x + 1:])
+
+    if n <= 6:
+        import itertools
+        best = min(itertools.permutations(start), key=total)   # first best: ties keep start
+        return [jogs[i] for i in best]
+    order = list(start)
+    improved = True
+    while improved:
+        improved = False
+        for x in range(n - 1):
+            a, b = order[x], order[x + 1]
+            if cost[b][a] < cost[a][b]:
+                order[x], order[x + 1] = b, a
+                improved = True
+    return [jogs[i] for i in order]
 
 
 def _place_y(geoms, rows, jog_counts):
@@ -678,8 +718,11 @@ def _draw_board(d, g, settings):
         d.line(x, g.bus_y, x, y_arc)
         top_arc = symbols.breaker(d, x, y_arc)
         d.line(x, top_arc, x, g.top)
-        if w.label:
+        if w.label and b.is_main:
             d.text(x - 0.4, g.bus_y + 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=BOTTOM)
+        elif w.label:
+            # under the busbar: clear of the breaker text of the way to its left
+            d.text(x - 0.4, g.bus_y - 0.4, w.label, style.TEXT_WAY, align=RIGHT, valign=TOP)
         symbols.breaker_label(d, x + style.BREAKER_RADIUS + 0.3, y_arc + style.BREAKER_RADIUS,
                               w.breaker_lines(), style.TEXT_WAY)
         _draw_way_end(d, g, w, x, settings)

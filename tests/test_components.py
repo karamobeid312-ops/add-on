@@ -56,3 +56,28 @@ def test_isolator_cable_split_like_a_db_way():
     lift = next(w for w in smdb.ways if w.name == "LIFT 1")
     # no earth part in the model: the office earth is added, printed right of the line
     assert lift.rating_lines() == [u"(4X10)mm² CU/XLPE/SWA/PVC", u"+(1X10)mm² CU/PVC(E)"]
+
+
+def test_earth_pits_are_not_drawn_as_db_boxes():
+    eq, c = sample_tower.build(tower_floors=0)
+    eq += [EquipmentInfo("pit%d" % i, "Earth Pit With Test Link", "Ground Floor", 0.0)
+           for i in range(3)]
+    eq += [EquipmentInfo("db-x", "DB-AILAB", "Ground Floor", 0.0)]
+    s = build_schematic(eq, c)
+    assert [e.name for e in s.loose_dbs] == ["DB-AILAB"]
+
+
+def test_jogs_ordered_so_risers_do_not_cross():
+    from sld.layout import _order_jogs
+    # A comes up at 100 and jogs left to 0; B comes up at 150 and jogs left to 50.
+    # With A on top, B's riser up at 50 would cross A's line: B goes on top.
+    a, b = [0, 100.0, 0.0, 0], [0, 150.0, 50.0, 0]
+    assert _order_jogs([a, b]) == [b, a]
+
+
+def test_way_numbers_under_the_busbar_on_sub_boards():
+    s = build_schematic(*sample_tower.build(tower_floors=0))
+    lay = layout_schematic(s)
+    g = lay.geoms["smdb-g"]
+    labels = [t for t in lay.drawing.texts if t.text == "1" and g.left < t.x < g.right]
+    assert labels and all(t.y < g.bus_y for t in labels)

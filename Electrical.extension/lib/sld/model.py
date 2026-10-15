@@ -558,6 +558,20 @@ def _role(eq, fed_by_role, feeds_equipment, has_feeder, fed_from_root_transforme
     return DB
 
 
+_NOT_A_BOARD_RE = re.compile(r"EARTH|\bPIT\b|LIGHTNING|TEST\s*LINK|BONDING|\bEBB\b",
+                             re.IGNORECASE)
+_DB_NAME_RE = re.compile(r"DB|BOARD|PANEL|\bPB\b|\bLP\b|\bPP\b|MSB", re.IGNORECASE)
+
+
+def _is_board_like(eq):
+    """Equipment fed from nothing that is worth a DB box: a panel (by its
+    family's part type or name), never an earth pit, bar or the like."""
+    text = "%s %s" % (eq.name or "", eq.family_name or "")
+    if _NOT_A_BOARD_RE.search(text):
+        return False
+    return eq.part_type in ("panelboard", "switchboard") or bool(_DB_NAME_RE.search(text))
+
+
 def is_main_name(name):
     """MDB, EMDB, MSB...: a main board name (not SMDB / USMDB)."""
     name = name or ""
@@ -948,7 +962,8 @@ def build_schematic(equipment, circuits, phases_of=None, numbering="slots", spar
             _size_virtual_incomer(b)
 
     drawn = set(w.target_id for b in boards.values() for w in b.ways)
-    loose = sorted([e for e in equipment if roles[e.id] == DB and e.id not in drawn],
+    loose = sorted([e for e in equipment if roles[e.id] == DB and e.id not in drawn and
+                    _is_board_like(e)],
                    key=lambda e: natural_key(e.name))
     return Schematic(roots, warnings, loose)
 
