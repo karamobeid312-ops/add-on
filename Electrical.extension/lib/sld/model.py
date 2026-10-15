@@ -131,7 +131,8 @@ class EquipmentInfo(object):
                  mains_rating=None, incomer_rating=None, incomer_frame="",
                  phases=3, neutral=True, fault_level="", incomer_device="",
                  upstream_protection="", demand_factor=None, spares=None,
-                 spare_rating="", fed_by="", virtual=False, spaces=None):
+                 spare_rating="", fed_by="", virtual=False, spaces=None,
+                 feeder_cable="", feeder_length=None, feeder_vd=None):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -162,6 +163,11 @@ class EquipmentInfo(object):
         self.spares = spares                  # spare ways wanted ('SLD Spares')
         self.spare_rating = spare_rating or ""   # e.g. '63AT/100AF MCCB'
         self.spaces = spaces                  # empty breaker ways (SPACE), drawn last
+        # its feeder typed on the panel (Feeder_Size/Type, VD Length, VD Percent):
+        # the tap-off cable when it is on a bus bar riser
+        self.feeder_cable = feeder_cable or ""
+        self.feeder_length = feeder_length
+        self.feeder_vd = feeder_vd
 
     def supply_text(self):
         """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
@@ -266,6 +272,7 @@ class Way(object):
         self.label = label        # way number printed at the busbar: 1, R9...
         self.name = name          # text at the end of the way
         self.target = target      # EquipmentInfo fed by this way, if any
+        self.riser = None         # sld.riser.Riser it feeds (kind 'riser')
 
     @property
     def target_id(self):
@@ -301,7 +308,7 @@ class Way(object):
     def rating_lines(self):
         """Cable, length and voltage drop, printed along the way (the
         breaker rating is printed beside the breaker)."""
-        if self.circuit is None or self.kind in (SPARE, PFC):
+        if self.circuit is None or self.kind in (SPARE, PFC) or self.riser is not None:
             return []
         lines = list(self.circuit.cable_lines())
         vd = self.vd_text()
@@ -327,6 +334,8 @@ class Way(object):
         Equipment uses its own totals; a final circuit has no demand
         factor, so its DL is its CL.
         """
+        if self.riser is not None:
+            return self.riser.loads()
         if self.circuit is None or self.kind in (SPARE, PFC):
             return None, None
         if self.target is not None:
@@ -419,6 +428,7 @@ class Schematic(object):
         self.roots = roots              # main boards, and boards fed from nothing
         self.warnings = warnings
         self.loose_dbs = loose_dbs or []   # EquipmentInfo of DBs fed from nothing
+        self.risers = []                # sld.riser.Riser, see sld.riser.apply_risers
 
     def is_empty(self):
         return not self.roots and not self.loose_dbs
@@ -427,6 +437,11 @@ class Schematic(object):
         for root in self.roots:
             for b in root.iter_tree():
                 yield b
+        for riser in self.risers:
+            for tap in riser.taps:
+                if not tap.is_typical:
+                    for b in tap.board.iter_tree():
+                        yield b
 
 
 def trim_number(value, decimals=1):

@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 
 from sld import editor as ed
 from sld import editor_ui as ui
+from sld import riser as rs
 from test_editor import small
 
 X = "{http://schemas.microsoft.com/winfx/2006/xaml}"
@@ -18,7 +19,8 @@ def test_window_xaml_is_valid_with_every_named_control():
     events = ("Click", "SelectionChanged", "Loaded", "KeyDown", "LostFocus", "Closing")
     assert not [el.tag for el in root.iter() for e in events if el.get(e) is not None]
     assert text.count("DataGridTemplateColumn Header") == sum(
-        1 for c in ui.COLUMNS if c[3] == "combo")
+        1 for c in ui.COLUMNS + rs.COLUMNS if c[3] == "combo")
+    assert "RISERCOLUMNS" not in text and "DataGridCheckBoxColumn" in text
 
 
 def test_every_combo_column_has_choices():
@@ -28,7 +30,9 @@ def test_every_combo_column_has_choices():
     for _, field in ui.BOARD_CONTROLS:
         assert field in ed.BOARD_FIELDS
     resources = set(re.findall(r"ch_(\w+)", open(ui.XAML_FILE).read()))
-    assert resources <= set(ed.CHOICES) | {"fed_by"}       # fed_by: the board names
+    # fed_by: the board names; riser_*: the Bus bar risers step
+    assert resources <= set(ed.CHOICES) | {"fed_by", "riser_rating", "riser_material",
+                                           "riser_source", "riser_way"}
 
 
 def test_row_values_and_flags():

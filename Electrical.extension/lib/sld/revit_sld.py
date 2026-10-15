@@ -485,6 +485,9 @@ def extract(doc, live=None):
             spares=_lookup(el, P_SPARES) or None,
             spare_rating=_lookup(el, P_SPARE_RATING),
             fed_by=_lookup(el, P_FED_BY),
+            feeder_cable=_typed_cable_text([el]),
+            feeder_length=vd.get(el.UniqueId, (None, None))[0],
+            feeder_vd=vd.get(el.UniqueId, (None, None))[1],
         ))
         ids.add(el.UniqueId)
         panels[el.UniqueId] = el
@@ -747,16 +750,21 @@ def render(doc, drawing, view_name=VIEW_NAME, new_view=False):
     return view
 
 
-def generate(doc, settings=None, numbering="slots", new_view=False, spares=None, paper="A1"):
+def generate(doc, settings=None, numbering="slots", new_view=False, spares=None, paper="A1",
+             risers=None):
     """Build and draw the schematic. Returns (view or None, schematic).
     spares: {board name: (count, rating)} kept by Power Studio, used where
-    the panel has no SLD Spares value."""
+    the panel has no SLD Spares value. risers: bus bar riser specs kept by
+    Power Studio (sld.riser)."""
     equipment, circuits, phases_of, warnings = extract(doc)
     if spares:
         from sld.settings import apply_spares
         apply_spares(equipment, spares)
     schematic = build_schematic(equipment, circuits, phases_of, numbering)
     schematic.warnings = warnings + schematic.warnings
+    if risers:
+        from sld.riser import apply_risers
+        schematic.warnings += apply_risers(schematic, risers, numbering)
     if schematic.is_empty():
         return None, schematic
 

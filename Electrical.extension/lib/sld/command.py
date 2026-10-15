@@ -138,9 +138,11 @@ def run():
     sld_values, vd_values = settings.load(), vd_settings.load()
     actions = {"save": lambda ed: _save(doc, ed), "settings": _keep_settings,
                "report": lambda ed, path: _report(doc, ed, path),
-               "report_name": _report_name(doc)}
+               "report_name": _report_name(doc),
+               "save_risers": lambda specs: settings.save_risers(_project(doc), specs)}
     action = "reload"
     while action == "reload":         # again after a Fed from or a model setting changed
+        actions["risers"] = settings.load_risers(_project(doc))
         editor = _editor(doc, sld_values)
         if not editor.boards:
             forms.alert("No electrical equipment was found in this model.\n\n"
@@ -157,7 +159,8 @@ def run():
     view, schematic = generate(doc, settings.layout_settings(sld_values),
                                sld_values["numbering"], bool(sld_values.get("new_view")),
                                spares=settings.load_spares(_project(doc)),
-                               paper=sld_values.get("sheet_size", "A1"))
+                               paper=sld_values.get("sheet_size", "A1"),
+                               risers=settings.load_risers(_project(doc)))
     if view is None:
         forms.alert("No electrical equipment was found in this model.", exitscript=True)
     revit.uidoc.ActiveView = view

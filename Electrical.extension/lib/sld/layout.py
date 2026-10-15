@@ -11,6 +11,9 @@
 * Feeders between boards are risers: straight up from the outgoing way,
   a horizontal jog just below the fed board, then up into its incomer.
   A riser that meets a board on an intermediate floor jogs around it.
+* A bus bar riser (sld.riser) is drawn compact above the way feeding it,
+  as the office SLD: a tall bar with its tap-offs in floor order, typical
+  boards as 'DB SAME AS' boxes and the other boards in full beside it.
 
 Everything is paper millimetres, +Y up, drawn 1:1.
 """
@@ -82,6 +85,9 @@ class BoardGeom(object):
         self.band = 0
         self.tier = 0
         self.remote_ways = set()   # DB ways drawn on a higher floor
+        self.riser_blocks = []     # RiserBlock fed from this board
+        self.riser_height = 0.0    # their height above the box top
+        self.on_riser = None       # RiserBlock this board is drawn on
 
     @property
     def key(self):
@@ -151,8 +157,15 @@ class BoardGeom(object):
         left, right = self.ups_span(pt)
         return left + (right - left) * (i + 1) / (n + 1)
 
+    def extent_right(self):
+        """Right of the board and of the risers drawn above it."""
+        return max([self.right] + [b.right() for b in self.riser_blocks])
+
     def content_height(self):
         """Height of everything drawn above the box top."""
+        return max(self.ways_height(), self.riser_height)
+
+    def ways_height(self):
         h = style.SPARE_HEIGHT + 8.0
         for w in self.board.ways:
             text = _rating_text(w)
@@ -254,6 +267,98 @@ class Feed(object):
         return self.source.pt_output_y(self.pass_through)
 
 
+class RiserBlock(object):
+    """A bus bar riser drawn above the way feeding it. Heights are worked
+    out relative to the bar bottom; x follows the way."""
+
+    def __init__(self, riser, source, geoms):
+        self.riser = riser
+        self.source = source           # BoardGeom of the board feeding it
+        self.label = riser.label()
+        self.bottom = 0.0              # bar bottom (set after the rows are placed)
+        self.rel_bottom = 0.0          # bar bottom above the source's box top
+        self.items = []                # (tap, tap y, BoardGeom or None, box lines)
+        boxes = [symbols.typical_box_lines(t.board.name, t.typical_of, t.board.equipment.level_name)
+                 for t in riser.taps if t.is_typical]
+        self.box_width = max([symbols.typical_box_size(l)[0] for l in boxes] or [0.0])
+        y = style.RISER_FIRST_TAP
+        for t in riser.taps:
+            if t.is_typical:
+                lines = symbols.typical_box_lines(t.board.name, t.typical_of,
+                                                  t.board.equipment.level_name)
+                h = symbols.typical_box_size(lines)[1]
+                self.items.append((t, y + h / 2, None, lines))
+                y += max(style.TAP_PITCH, h + 4.0)
+            else:
+                g = geoms[t.board.id]
+                g.on_riser = self
+                cable = t.cable_lines()
+                y_tap = y + len(cable) * style.TEXT_RATING * style.LINE_SPACING + 1.0
+                self.items.append((t, y_tap, g, cable))
+                g.tap_y = y_tap
+                y = (y_tap + style.TAP_TO_BOARD + g.height + g.content_height() +
+                     style.TAP_BOARD_STACK)
+        self.height = max(y + style.RISER_TOP_MARGIN, symbols.riser_label_length(self.label))
+
+    @property
+    def x(self):
+        return self.source.way_x(self.riser.way)
+
+    @property
+    def top(self):
+        return self.bottom + self.height
+
+    def unit_right(self):
+        return self.x + style.RISER_BAR_WIDTH / 2 + style.TAP_UNIT_W
+
+    def box_left(self):
+        return self.unit_right() + style.TAP_LINE
+
+    def boards_left(self):
+        if self.box_width:
+            return self.box_left() + self.box_width + style.TAP_BOARD_GAP
+        return self.unit_right() + style.TAP_LINE
+
+    def right(self):
+        r = self.box_left() + self.box_width
+        for _, _, g, _ in self.items:
+            if g is not None:
+                r = max(r, self.boards_left() + g.width)
+        return r
+
+    def place_x(self):
+        for _, _, g, _ in self.items:
+            if g is not None:
+                g.left = self.boards_left()
+
+    def place_y(self):
+        self.bottom = self.source.top + self.rel_bottom
+        for t, y_tap, g, _ in self.items:
+            if g is not None:
+                g.bottom = self.bottom + y_tap + style.TAP_TO_BOARD
+
+
+def _riser_blocks(schematic, geoms):
+    """RiserBlocks on the boards feeding them, stacked above their ways:
+    the rightmost riser lowest, so no tap-off crosses another bar."""
+    blocks = []
+    for riser in getattr(schematic, "risers", []):
+        source = geoms.get(riser.source.id)
+        if source is None:
+            continue
+        block = RiserBlock(riser, source, geoms)
+        source.riser_blocks.append(block)
+        blocks.append(block)
+    for g in set(b.source for b in blocks):
+        g.riser_blocks.sort(key=lambda b: -g.board.ways.index(b.riser.way))
+        y = g.ways_height() + style.RISER_ABOVE_CONTENT
+        for b in g.riser_blocks:
+            b.rel_bottom = y
+            y += b.height + style.RISER_GAP
+        g.riser_height = y
+    return blocks
+
+
 class Layout(object):
     def __init__(self, drawing, geoms, bands, feeds):
         self.drawing = drawing
@@ -268,6 +373,7 @@ def layout_schematic(schematic, settings=None):
     for b in schematic.boards():
         geoms[b.id] = BoardGeom(b)
 
+    blocks = _riser_blocks(schematic, geoms)
     band_names, boxes = _assign_rows(schematic, geoms)
     for box in boxes:
         geoms[box.key] = box
@@ -276,6 +382,8 @@ def layout_schematic(schematic, settings=None):
     _place_x(schematic, geoms, feeds, rows)
     jog_counts = _route(geoms, feeds, rows)
     floor_ys, row_base = _place_y(geoms, rows, jog_counts)
+    for block in blocks:
+        block.place_y()
 
     d = Drawing()
     for g in geoms.values():
@@ -283,6 +391,8 @@ def layout_schematic(schematic, settings=None):
             _draw_board(d, g, settings)
     for f in feeds:
         _draw_feed(d, f, row_base)
+    for block in blocks:
+        _draw_riser(d, block)
     for box in boxes:
         if box.way is None:
             symbols.db_box(d, box.incomer_x, box.feed_y, box.name, box.loads())
@@ -311,7 +421,7 @@ def _assign_rows(schematic, geoms):
     """Band = floor (by level elevation), tier = stacking within a floor."""
     levels = {}
     for b in schematic.boards():
-        if not b.is_main:
+        if not b.is_main and geoms[b.id].on_riser is None:
             e = b.equipment
             levels.setdefault(e.level_name, e.level_elevation)
         for w in b.ways:
@@ -325,7 +435,8 @@ def _assign_rows(schematic, geoms):
 
     def visit(board, parent_geom):
         g = geoms[board.id]
-        if board.is_main:
+        if board.is_main or g.on_riser is not None:
+            # a board on a bus bar riser is drawn beside it, above its supply
             g.band, g.tier = SUBSTATION_BAND, 0
         elif parent_geom is None:
             g.band, g.tier = band_of_level[board.equipment.level_name], 0
@@ -341,12 +452,15 @@ def _assign_rows(schematic, geoms):
 
     for root in schematic.roots:
         visit(root, None)
+    for g in list(geoms.values()):
+        if g.on_riser is not None:
+            visit(g.board, None)
 
     boxes = []
     for b in schematic.boards():
         g = geoms[b.id]
         for w in b.ways:
-            if w.kind != DB_BOX or w.target is None:
+            if w.kind != DB_BOX or w.target is None or g.on_riser is not None:
                 continue
             band = band_of_level[w.target.level_name]
             if band > g.band and not (g.band == SUBSTATION_BAND and band == 0):
@@ -383,7 +497,7 @@ def _place_x(schematic, geoms, feeds, rows):
     straight above the way that feeds it."""
     feed_to = dict((f.target.key, f) for f in feeds)
     for row in rows:
-        in_row = [g for g in geoms.values() if g.row == row]
+        in_row = [g for g in geoms.values() if g.row == row and not _on_riser(g)]
         if row[0] == SUBSTATION_BAND:
             order = dict((b.id, i) for i, b in enumerate(schematic.roots))
             in_row.sort(key=lambda g: order.get(g.key, 10 ** 6))
@@ -403,7 +517,11 @@ def _place_x(schematic, geoms, feeds, rows):
             else:
                 g.left = cursor if want is None else max(want, cursor)
             gap = style.BOARD_GAP if isinstance(g, BoardGeom) else 4.0
-            cursor = g.right + (gap if row[0] != SUBSTATION_BAND else 45.0)
+            right = g.extent_right() if isinstance(g, BoardGeom) else g.right
+            cursor = right + (gap if row[0] != SUBSTATION_BAND else 45.0)
+        for g in in_row:
+            for block in getattr(g, "riser_blocks", []):
+                block.place_x()
 
 
 def _route(geoms, feeds, rows):
@@ -421,6 +539,8 @@ def _route(geoms, feeds, rows):
 
     def blocker(row, x):
         for g in by_row.get(row, []):
+            if _on_riser(g):
+                continue
             if g.left - clearance < x < g.right + clearance:
                 return g
         return None
@@ -458,7 +578,7 @@ def _place_y(geoms, rows, jog_counts):
     floor_ys, row_base = {}, {}
     y = 0.0
     for row in rows:
-        in_row = [g for g in geoms.values() if g.row == row]
+        in_row = [g for g in geoms.values() if g.row == row and not _on_riser(g)]
         n = jog_counts.get(row, 0)
         if row[1] == 0:
             floor_ys[row[0]] = y
@@ -473,6 +593,10 @@ def _place_y(geoms, rows, jog_counts):
             top = max(top, g.top + g.content_height())
         y = top + style.ROW_TOP_MARGIN
     return floor_ys, row_base
+
+
+def _on_riser(g):
+    return getattr(g, "on_riser", None) is not None
 
 
 # ---------------------------------------------------------------- drawing
@@ -682,3 +806,23 @@ def _cable_label(cable):
     """'7 SC 630mm² Cu/XLPE/AWA/PVC' on one line (office SLD); a cable
     with an earth part has the earth on a second line."""
     return "\n".join(split_cable(cable))
+
+
+def _draw_riser(d, block):
+    """The way up to the bar, the bar, and each tap-off with its board."""
+    x = block.x
+    d.line(x, block.source.top, x, block.bottom)
+    symbols.riser_bar(d, x, block.bottom, block.top, block.label)
+    bar_r = x + style.RISER_BAR_WIDTH / 2
+    for tap, y_tap, g, extra in block.items:
+        y = block.bottom + y_tap
+        x0 = symbols.tap_unit(d, bar_r, y, tap.rating_text())
+        if g is None:
+            d.line(x0, y, block.box_left(), y)
+            symbols.typical_box(d, block.box_left(), y, extra, block.box_width)
+            continue
+        xi = g.incomer_x
+        d.polyline([(x0, y), (xi, y), (xi, g.bottom)])
+        if extra:
+            # tap-off cable under the line, as the office SLD
+            d.text(x0 + 1.5, y - 0.5, "\n".join(extra), style.TEXT_RATING, align=LEFT, valign=TOP)

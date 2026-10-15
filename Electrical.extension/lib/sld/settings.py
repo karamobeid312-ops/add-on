@@ -85,3 +85,29 @@ def apply_spares(equipment, spares):
             e.spares, e.spare_rating = stored[0], stored[1] or e.spare_rating
         if stored and len(stored) > 2 and stored[2] not in (None, "", "0"):
             e.spaces = stored[2]
+
+
+# ---------------------------------------------------------------- risers
+# Bus bar risers typed in Power Studio (sld.riser), per project.
+
+def _risers_key(project):
+    return "risers_" + _spares_key(project)[len("spares_"):]
+
+
+def load_risers(project):
+    import json
+    try:
+        text = _config().get_option(_risers_key(project), "")
+        return json.loads(text) if text else []
+    except Exception:
+        return []
+
+
+def save_risers(project, risers):
+    import json
+    from pyrevit import script
+    from sld.riser import clean_specs
+    cfg = _config()
+    setattr(cfg, _risers_key(project), json.dumps(clean_specs(risers), ensure_ascii=True,
+                                                  sort_keys=True))
+    script.save_config()

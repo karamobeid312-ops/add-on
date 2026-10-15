@@ -24,6 +24,9 @@ TEXT_TRANSFORMER_NAME = 2.5
 TEXT_TRANSFORMER_INFO = 1.5
 TEXT_CABLE = 1.5            # incoming / MV cable labels
 TEXT_SUPPLY = 2.5           # FROM TAQA under the transformer
+TEXT_RISER = 1.5            # 1000A TPN+E COPPER BUS BAR RISER-1 ... in the bar
+TEXT_TAP = 1.5              # board name in a typical tap-off box
+TEXT_TAP_INFO = 1.2         # DB SAME AS ... / @ FLOOR in the box, tap-off rating
 TEXT_FONT = "Arial"
 
 # Text height is the capital letter height (as Revit's Text Size); widths
@@ -129,3 +132,19 @@ ROW_TOP_MARGIN = 8.0        # highest content -> next row
 JOG_FIRST = 4.0             # board bottom -> first jog track
 JOG_TRACK = 2.5             # spacing between jog tracks
 JOG_BOTTOM_MARGIN = 5.0     # lowest jog track -> row bottom
+
+# ---------------------------------------------------------------- bus bar riser
+RISER_BAR_WIDTH = 3.0       # the bar, its label reading up inside
+RISER_ABOVE_CONTENT = 4.0   # board's highest way content -> bottom of the bar
+RISER_FIRST_TAP = 6.0       # bar bottom -> lowest tap-off
+RISER_TOP_MARGIN = 4.0      # highest tap-off / board -> bar top
+RISER_GAP = 6.0             # one riser's bar top -> next riser's bar bottom
+TAP_PITCH = 10.0            # between typical tap-offs
+TAP_UNIT_W = 2.8            # tap-off unit on the bar's side
+TAP_UNIT_H = 1.4
+TAP_LINE = 11.0             # tap-off unit -> typical box
+TAP_BOX_PAD = 0.8
+TAP_TO_BOARD = 5.0          # tap-off line -> bottom of a board drawn in full
+TAP_BOARD_GAP = 8.0         # typical boxes -> boards drawn in full
+TAP_BOARD_STACK = 6.0       # a full board's content -> next tap-off above
+TYPICAL_TEXT = "DB SAME AS %s"

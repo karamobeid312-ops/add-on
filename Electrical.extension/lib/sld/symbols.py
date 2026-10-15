@@ -336,3 +336,58 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
 
 # The lamp group of the main incomer starts this far left of the incomer.
 MAIN_LAMPS_LEFT = 24.6
+
+
+# ---------------------------------------------------------------- bus bar riser
+
+def riser_bar(d, x, y0, y1, label):
+    """Tall bus bar riser centred on x, its label reading up inside."""
+    w = style.RISER_BAR_WIDTH
+    d.rect(x - w / 2, y0, x + w / 2, y1)
+    if label:
+        d.text(x, y0 + 3.0, label, style.TEXT_RISER, align=LEFT, valign=MIDDLE,
+               rotation=VERTICAL)
+
+
+def riser_label_length(label):
+    return text_width(label, style.TEXT_RISER) * style.FLOOR_LABEL_SLACK + 6.0 if label else 0.0
+
+
+def tap_unit(d, x_bar, y, rating):
+    """Tap-off unit on the right side of a bar (x_bar = bar's right edge),
+    centred on y, with its rating above. Returns the unit's right x."""
+    w, h = style.TAP_UNIT_W, style.TAP_UNIT_H
+    d.rect(x_bar, y - h / 2, x_bar + w, y + h / 2)
+    d.circle(x_bar + w / 2, y, 0.22)
+    if rating:
+        d.text(x_bar + 0.2, y + h / 2 + 0.6, rating, style.TEXT_TAP_INFO, align=LEFT,
+               valign=BOTTOM)
+    return x_bar + w
+
+
+def typical_box_lines(name, master, floor):
+    lines = [(name, style.TEXT_TAP), (style.TYPICAL_TEXT % master, style.TEXT_TAP_INFO)]
+    if floor:
+        lines.append(("@ %s" % floor.upper(), style.TEXT_TAP_INFO))
+    return lines
+
+
+def typical_box_size(lines):
+    pad = style.TAP_BOX_PAD
+    w = max(line_length(t, s) for t, s in lines) + 2 * pad
+    h = sum(s * style.LINE_SPACING for _, s in lines) + pad
+    return w, h
+
+
+def typical_box(d, left, y_mid, lines, width=None):
+    """'SMDB-T-6 / DB SAME AS SMDB-T-1 / @ 6TH FLOOR', right-aligned in a box
+    whose left side meets the tap-off line at y_mid."""
+    w, h = typical_box_size(lines)
+    w = max(w, width or 0.0)
+    top = y_mid + h / 2
+    d.rect(left, y_mid - h / 2, left + w, top)
+    y = top - style.TAP_BOX_PAD
+    for text, size in lines:
+        d.text(left + w - style.TAP_BOX_PAD, y, text, size, align=RIGHT, valign=TOP)
+        y -= size * style.LINE_SPACING
+    return left + w

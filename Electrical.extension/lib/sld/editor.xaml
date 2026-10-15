@@ -345,12 +345,87 @@ VDCOLUMNS
         </DockPanel>
       </TabItem>
 
-      <!-- 3: settings -->
-      <TabItem x:Name="SettingsTab">
+      <!-- 3: bus bar risers -->
+      <TabItem x:Name="RisersTab">
         <TabItem.Header>
           <StackPanel Orientation="Horizontal">
             <Border Style="{StaticResource StepNumber}">
               <TextBlock Text="3" Style="{StaticResource StepNumberText}"/>
+            </Border>
+            <TextBlock Text="Bus bar risers" VerticalAlignment="Center"/>
+          </StackPanel>
+        </TabItem.Header>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="8"/>
+            <ColumnDefinition Width="*"/>
+          </Grid.ColumnDefinitions>
+          <Border Grid.Column="0" Style="{StaticResource Card}" Padding="0">
+            <DockPanel>
+              <TextBlock DockPanel.Dock="Top" Text="Risers" Style="{StaticResource SectionTitle}"
+                         Margin="12,10,12,4"/>
+              <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="12,6,12,10">
+                <Button x:Name="NewRiser" Content="+ New riser" Style="{StaticResource SmallButton}"/>
+                <Button x:Name="DeleteRiser" Content="Delete" Margin="6,0,0,0"
+                        Style="{StaticResource SmallButton}"/>
+              </StackPanel>
+              <ListBox x:Name="RiserList" BorderThickness="0" Background="Transparent"
+                       Margin="6,0"/>
+            </DockPanel>
+          </Border>
+
+          <DockPanel Grid.Column="2">
+            <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,8">
+              <WrapPanel>
+                <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+                <TextBox x:Name="RiserName" Width="90"/>
+                <TextBlock Text="Rating" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                <ComboBox x:Name="RiserRating" Width="70" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_riser_rating}"
+                          ToolTip="Bus bar rating (A); the breaker feeding it takes this rating"/>
+                <TextBlock Text="A" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
+                <ComboBox x:Name="RiserMaterial" Width="95" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_riser_material}"/>
+                <TextBlock Text="Fault level" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                <ComboBox x:Name="RiserFault" Width="60" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_fault_level}"/>
+                <TextBlock Text="kA" Style="{StaticResource FieldLabel}" Margin="3,0,6,0"/>
+                <TextBlock Text="Fed from" Style="{StaticResource FieldLabel}" Margin="16,0,4,0"/>
+                <ComboBox x:Name="RiserSource" Width="130" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_riser_source}"/>
+                <TextBlock Text="way" Style="{StaticResource FieldLabel}" Margin="8,0,4,0"/>
+                <ComboBox x:Name="RiserWay" Width="80" Style="{StaticResource EditCombo}"
+                          ItemsSource="{DynamicResource ch_riser_way}"
+                          ToolTip="The way feeding the riser. New way: one more way is drawn on the board (the Revit panel is not changed). The ways that fed its boards are drawn as this one way."/>
+                <Button x:Name="SuggestTypicals" Content="Suggest typicals" Margin="16,0,0,0"
+                        Style="{StaticResource SmallButton}"
+                        ToolTip="Boards with the same ways as one on a lower floor are marked typical of it"/>
+              </WrapPanel>
+            </Border>
+
+            <TextBlock DockPanel.Dock="Bottom" Style="{StaticResource Muted}" Margin="2,8,0,0"
+                       TextWrapping="Wrap"
+                       Text="Tick the boards on the riser. They are drawn on it in floor order: a typical board as a box 'DB SAME AS ...', the others in full. Kept for this model in Power Studio only: nothing is written to Revit. Draw SLD to see it."/>
+
+            <DataGrid x:Name="RiserGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserDeleteRows="False" CanUserSortColumns="False"
+                      CanUserReorderColumns="False" SelectionMode="Single"
+                      SelectionUnit="Cell" GridLinesVisibility="Horizontal">
+              <DataGrid.Columns>
+RISERCOLUMNS
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </Grid>
+      </TabItem>
+
+      <!-- 4: settings -->
+      <TabItem x:Name="SettingsTab">
+        <TabItem.Header>
+          <StackPanel Orientation="Horizontal">
+            <Border Style="{StaticResource StepNumber}">
+              <TextBlock Text="4" Style="{StaticResource StepNumberText}"/>
             </Border>
             <TextBlock Text="Settings" VerticalAlignment="Center"/>
           </StackPanel>
