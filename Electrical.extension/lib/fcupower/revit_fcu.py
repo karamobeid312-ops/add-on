@@ -378,6 +378,8 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=No
     gets {element id: element} for writing)."""
     out = []
     todo = [e for f in fams for e in f.elements]
+    from fcupower import circuit
+    ends = circuit.wire_ends(doc)
     for i, element in enumerate(todo):
         key = id_int(element.Id)
         elements[key] = element
@@ -394,10 +396,9 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=No
                   family=family_name(element), problem=problem)
         fcu.texts = text_values(element)
         fcu.z = point.Z if point is not None else None
-        from fcupower import circuit
         fcu.circuited = circuit.circuited(element)
         fcu.panel = circuit.panel_name(element) if fcu.circuited else u""
-        fcu.wired = circuit.wired(element) if fcu.circuited else False
+        fcu.wired = circuit.wired(element, ends) if fcu.circuited else False
         if linked is not None:
             tag, distance, unit = linked.nearest(element)
             fcu.texts[LINKED_TAG] = tag

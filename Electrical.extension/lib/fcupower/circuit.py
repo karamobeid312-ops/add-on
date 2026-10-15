@@ -16,9 +16,10 @@ from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType,
 
 from fcupower.revit_fcu import FEET, id_int
 
-HOME_RUN = 0.8 / FEET           # length of the home-run wire towards the panel
-BOW = 0.15 / FEET               # how far the arc's middle is off the straight line
-TAG_UP = 0.6 / FEET             # tag head above the wire's free end
+HOME_RUN = 0.6 / FEET           # length of the home-run wire towards the panel
+BOW = 0.12 / FEET               # how far the arc's middle is off the straight line
+TAG_UP = 0.45 / FEET            # tag head above the wire's free end
+NEAR_END = 0.05 / FEET          # a wire end this close to an outlet's start counts as its wire
 
 
 def _text(element, bip):
@@ -94,8 +95,23 @@ def panel_name(element):
     return u""
 
 
-def wired(element):
-    """True when a wire is connected to the outlet."""
+def wire_ends(doc):
+    """[(x, y)] of the first and last vertex of every wire of the model."""
+    ends = []
+    for w in FilteredElementCollector(doc).OfClass(Wire):
+        try:
+            for i in (0, w.NumberOfVertices - 1):
+                v = w.GetVertex(i)
+                ends.append((v.X, v.Y))
+        except Exception:
+            pass
+    return ends
+
+
+def wired(element, ends=None):
+    """True when a wire is connected to the outlet, or (for an outlet hung
+    upside down, whose wire is drawn free from its symbol) a wire ends at
+    its symbol. `ends` is wire_ends(doc), read once by the caller."""
     connector = _connector(element)
     if connector is None:
         return False
@@ -105,7 +121,30 @@ def wired(element):
                 return True
     except Exception:
         pass
+    start = wire_start(element, connector)
+    if ends and start is not None and start.DistanceTo(connector.Origin) > 0.01:
+        return any(abs(x - start.X) < NEAR_END and abs(y - start.Y) < NEAR_END for x, y in ends)
     return False
+
+
+def _upside_down(element):
+    try:
+        return element.GetTransform().BasisZ.Z < -0.5
+    except Exception:
+        return False
+
+
+def wire_start(element, connector):
+    """Where the wire should start in plan. Normally the connector. A
+    face-based outlet hung under a slab is turned upside down, and Revit
+    then draws its plan symbol on the other side of its insertion point
+    from its connector; the wire starts at the symbol instead (the
+    connector mirrored through the insertion point)."""
+    origin = connector.Origin
+    point = getattr(element.Location, "Point", None)
+    if point is None or not _upside_down(element):
+        return origin
+    return XYZ(2 * point.X - origin.X, 2 * point.Y - origin.Y, origin.Z)
 
 
 def circuited(element):
@@ -207,6 +246,7 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
     made = wired = tagged = 0
     failed = []
     panel_point = _location(panel)
+    ends = wire_ends(doc)
     t = Transaction(doc, "FCU outlets: circuit and wire")
     t.Start()
     try:
@@ -227,7 +267,7 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
                     failed.append(u"%s: circuit refused (%s)" % (label, _first_line(error)))
                     continue
                 made += 1
-            elif wired(outlet):
+            elif wired(outlet, ends):
                 continue        # circuited and wired already
             view = view_for(outlet)
             if wire_type is None:
@@ -240,18 +280,27 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
             if connector is None:
                 failed.append(u"%s: no electrical connector for the wire" % label)
                 continue
-            points = _home_run_points(connector.Origin, panel_point or connector.Origin)
+            start = wire_start(outlet, connector)
+            points = _home_run_points(start, panel_point or start)
+            free = start.DistanceTo(connector.Origin) > 0.01
             try:
-                # Revit adds the connector's origin as the start vertex itself
-                wire = Wire.Create(doc, wire_type.Id, view.Id, WiringType.Arc,
-                                   List[XYZ](points[1:]), connector, None)
+                if free:
+                    # the symbol is away from the connector: a free wire from the symbol
+                    wire = Wire.Create(doc, wire_type.Id, view.Id, WiringType.Arc,
+                                       List[XYZ](points), None, None)
+                else:
+                    # Revit adds the connector's origin as the start vertex itself
+                    wire = Wire.Create(doc, wire_type.Id, view.Id, WiringType.Arc,
+                                       List[XYZ](points[1:]), connector, None)
             except Exception as error:
                 failed.append(u"%s: wire refused (%s)" % (label, _first_line(error)))
                 continue
             wired += 1
+            ends.append((start.X, start.Y))
             doc.Regenerate()
             try:
-                _keep_short(wire, outlet, points)
+                if not free:
+                    _keep_short(wire, outlet, points)
             except Exception as error:
                 failed.append(u"%s: wire drawn but not shortened (%s)" % (label, _first_line(error)))
             if tag_type is None:
