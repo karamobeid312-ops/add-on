@@ -284,6 +284,23 @@ def shown_in(doc, view):
         return None
 
 
+def plans_of(doc, level):
+    """[(name, view)] of the plans of the level and of the levels at its
+    height (the other tower's), by name."""
+    found = []
+    for v in FilteredElementCollector(doc).OfClass(ViewPlan):
+        try:
+            if v.IsTemplate or v.GenLevel is None:
+                continue
+            if abs(v.GenLevel.Elevation - level.Elevation) > Z_TOLERANCE:
+                continue
+            found.append((v.Name, v))
+        except Exception:
+            pass
+    found.sort(key=lambda nv: nv[0].lower())
+    return found
+
+
 # ---------------------------------------------------------------- target
 
 class Target(object):

@@ -39,6 +39,7 @@ def _pick_levels(doc, view):
 
 
 ONE_BY_ONE = "Pick circuits one by one..."
+BY_VIEW = "Circuits shown in plans I choose..."
 IN_MODEL = "Select them in the model (click the fixtures, then Finish)..."
 
 
@@ -59,7 +60,7 @@ def _picked_in_model(uidoc, circuits):
 
 def _pick_circuits(doc, uidoc, source, view):
     """Keys of the circuits to copy: by kind (Lighting, Power...), by the
-    family they feed (an FCU socket...), those shown in the active plan, or
+    family they feed (an FCU socket...), those shown in the active plan or in plans picked from a list, or
     picked one by one, or by clicking their fixtures in the model. None:
     cancelled."""
     circuits = source.circuits
@@ -79,6 +80,7 @@ def _pick_circuits(doc, uidoc, source, view):
         text = "Feeding %s (%d)" % (family, count)
         options.append(text)
         keys[text] = set(c.key for c in circuits if family in c.families)
+    options.append(BY_VIEW)
     options.append(IN_MODEL)
     options.append(ONE_BY_ONE)
     picked = forms.SelectFromList.show(
@@ -89,6 +91,25 @@ def _pick_circuits(doc, uidoc, source, view):
     chosen = set()
     for text in picked:
         chosen |= keys.get(text, set())
+    if BY_VIEW in picked:
+        plans = revit_copy.plans_of(doc, source.level)
+        names = forms.SelectFromList.show(
+            [n for n, _ in plans],
+            title="%s: copy the circuits shown in which plans of %s?"
+                  % (TITLE, source.level.Name),
+            button_name="Next", multiselect=True)
+        if not names:
+            return None
+        seen = set()
+        for name, v in plans:
+            if name in names:
+                seen |= revit_copy.shown_in(doc, v) or set()
+        shown = set(c.key for c in circuits if set(c.elements) & seen)
+        if not shown:
+            forms.alert("None of the circuits of %s is shown in %s."
+                        % (source.level.Name, ", ".join(names)), title=TITLE)
+            return None
+        chosen |= shown
     if IN_MODEL in picked:
         clicked = _picked_in_model(uidoc, circuits)
         if clicked is None:
