@@ -258,12 +258,10 @@ def circuit_and_wire(doc, outlets, panel, wire_type, tag_type, view_for):
             end = points[-1]
             head = XYZ(end.X, end.Y + TAG_UP, end.Z)
             try:
-                # made without a leader at the head point (with one, Revit put the
-                # head far off), then the leader is switched on and the head set
+                # no leader (user's choice): the tag sits just above the arrow end
                 tag = IndependentTag.Create(doc, tag_type.Id, view.Id, Reference(wire), False,
                                             TagOrientation.Horizontal, head)
                 try:
-                    tag.HasLeader = True
                     tag.TagHeadPosition = head
                 except Exception:
                     pass
