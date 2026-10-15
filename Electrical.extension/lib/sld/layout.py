@@ -179,7 +179,7 @@ class BoardGeom(object):
                 h = max(h, style.TERMINAL_BASE + symbols.db_box_height(w.name, w.loads()))
             elif w.kind == ISOLATOR:
                 h = max(h, style.TERMINAL_BASE + style.ISOLATOR_HEIGHT + style.ISOLATOR_HOOK +
-                        0.8 + symbols.vertical_length(w.name, style.TEXT_LOAD))
+                        0.8 + symbols.isolator_label_length(w.name, w.loads()[0]))
             elif w.kind == SPARE:
                 h = max(h, style.SPARE_HEIGHT + 0.8 + symbols.vertical_length("SPARE", style.TEXT_SPARE))
             elif w.kind == TO_UPS:
@@ -724,6 +724,19 @@ _RATING_ROOM = {
 }
 
 
+def _isolator_rating(w):
+    """'300A,4P': the isolator takes its breaker's rating; 4P on a
+    three-phase way (TPN), 2P on a single-phase one."""
+    trip = w.trip()
+    if trip is None:
+        return ""
+    try:
+        poles = int(w.circuit.poles)
+    except (AttributeError, TypeError, ValueError):
+        poles = 3
+    return "%sA,%s" % (trim_number(trip, 1), "4P" if poles >= 3 else "2P")
+
+
 def _rating_text(w):
     """Breaker rating and cable text along a way, wrapped to its room."""
     lines = w.rating_lines()
@@ -742,7 +755,8 @@ def _draw_way_end(d, g, w, x, settings):
         symbols.db_box(d, x, t + style.TERMINAL_BASE, w.name, w.loads())
     elif w.kind == ISOLATOR:
         d.line(x, t, x, t + style.TERMINAL_BASE)
-        symbols.isolator(d, x, t + style.TERMINAL_BASE, w.name)
+        symbols.isolator(d, x, t + style.TERMINAL_BASE, w.name, _isolator_rating(w),
+                         w.loads()[0])
     elif w.kind == SPARE:
         d.line(x, t, x, t + style.SPARE_HEIGHT)
         symbols.spare(d, x, t + style.SPARE_HEIGHT, w.name)

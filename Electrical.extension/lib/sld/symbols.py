@@ -92,16 +92,38 @@ def load_table(d, right, bottom, values):
         d.text(right - pad, y + row / 2, value, size, align=RIGHT, valign=MIDDLE)
 
 
-def isolator(d, x, y0, name):
-    """Local isolator feeding a single piece of equipment, name above."""
+def isolator_label(name, kw=None):
+    """'CL:135.0kW' / 'FOR ELEC PUMP' above an isolator (office SLD)."""
+    lines = []
+    if kw is not None:
+        lines.append("CL:%.1fkW" % kw)
+    lines.append("FOR %s" % name if name else "")
+    return "\n".join(l for l in lines if l)
+
+
+def isolator_label_length(name, kw=None):
+    label = isolator_label(name, kw)
+    return max([vertical_length(l, style.TEXT_ISOLATOR) for l in label.split("\n")] or [0.0])
+
+
+def isolator(d, x, y0, name, rating="", kw=None):
+    """Local isolator feeding a single piece of equipment, as the office
+    SLD: its rating ('300A,4P') reading up on the left, W.P on the right,
+    the load ('CL:135.0kW' / 'FOR ELEC PUMP') above."""
     w, h = style.ISOLATOR_WIDTH, style.ISOLATOR_HEIGHT
     d.rect(x - w / 2, y0, x + w / 2, y0 + h)
     top = y0 + h + style.ISOLATOR_HOOK
     d.line(x, y0 + h, x, top)
     d.line(x, top, x + 1.0, top)
+    if rating:
+        vertical_text(d, x - w / 2 - 0.3, y0, rating, style.TEXT_WAY)
+    if style.ISOLATOR_NOTE:
+        d.text(x + w / 2 + 0.3, y0, style.ISOLATOR_NOTE, style.TEXT_ISOLATOR_NOTE, align=LEFT,
+               valign=TOP, rotation=VERTICAL)
     y_text = top + 0.8
-    vertical_text(d, x, y_text, name, style.TEXT_LOAD, center=True)
-    return y_text + vertical_length(name, style.TEXT_LOAD)
+    label = isolator_label(name, kw)
+    d.text(x, y_text, label, style.TEXT_ISOLATOR, align=LEFT, valign=MIDDLE, rotation=VERTICAL)
+    return y_text + isolator_label_length(name, kw)
 
 
 def spare(d, x, y_end, label="SPARE"):
