@@ -61,6 +61,12 @@
       <DockPanel LastChildFill="True">
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
           <Button x:Name="CloseButton" Content="Close" Margin="4,0"/>
+          <TextBlock Text="Socket type" Style="{StaticResource Muted}" VerticalAlignment="Center"
+                     Margin="12,0,6,0"/>
+          <ComboBox x:Name="SocketTypeCombo" Width="260" VerticalAlignment="Center"
+                    ToolTip="Face-based or level-based types of the ticked families"/>
+          <Button x:Name="AddButton" Content="Add missing sockets" Margin="6,0,4,0"
+                  ToolTip="Place a socket on the slab above each FCU of the mechanical link that is in the schedule and has no socket"/>
           <Button x:Name="WriteButton" Content="Write to Revit" Margin="4,0,0,0"
                   Style="{StaticResource PrimaryButton}"
                   ToolTip="Write Real_Power_W on the ticked FCUs (only the parameter already in the model)"/>

@@ -144,3 +144,12 @@ def test_tag_parameter_picked_by_matches(tmp_path):
     m.use_tag_parameter([a, b], "Comments")
     m.match([a, b], rows)
     assert a.status == "No tag in Comments"
+
+
+def test_missing_sockets(tmp_path):
+    t1, _ = _sheets(tmp_path)
+    rows = t1.fcu_rows()
+    units = [(0, 0, 0, "T1-GF-FCU-01"), (5, 0, 0, "T1-GF-FCU-06"), (9, 0, 0, "PUMP-01")]
+    socket = m.Fcu(1, "")
+    socket.linked_unit = 0
+    assert m.missing_sockets(units, [socket], rows) == [1]

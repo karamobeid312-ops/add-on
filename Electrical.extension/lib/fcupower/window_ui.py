@@ -21,12 +21,13 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "WriteButton",
          "BrowseButton", "FileText", "SheetList", "SheetTitle", "TagCombo", "RoomCombo",
          "PowerCombo", "UnitCombo", "SheetInfo", "FamilyList", "KpiWrite", "KpiSame",
          "KpiCheck", "KpiBad", "KpiUnused", "ShowCombo", "SearchText", "ResultGrid",
-         "TagParamCombo")
+         "TagParamCombo", "SocketTypeCombo", "AddButton")
 TEXT_COLUMNS = ("key", "tag", "room", "space", "where", "now", "new", "status", "state")
 NONE_CHOICE = u"(none)"
 SHOW = ((u"all", u"All FCUs"), (u"write", u"To write"), (u"check", u"Check (amber)"),
         (u"bad", u"Problems (red)"), (u"same", u"Already set"),
-        (u"unused", u"Schedule rows not in the model"))
+        (u"unused", u"Schedule rows not in the model"),
+        (u"nosocket", u"Linked FCUs with no socket"))
 
 
 def window_xaml():
@@ -98,6 +99,9 @@ class FcuWindow(object):
         self.fcus, self.unused = [], []
         self.overrides = {}             # FCU key -> write ticked by hand
         self.tag_param = None           # picked by hand; None: the best match
+        self.units = revit.get("units") or []   # linked FCUs (x, y, z, tag)
+        self.missing = []               # indexes in units: in the schedule, no socket
+        self.socket_types = []
         self.tag_params = []
         self.table = None
         self._quiet = False
@@ -126,6 +130,7 @@ class FcuWindow(object):
         self.BrowseButton.Click += self.on_browse
         self.CloseButton.Click += lambda s, e: self.win.Close()
         self.WriteButton.Click += self.on_write
+        self.AddButton.Click += self.on_add
         self.SheetList.SelectionChanged += self.on_sheet
         for combo in (self.TagCombo, self.RoomCombo, self.PowerCombo, self.UnitCombo):
             combo.SelectionChanged += self.on_column
@@ -148,7 +153,22 @@ class FcuWindow(object):
         item.Tag = tag
         return item
 
+    def _fill_socket_types(self):
+        names = sorted(self.ticked_families)
+        types = self.revit["socket_types"](names) if "socket_types" in self.revit else {}
+        current = self.SocketTypeCombo.SelectedItem
+        current = u"%s" % current if current is not None else None
+        self.socket_types = sorted(types)
+        self.SocketTypeCombo.Items.Clear()
+        for label in self.socket_types:
+            self.SocketTypeCombo.Items.Add(label)
+        pick = current if current in self.socket_types else \
+            self.revit["default_type"](self.socket_types, names) if self.socket_types else None
+        if pick in self.socket_types:
+            self.SocketTypeCombo.SelectedIndex = self.socket_types.index(pick)
+
     def _fill_families(self):
+        self._fill_socket_types()
         self.FamilyList.Items.Clear()
         for fam in self.families:
             text = u"%s   (%d, %d with Real_Power_W)" % (fam.name, len(fam.elements), fam.with_param)
@@ -275,6 +295,11 @@ class FcuWindow(object):
         rows = self.schedule_rows()
         self._fill_tag_params(rows)
         self.unused = m.match(self.fcus, rows)
+        linked = m.NO_TAG[0].startswith(u"No linked")
+        self.missing = m.missing_sockets(self.units, self.fcus, rows) if linked else []
+        self.AddButton.Content = u"Add missing sockets (%d)" % len(self.missing)
+        self.AddButton.IsEnabled = bool(self.missing)
+        self.by_tag = m.index_rows(rows)
         for fcu in self.fcus:
             fcu.can = fcu.write
             key = fcu.key
@@ -330,6 +355,8 @@ class FcuWindow(object):
         items = []
         if show == u"unused":
             items = [(row_values(r), False, False) for r in self.unused]
+        elif show == u"nosocket":
+            items = [(self._missing_values(i), False, False) for i in self.missing]
         else:
             order = {m.BAD: 0, m.WARN: 1, m.OK: 2}
             for fcu in sorted(self.fcus, key=lambda f: (order.get(f.state, 3), m.tokens(f.tag))):
@@ -349,7 +376,52 @@ class FcuWindow(object):
         self.table = table
         self.ResultGrid.ItemsSource = table.DefaultView
 
+    def _missing_values(self, index):
+        tag = self.units[index][3]
+        rows = self.by_tag.get(m.tag_key(tag), [])
+        watts = next((r.watts for r in rows if r.watts is not None), None)
+        return {"key": u"unit:%d" % index, "tag": tag, "room": u"",
+                "space": u", ".join(sorted(set(r.room for r in rows if r.room))),
+                "where": u", ".join(r.where for r in rows[:2]), "now": u"",
+                "new": m.watts_text(watts),
+                "status": u"No socket within 3 m: Add missing sockets puts one on the slab",
+                "state": m.WARN}
+
     # ------------------------------------------------------------ events
+
+    def on_add(self, sender, args):
+        from System.Windows import MessageBox, MessageBoxButton, MessageBoxResult
+        label = self.SocketTypeCombo.SelectedItem
+        if not self.missing:
+            return
+        if label is None:
+            self._alert(u"Pick the socket type first (a face-based or level-based type of the "
+                        u"ticked families).")
+            return
+        label = u"%s" % label
+        answer = MessageBox.Show(
+            self.win, u"Add %d socket(s) of type\n%s\non the slab above each FCU that has none?\n\n"
+            u"Their Real_Power_W is filled when you press Write to Revit." % (len(self.missing), label),
+            TITLE, MessageBoxButton.YesNo)
+        if answer != MessageBoxResult.Yes:
+            return
+        self._status(u"Reading the slabs and adding %d socket(s)..." % len(self.missing), "")
+        try:
+            placed, failed = self.revit["add"]([self.units[i] for i in self.missing], label,
+                                              sorted(self.ticked_families))
+        except Exception as error:
+            self._alert(u"No socket was added:\n%s" % error)
+            return
+        self.families = self.revit["reload_families"]()
+        self._fill_families()
+        self.refresh()
+        text = u"%d socket(s) added on the slab. They are listed now; press Write to Revit " \
+            u"to fill their Real_Power_W." % placed
+        if failed:
+            text += u"\n\nNot added:\n" + u"\n".join(u"- %s" % f for f in failed[:30])
+            if len(failed) > 30:
+                text += u"\n(+%d more)" % (len(failed) - 30)
+        self._alert(text)
 
     def on_browse(self, sender, args):
         from Microsoft.Win32 import OpenFileDialog
@@ -390,6 +462,7 @@ class FcuWindow(object):
         keep = self.revit.get("keep_families")
         if keep is not None:
             keep(self.ticked_families)
+        self._fill_socket_types()
         self.refresh()
 
     def on_column(self, sender, args):

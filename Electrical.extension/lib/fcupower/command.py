@@ -44,7 +44,7 @@ def run():
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model to use FCU Power.", exitscript=True)
 
-    from fcupower import revit_fcu
+    from fcupower import place, revit_fcu
     from fcupower.window_ui import show_window
     fams = revit_fcu.families(doc)
     if not fams:
@@ -61,6 +61,12 @@ def run():
         "path": _last_path(),
         "keep_path": _keep_path,
         "families_ticked": _last_families(),
+        "units": linked.units,
+        "socket_types": lambda names: place.socket_types(doc, names),
+        "default_type": lambda labels, names: place.most_used(doc, labels, names),
+        "add": lambda units, label, names: place.add_sockets(
+            doc, units, place.socket_types(doc, names)[label]),
+        "reload_families": lambda: revit_fcu.families(doc),
         "keep_families": _keep_families,
     }
     links = len(models) - 1

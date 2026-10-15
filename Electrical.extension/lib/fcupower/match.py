@@ -80,6 +80,7 @@ class Fcu(object):
         self.can = False            # may be ticked to write (set by the window)
         self.texts = {}             # {parameter name: text}: where the tag may be
         self.linked_distance = None  # m to the linked FCU whose Comments is the tag
+        self.linked_unit = None      # index of that linked FCU
 
     @property
     def room(self):
@@ -200,6 +201,15 @@ def use_tag_parameter(fcus, name):
     for fcu in fcus:
         if fcu.texts:
             fcu.tag = fcu.texts.get(name, u"")
+
+
+def missing_sockets(units, fcus, rows):
+    """Indexes of the linked FCUs (x, y, z, tag) that are in the schedule
+    but have no socket (no socket took them as its nearest FCU)."""
+    taken = set(f.linked_unit for f in fcus if f.linked_unit is not None)
+    keys = set(tag_key(r.tag) for r in rows)
+    return [i for i, unit in enumerate(units)
+            if i not in taken and tag_key(unit[3]) in keys]
 
 
 def summary(fcus, unused):

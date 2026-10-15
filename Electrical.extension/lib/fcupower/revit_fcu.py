@@ -341,22 +341,22 @@ class LinkedFcus(object):
         return floor, (above[0] if above else floor + 6.0 / FEET)
 
     def nearest(self, element):
-        """(comments, distance in m) of the nearest linked FCU on the
-        socket's floor within NEAR, or ('', None)."""
+        """(comments, distance in m, index in units) of the nearest linked
+        FCU on the socket's floor within NEAR, or ('', None, None)."""
         point = _location(element)
         if point is None or not self.units:
-            return u"", None
+            return u"", None, None
         floor, top = self._storey(element)
         best = None
-        for x, y, z, tag in self.units:
+        for i, (x, y, z, tag) in enumerate(self.units):
             if floor is not None and not (floor - 0.3 / FEET <= z < top):
                 continue
             d = ((x - point.X) ** 2 + (y - point.Y) ** 2) ** 0.5
             if d <= NEAR and (best is None or d < best[0]):
-                best = (d, tag)
+                best = (d, tag, i)
         if best is None:
-            return u"", None
-        return best[1], best[0] * FEET
+            return u"", None, None
+        return best[1], best[0] * FEET, best[2]
 
 
 def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=None):
@@ -377,9 +377,10 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=No
                   family=family_name(element), problem=problem)
         fcu.texts = text_values(element)
         if linked is not None:
-            tag, distance = linked.nearest(element)
+            tag, distance, unit = linked.nearest(element)
             fcu.texts[LINKED_TAG] = tag
             fcu.linked_distance = distance
+            fcu.linked_unit = unit
         out.append(fcu)
     return out
 
