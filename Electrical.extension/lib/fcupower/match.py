@@ -14,7 +14,7 @@ OK, WARN, BAD = "ok", "warn", "bad"
 
 FULL, PARTIAL, NONE, UNKNOWN = "full", "partial", "none", "unknown"
 SAME_WATTS = 0.5                 # W: the value already in the model is kept
-TAG_NAME = [u"Comments"]         # the parameter read as the tag (shown in statuses)
+NO_TAG = [u"No tag in Comments"]   # status of an FCU without a tag
 
 
 def tokens(text):
@@ -79,6 +79,7 @@ class Fcu(object):
         self.write = False
         self.can = False            # may be ticked to write (set by the window)
         self.texts = {}             # {parameter name: text}: where the tag may be
+        self.linked_distance = None  # m to the linked FCU whose Comments is the tag
 
     @property
     def room(self):
@@ -107,7 +108,7 @@ def match_one(fcu, by_tag, count_in_model=1):
     """Fill fcu.watts / state / status / write from the schedule rows."""
     fcu.watts, fcu.rows, fcu.write = None, [], False
     if not tag_key(fcu.tag):
-        fcu.state, fcu.status = BAD, u"No tag in %s" % TAG_NAME[0]
+        fcu.state, fcu.status = BAD, NO_TAG[0]
         return fcu
     rows = by_tag.get(tag_key(fcu.tag), [])
     if not rows:
@@ -190,8 +191,12 @@ def tag_parameters(fcus, rows):
     return [(name, filled, found) for name, (filled, found) in order]
 
 
+LINKED_TAG = u"Linked FCU Comments"
+
+
 def use_tag_parameter(fcus, name):
-    TAG_NAME[0] = name
+    NO_TAG[0] = (u"No linked FCU with Comments within 3 m on this floor"
+                 if name == LINKED_TAG else u"No tag in %s" % name)
     for fcu in fcus:
         if fcu.texts:
             fcu.tag = fcu.texts.get(name, u"")

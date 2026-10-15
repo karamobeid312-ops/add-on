@@ -37,7 +37,10 @@ def window_xaml():
 def fcu_values(fcu):
     rows = fcu.rows
     return {
-        "key": u"%d" % fcu.key, "tag": fcu.tag or u"(empty)", "room": fcu.room,
+        "key": u"%d" % fcu.key, "room": fcu.room,
+        "tag": (fcu.tag or u"(empty)") + (u"  (%.1f m)" % fcu.linked_distance
+                                          if fcu.tag and m.NO_TAG[0].startswith(u"No linked")
+                                          and fcu.linked_distance is not None else u""),
         "space": u", ".join(sorted(set(r.room for r in rows if r.room))),
         "where": u", ".join(r.where for r in rows[:2]) + (u" ..." if len(rows) > 2 else u""),
         "now": m.watts_text(fcu.current), "new": m.watts_text(fcu.watts),
@@ -86,7 +89,9 @@ class FcuWindow(object):
     def __init__(self, revit, model_text=u""):
         self.revit = revit
         self.families = revit["families"]
-        self.ticked_families = set(f.name for f in self.families if f.default)
+        kept = set(revit.get("families_ticked") or [])
+        names = set(f.name for f in self.families)
+        self.ticked_families = (kept & names) or set(f.name for f in self.families if f.default)
         self.sheets = []
         self.ticked_sheets = set()
         self.current = None             # the sheet whose columns are shown
@@ -382,6 +387,9 @@ class FcuWindow(object):
             self.ticked_families.add(sender.Tag)
         else:
             self.ticked_families.discard(sender.Tag)
+        keep = self.revit.get("keep_families")
+        if keep is not None:
+            keep(self.ticked_families)
         self.refresh()
 
     def on_column(self, sender, args):

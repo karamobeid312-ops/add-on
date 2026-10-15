@@ -297,7 +297,69 @@ def _set_watts(param, watts):
 
 # ---------------------------------------------------------------- FCUs
 
-def read_fcus(doc, fams, models, rooms_cache, elements, progress=None):
+# ---------------------------------------------------------------- linked FCUs
+
+LINKED_TAG = u"Linked FCU Comments"
+NEAR = 3.0 / FEET               # how far the linked FCU may be from the socket (plan)
+
+
+class LinkedFcus(object):
+    """The FCUs (mechanical equipment with Comments) of the loaded links,
+    in this model's coordinates; each socket takes the nearest one on its
+    floor."""
+
+    def __init__(self, doc):
+        from Autodesk.Revit.DB import BuiltInCategory, Level
+        self.units = []                 # (x, y, z, comments)
+        for link in FilteredElementCollector(doc).OfClass(RevitLinkInstance):
+            try:
+                link_doc = link.GetLinkDocument()
+                to_host = link.GetTotalTransform()
+            except Exception:
+                continue
+            if link_doc is None:
+                continue
+            for element in FilteredElementCollector(link_doc) \
+                    .OfCategory(BuiltInCategory.OST_MechanicalEquipment) \
+                    .WhereElementIsNotElementType():
+                tag = comments(element)
+                point = _location(element) if tag else None
+                if point is not None:
+                    p = to_host.OfPoint(point)
+                    self.units.append((p.X, p.Y, p.Z, tag))
+        self.levels = sorted(l.Elevation for l in FilteredElementCollector(doc).OfClass(Level))
+
+    def _storey(self, element):
+        floor = _floor(element)
+        if floor is None:
+            point = _location(element)
+            below = [e for e in self.levels if point is not None and e <= point.Z + 0.01]
+            floor = below[-1] if below else None
+        if floor is None:
+            return None, None
+        above = [e for e in self.levels if e > floor + 1.0 / FEET]
+        return floor, (above[0] if above else floor + 6.0 / FEET)
+
+    def nearest(self, element):
+        """(comments, distance in m) of the nearest linked FCU on the
+        socket's floor within NEAR, or ('', None)."""
+        point = _location(element)
+        if point is None or not self.units:
+            return u"", None
+        floor, top = self._storey(element)
+        best = None
+        for x, y, z, tag in self.units:
+            if floor is not None and not (floor - 0.3 / FEET <= z < top):
+                continue
+            d = ((x - point.X) ** 2 + (y - point.Y) ** 2) ** 0.5
+            if d <= NEAR and (best is None or d < best[0]):
+                best = (d, tag)
+        if best is None:
+            return u"", None
+        return best[1], best[0] * FEET
+
+
+def read_fcus(doc, fams, models, rooms_cache, elements, progress=None, linked=None):
     """[Fcu] of the ticked families (rooms cached by element id; `elements`
     gets {element id: element} for writing)."""
     out = []
@@ -314,6 +376,10 @@ def read_fcus(doc, fams, models, rooms_cache, elements, progress=None):
         fcu = Fcu(key, comments(element), number, name, read_watts(param),
                   family=family_name(element), problem=problem)
         fcu.texts = text_values(element)
+        if linked is not None:
+            tag, distance = linked.nearest(element)
+            fcu.texts[LINKED_TAG] = tag
+            fcu.linked_distance = distance
         out.append(fcu)
     return out
 

@@ -50,7 +50,7 @@
                    TextAlignment="Right" VerticalAlignment="Center"/>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Text="FCU Power" Style="{StaticResource HeaderTitle}"/>
-          <TextBlock Text="Real_Power_W of the FCUs from the mechanical schedule (tag = Comments or the parameter you pick)"
+          <TextBlock Text="Real_Power_W of the FCUs from the mechanical schedule (tag = Comments of the nearest FCU in the mechanical link)"
                      Style="{StaticResource HeaderSub}"/>
         </StackPanel>
       </DockPanel>
