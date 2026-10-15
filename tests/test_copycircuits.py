@@ -265,3 +265,14 @@ def test_circuit_groups_to_pick_by():
     data = Circuit(3, "Data", [3])
     assert groups([data, power, lights, power]) == [("Lighting", 1), ("Power", 2), ("Data", 1)]
     assert circuit_label(lights) == "Lighting | DB-1 / 3 | LTG - LOBBY"
+
+
+def test_circuits_picked_by_the_family_they_feed():
+    from copycircuits.plan import circuit_label, families
+    fcu = Circuit(1, "PowerCircuit", [1], panel_name="LDB-B", number="1", group="Power",
+                  families=["FCU Socket", "FCU Socket", ""])
+    sockets = Circuit(2, "PowerCircuit", [2, 3], group="Power",
+                      families=["Twin Socket", "FCU Socket"])
+    assert fcu.families == ["FCU Socket"]
+    assert families([fcu, sockets]) == [("FCU Socket", 2), ("Twin Socket", 1)]
+    assert circuit_label(fcu) == "Power | LDB-B / 1 | FCU Socket"

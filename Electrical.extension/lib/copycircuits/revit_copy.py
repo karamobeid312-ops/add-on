@@ -243,7 +243,7 @@ def read_source(doc, level, only=None, circuits=None):
             panel=id_int(panel.Id) if panel is not None else None, panel_here=panel_here,
             slot=slot, panel_name=system.PanelName or "", number=system.CircuitNumber or "",
             group=plan.circuit_group(_kind(system), [_is_lighting(e) for e in on_floor]),
-            load_name=_load_name(system)))
+            load_name=_load_name(system), families=[_family_name(e) for e in on_floor]))
         source.systems[key] = system
         if panel is not None:
             source.panels[id_int(panel.Id)] = panel
@@ -257,6 +257,13 @@ def read_source(doc, level, only=None, circuits=None):
                     source.items.append(item)
     source.by_height = len(odd)
     return source
+
+
+def _family_name(element):
+    try:
+        return element.Symbol.Family.Name
+    except Exception:
+        return ""
 
 
 def _load_name(system):

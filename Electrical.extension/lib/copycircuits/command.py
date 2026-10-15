@@ -42,8 +42,9 @@ ONE_BY_ONE = "Pick circuits one by one..."
 
 
 def _pick_circuits(doc, source, view):
-    """Keys of the circuits to copy: by kind (Lighting, Power...), those shown
-    in the active plan, or picked one by one. None: cancelled."""
+    """Keys of the circuits to copy: by kind (Lighting, Power...), by the
+    family they feed (an FCU socket...), those shown in the active plan, or
+    picked one by one. None: cancelled."""
     circuits = source.circuits
     options, keys = [], {}
     for group, count in plan.groups(circuits):
@@ -57,6 +58,10 @@ def _pick_circuits(doc, source, view):
             text = "Circuits shown in this plan, %s (%d)" % (view.Name, len(here))
             options.append(text)
             keys[text] = here
+    for family, count in plan.families(circuits):
+        text = "Feeding %s (%d)" % (family, count)
+        options.append(text)
+        keys[text] = set(c.key for c in circuits if family in c.families)
     if len(options) < 2:
         return set(c.key for c in circuits)
     options.append(ONE_BY_ONE)
