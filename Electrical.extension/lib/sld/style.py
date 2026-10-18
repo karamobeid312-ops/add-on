@@ -143,15 +143,13 @@ RISER_BAR_WIDTH = 3.0       # the bar, its label reading up inside
 RISER_ABOVE_CONTENT = 4.0   # board's highest way content -> bottom of the bar
 RISER_FIRST_TAP = 6.0       # bar bottom -> lowest tap-off
 RISER_TOP_MARGIN = 4.0      # highest tap-off / board -> bar top
-RISER_GAP = 6.0             # one riser's bar top -> next riser's bar bottom
-TAP_PITCH = 10.0            # between typical tap-offs
+RISER_GAP = 6.0             # boards on one riser -> the next riser's bar
+RISER_TURN_PITCH = 3.0      # two risers off one board: between their turns to the bar
 TAP_UNIT_W = 2.8            # tap-off unit on the bar's side
 TAP_UNIT_H = 1.4
 TAP_LINE = 11.0             # tap-off unit -> typical box
 TAP_BOX_PAD = 0.8
 TAP_TO_BOARD = 5.0          # tap-off line -> bottom of a board drawn in full
-TAP_BOARD_GAP = 8.0         # typical boxes -> boards drawn in full
-TAP_BOARD_STACK = 6.0       # a full board's content -> next tap-off above
 TYPICAL_TEXT = "DB SAME AS %s"
 
 # ---------------------------------------------------------------- transfer switch (ATS)

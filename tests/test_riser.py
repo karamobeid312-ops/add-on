@@ -57,7 +57,7 @@ def test_missing_source_is_a_warning():
     assert s.risers == [] and "MDB-99" in warnings[0]
 
 
-def test_riser_layout_compact_and_clear():
+def test_riser_boards_drawn_on_their_own_floors():
     for connected in (False, True):
         s, _ = tower(connected=connected)
         lay = layout_schematic(s)
@@ -66,15 +66,25 @@ def test_riser_layout_compact_and_clear():
         mdb = lay.geoms["mdb"]
         block = mdb.riser_blocks[0]
         assert block.bottom > mdb.top
+        labels = [label for label, _ in lay.bands]
+        assert labels[:2] == ["SUBSTATION", "GROUND FLOOR"]
+        floor_y = dict(lay.bands)
+        names = ["1ST FLOOR", "2ND FLOOR", "3RD FLOOR", "4TH FLOOR", "5TH FLOOR", "6TH FLOOR"]
+        assert all(n in floor_y for n in names)
+        ys = block.tap_ys()
+        assert ys == sorted(ys)
+        # each tap-off between its floor line and the next one up
+        ordered = sorted(floor_y.values())
+        for (tap, g, _), y in zip(block.items, ys):
+            fy = floor_y[tap.board.equipment.level_name.upper()]
+            above = [v for v in ordered if v > fy]
+            assert fy < y and (not above or y < above[0]), tap.board.name
         master = lay.geoms["t1"]
-        assert master.left > block.box_left() + block.box_width     # beside the typicals
+        assert master.left > block.x
         assert block.bottom < master.bottom < block.top
-        # the tower floors make no floor bands: only SUBSTATION and the podium floor
-        assert [label for label, _ in lay.bands] == ["SUBSTATION", "GROUND FLOOR"]
-        assert lay.bands[1][1] > block.top
 
 
-def test_two_risers_stack_without_crossing():
+def test_two_risers_side_by_side_without_crossing():
     s = build_schematic(*sample_tower.build(connected=True, tower_floors=8))
     specs = [dict(name="RISER-1", rating="1000", fault="50", source="MDB-01",
                   taps=[dict(board="SMDB-T-%d" % f, typical="" if f == 1 else "SMDB-T-1")
@@ -85,8 +95,8 @@ def test_two_risers_stack_without_crossing():
     assert rs.apply_risers(s, specs) == []
     lay = layout_schematic(s)
     b1, b2 = sorted(lay.geoms["mdb"].riser_blocks, key=lambda b: b.x)
-    assert b2.top < b1.bottom            # the right riser sits lower
-    assert b1.x < b2.x
+    assert b2.x > b1.right()             # right of the boards on the first riser
+    assert b2.bottom < b1.bottom         # the right riser turns off lowest
     assert not overlaps(lay.drawing)
 
 

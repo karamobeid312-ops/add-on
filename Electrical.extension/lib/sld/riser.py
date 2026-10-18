@@ -3,8 +3,8 @@
 instead of each by its own cable (office SLD 2506 0EE 320).
 
 A riser is fed from one way of a board (normally the MDB). The boards on
-it are taken out of the normal floor-by-floor drawing and drawn on the
-riser instead, in floor order. A board marked "typical of" another is drawn
+it are taken off their feeders and drawn on the riser instead, each on
+its own floor. A board marked "typical of" another is drawn
 as a box "SMDB-T-6 / DB SAME AS SMDB-T-1"; the others are drawn in full.
 
 Risers are typed in Power Studio and kept per project (sld.settings); no

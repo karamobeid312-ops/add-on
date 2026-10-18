@@ -85,12 +85,12 @@ set in `style.py`.
     one riser way, or one way is added on the SLD. Its rating is the
     smallest standard bus bar taking the sum of the tap-offs (each the
     board's incomer: 6 x 160A -> 1000A), its fault level the source's. On
-    the SLD it is drawn compact above that way, as the office LV riser: a
-    tall bar labelled `1000A TPN+E COPPER BUS BAR RISER-1 432.00KW 50KA`
-    (connected load), the tap-offs in floor order, the full boards beside
-    the typical boxes with the tap-off cable (the way that fed it, else
-    `Feeder_Size` / `Feeder_Type` / `Feeder_Length_m`) under the line; the
-    tower floors get no floor band. Kept for the model in Power Studio
+    the SLD a bar labelled `1000A TPN+E COPPER BUS BAR RISER-1 432.00KW
+    50KA` (connected load) runs up from that way through the floors, as the
+    office LV riser: each tap-off on its board's floor, the board in full
+    (or its typical box) beside the bar, with the tap-off cable (the way
+    that fed it, else `Feeder_Size` / `Feeder_Type` / `Feeder_Length_m`)
+    under the line. Other boards on those floors keep clear of it. Kept for the model in Power Studio
     (pyRevit settings): nothing is written to Revit.
   - **Fed from** (board fields): for a board no circuit in this model feeds
     (its MDB is in another link), the board feeding it, saved to the panel's
