@@ -54,9 +54,11 @@ _SYMBOL_WAYS = {
     "ISOLATOR": ISOLATOR, "LOAD": ISOLATOR, "SPARE": SPARE, "PFC": PFC,
     "DB": DB_BOX,
 }
-_PFC_RE = re.compile(r"\bPFC\b|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
-_ATS_RE = re.compile(r"\bATS\b|TRANSFER\s*SWITCH|CHANGE\s*-?\s*OVER", re.IGNORECASE)
-_GEN_RE = re.compile(r"GENERATOR|GENSET|GEN\s*SET|^GEN\b|^G-?\d+$", re.IGNORECASE)
+# 'PFC1', 'ATS-2', 'GEN1': a number straight after the name still counts
+_PFC_RE = re.compile(r"(?<![A-Z])PFC(?![A-Z])|POWER\s*FACTOR|CAPACITOR", re.IGNORECASE)
+_ATS_RE = re.compile(r"(?<![A-Z])ATS(?![A-Z])|TRANSFER\s*SWITCH|CHANGE\s*-?\s*OVER",
+                     re.IGNORECASE)
+_GEN_RE = re.compile(r"GENERATOR|GENSET|GEN\s*SET|^GEN(?![A-Z])|^G-?\d+$", re.IGNORECASE)
 _PASS_THROUGH = (UPS, TRANSFORMER, ATS)
 _POLES = {1: "SP", 2: "DP", 3: "TP", 4: "TPN"}
 _AMPS_RE = re.compile(r"\d+(?:[.,]\d+)?")

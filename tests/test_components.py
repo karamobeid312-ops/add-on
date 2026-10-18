@@ -199,3 +199,18 @@ def test_db_boxes_on_a_board_line_up(monkeypatch):
     layout_schematic(build_schematic(eq, c))
     assert set(names) <= set(drawn)
     assert len(set(drawn[n] for n in names)) == 1      # same bottom and top
+
+
+def test_pfc_named_with_a_number_is_not_a_board():
+    # 'PFC1' (no space or dash) with its own circuits, as the user's model
+    eq, c = sample_tower.build(tower_floors=0)
+    eq += [EquipmentInfo("pfc1", "PFC1", "Ground Floor", 0.0, family_name="Panelboard"),
+           EquipmentInfo("ats1", "ATS1", "Ground Floor", 0.0, family_name="Panelboard")]
+    c += [CircuitInfo("c-pfc1", "mdb", "3", rating="250", poles="3", fed_equipment_ids=["pfc1"]),
+          CircuitInfo("c-p1", "pfc1", "1", "STEP 1", rating="63", poles="3"),
+          CircuitInfo("c-ats1", "mdb", "4", rating="250", poles="3", fed_equipment_ids=["ats1"])]
+    s = build_schematic(eq, c)
+    assert "PFC1" not in [b.name for b in s.boards()]
+    assert "ATS1" not in [b.name for b in s.boards()]
+    mdb = next(b for b in s.boards() if b.name == "MDB-01")
+    assert dict((w.name, w.kind) for w in mdb.ways)["PFC1"] == PFC
