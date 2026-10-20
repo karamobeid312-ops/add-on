@@ -9,13 +9,12 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with five panels:
+Everything is on one **Electrical** ribbon tab, with four panels:
 
 | Panel | Buttons |
 | --- | --- |
-| **SLD** | Generate SLD, SLD Settings |
+| **Power** | Power Studio: the LV schematic, feeder sizing and the voltage drop of every cable in one window, see [Power Studio](#power-studio) and [Voltage drop](#voltage-drop) |
 | **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops, addresses them and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops), [Addresses](#addresses) and [Fire alarm riser](#fire-alarm-riser) |
-| **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
 
@@ -35,13 +34,36 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | **Feeders between boards** | Risers straight up from the way, jogging around any board in the way and lining up under the fed board's incomer. |
 | **Ratings** (optional) | Breaker rating and BS/IEC cable along each way, e.g. `63A TP` / `4Cx16mm² Cu/XLPE/PVC` / `+ 1Cx16mm² Cu/XLPE/PVC`. |
 
-Buttons on the **Electrical** tab → **SLD** panel:
+## Power Studio
 
-- **Generate SLD** – opens the **LV Schematic Editor**: the boards tree on
-  the left and the selected board's ways in a table you can edit: breaker AT /
+**Electrical** tab → **Power** → **Power Studio** opens one window in the
+tab's shared look (dark header, amber for power, green / amber / red status
+everywhere). Its footer holds Close, **Auto Size**, **Export V.D report**,
+**Save to Revit** and **Draw SLD**; the footer line lists what needs a look.
+**Draw SLD** updates the drafting view "LV Schematic Diagram" in place (it
+stays on its sheets): only the tool's own drawing (lines in its "SLD ..."
+line styles, text in its "SLD ..." text types) is replaced, anything added
+by hand stays. A view drawn by an older version is cleared once. Settings
+→ "Draw SLD in a new view each time" brings back a new view per run. The
+diagram is drawn to fill the sheet chosen in Settings (A1 by default; about
+78 % of its width and 85 % of its height, leaving the title block strip):
+lines and text are scaled together (between half and 5 times the base
+size), so a small SLD is not lost on an A1 sheet. "Actual size" draws it as
+set in `style.py`.
+
+1. **Boards and ways** – the boards tree on the left, each board with a
+   green (OK), amber (check the board: too many ways) or red (a way is over
+   the V.D limit or has a wrong value) dot. Above the selected board's ways:
+   tiles with its connected load, demand load, incomer, the worst V.D on
+   its ways and its **phase unbalance** (connected kW on R, Y and B: a
+   single-pole way on its phase as numbered R9 / Y9 / B9, a three-pole way a
+   third on each; unbalance = the largest phase's difference from the
+   average; amber above 10 %, red above 20 %, both in Settings, and the
+   board's dot follows). The phase is not drawn on the SLD. The ways are in
+   a table you can edit (a Phase column shows R / Y / B / RYB): breaker AT /
   AF / type, cable runs, cores, size, Cu/Al, insulation, armour, earth size
   and length. The V.D % is worked out again with the Voltage Drop tool as you
-  type (red over the limit), and a preview line shows the cable as it prints:
+  type (a green / red chip), and a preview line shows the cable as it prints:
   `(4X120)mm² CU/XLPE/SWA/PVC +(1X70)mm² CU/PVC(E)`. Board fields: incomer,
   fault level, ways and spares (count and breaker; drawn only, the Revit panel
   schedule is not changed).
@@ -53,6 +75,23 @@ Buttons on the **Electrical** tab → **SLD** panel:
     table gives a breaker range (60-80, 225-250) the lower rating is used for
     the lower half of the kW range. Sized rows turn green until saved; a V.D
     over the limit is only flagged.
+  - **Bus bar riser** (board fields, SMDBs and other boards, not main
+    boards): tick it for a board fed by a tap-off on a bus bar riser
+    (high-rise towers) instead of its own cable; pick the riser (`RISER-1`,
+    `RISER-2`...) and, for a typical floor, **Typical of** (drawn as a box
+    `SMDB-T-6 / DB SAME AS SMDB-T-1 / @ 6TH FLOOR`; the others in full).
+    The riser is fed from the board that fed its first board (a circuit or
+    `Fed_By`), else the main board; ways that fed its boards are drawn as
+    one riser way, or one way is added on the SLD. Its rating is the
+    smallest standard bus bar taking the sum of the tap-offs (each the
+    board's incomer: 6 x 160A -> 1000A), its fault level the source's. On
+    the SLD a bar labelled `1000A TPN+E COPPER BUS BAR RISER-1 432.00KW
+    50KA` (connected load) runs up from that way through the floors, as the
+    office LV riser: each tap-off on its board's floor, the board in full
+    (or its typical box) beside the bar, with the tap-off cable (the way
+    that fed it, else `Feeder_Size` / `Feeder_Type` / `Feeder_Length_m`)
+    under the line. Other boards on those floors keep clear of it. Kept for the model in Power Studio
+    (pyRevit settings): nothing is written to Revit.
   - **Fed from** (board fields): for a board no circuit in this model feeds
     (its MDB is in another link), the board feeding it, saved to the panel's
     `Fed_By`. A panel's `Fed_By` is only used when no circuit feeds it. A
@@ -72,13 +111,62 @@ Buttons on the **Electrical** tab → **SLD** panel:
     read-only (formula or type) ones are listed as not written. A board's
     incomer is its `Upstream_Protection_Rating_A` / `_Type` (the breaker
     feeding it), so changing it changes that way's breaker too.
-  - **Generate SLD** saves any changes and creates a new drafting view
+  - **Save to Revit** also writes `VD Percent` / `VD Total Percent` where
+    those parameters are in the model.
+  - **Draw SLD** saves any changes and creates a new drafting view
     `LV Schematic Diagram` (`LV Schematic Diagram 2`, ... on later runs;
     earlier diagrams are never overwritten). The view is 1:1, so sizes match
     the printed sheet; place it on your A1 title block sheet.
-- **SLD Settings** – opens the same editor; its **Settings** tab holds the
-  utility name (`TAQA`), bottom band label (`SUBSTATION`), ratings on/off and
-  way numbering (ways in order, or Revit circuit numbers).
+2. **Voltage drop** – every cable of the model, from the transformer down,
+   with the values typed in the window (unsaved changes included): tiles
+   with the number of cables OK, failed and incomplete and the highest
+   cumulative V.D, a **To fix** list (missing lengths, cable sizes, loads,
+   breakers), and the table S.N, From, To, length, cable, In, Ib, V.D %,
+   total V.D %, limit, a result chip and the remarks (e.g. `V.D 5.52% > 4%;
+   use 4Cx25mm²`). Search by board or load, or show problems only;
+   double-click a cable to open the board it starts from. **Export V.D
+   report** saves the office sheet (Excel, then PDF made by Excel) of these
+   values, see [Voltage drop](#voltage-drop).
+3. **Settings** – SLD drawing: utility name (`TAQA`), bottom band label
+   (`SUBSTATION`), ratings on/off and way numbering (ways in order, or Revit
+   circuit numbers). Voltage drop and report: voltages, power factor, demand
+   (MDL) or connected (TCL) load, limits, default cable and installation,
+   derating values and the report title block. **Apply settings** works the
+   voltage drop out again; way numbering, the voltage and power factor
+   sources, the power factor and the load basis are read with the model, so
+   the window reads the model again for them.
+
+PFC banks and transfer switches are components, not boards: equipment
+named or of a family with PFC / POWER FACTOR / CAPACITOR is drawn as the
+PFC symbol at the end of its way, and ATS / TRANSFER SWITCH / CHANGEOVER
+as the office ATS box (switch inside, `630A,4P`, location) between the way
+feeding it and the board it feeds; an ATS with no supply in the model is
+drawn under the board it feeds, in the substation band. `SLD Symbol` = ATS
+or PFC forces it.
+
+**Transformer and PFC (typed).** Board fields are grouped as Incomer,
+Spares and Supply; Supply shows Transformer / PFC / Generator / Transformer
+V.D % on an MDB or EMDB, and Fed from / Bus bar riser on other boards.
+Tick **Transformer** (then **Edit...**) to draw a transformer under the
+board: name, kVA, voltage, type, the cable to the board and the MV cable
+text are all typed by hand; the board is drawn as a main board with the
+MV cable and its sealing end above FROM TAQA. Tick **PFC** to add a power
+factor correction bank on a new way before the spares (kVAR, breaker AT and
+cable typed by hand). Both are kept in Power Studio only (nothing is
+written to Revit). An EMDB with both a transformer and a generator takes
+its normal supply from that transformer.
+
+**Standby generator.** In Power Studio, **+ Generator** on a life safety
+board (EMDB) adds a generator (G-01, G-02...), kept per project in Power
+Studio only (nothing is written to Revit). On the SLD the board is drawn in
+the substation band beside the board feeding it, with an ATS under its
+incomer: the normal supply comes from that board's way into the ATS from
+the left, the generator from the bottom (`G` circle, `G-01 PRIME
+GENERATOR / 0.4kV, 50Hz, 1500 RPM / 300 kVA`, two earth pits with
+`2C 150mm² CU CABLE`). Size: CL (kW) x 1.2 to kVA, x 1.2 margin, then the
+next standard rating. Generator equipment in the model (GEN / GENERATOR /
+GENSET, or `SLD Symbol` = GEN) is never drawn as a panel; one feeding a
+board or its ATS is drawn the same way.
 
 ## How the model is read
 
@@ -378,22 +466,21 @@ pairs on one loop, the roof with typical floor 11.*
 
 ## Voltage drop
 
-The **Voltage Drop** panel of the **Electrical** tab:
+The voltage drop is on the **Voltage drop** step of [Power Studio](#power-studio):
 
-- **Calculate VD** – calculates the incoming cable of every panel, from the
-  transformer down, and every final circuit with a length. Writes
-  `VD Percent` and `VD Total Percent` on each panel and lists the results
-  in the output window: first a **To fix** list of what is missing in the
-  model (lengths, cable sizes, loads, breaker ratings), then every cable
-  that fails with the breaker or cable that would pass (e.g. `V.D 5.52% >
-  4%; use 4Cx25mm²`). Click an element id to select the panel.
-- **VD Report** – saves the calculation as an Excel file in the office
+- It calculates the incoming cable of every panel, from the transformer
+  down, and every final circuit with a length, and lists a **To fix** list
+  of what is missing in the model (lengths, cable sizes, loads, breaker
+  ratings) and every cable that fails with the breaker or cable that would
+  pass (e.g. `V.D 5.52% > 4%; use 4Cx25mm²`). **Save to Revit** writes
+  `VD Percent` and `VD Total Percent` where those parameters exist.
+- **Export V.D report** saves the calculation as an Excel file in the office
   voltage drop sheet format (S.N, FROM, TO, DISTANCE ... CUMULATIVE V.D (%),
   MAX V.D %) with a REMARKS column, and next to it the same report as PDF
   (saved by Excel, A3 landscape, page numbers), and opens the PDF. The
   Excel cells hold formulas, so a length or load changed in Excel updates
   the voltage drop. The PDF needs Microsoft Excel on the computer.
-- **VD Settings** – voltages (400 / 230 V, or the model's), power factor (0.85, or the model's), demand (MDL) or
+- The **Settings** step holds the voltages (400 / 230 V, or the model's), power factor (0.85, or the model's), demand (MDL) or
   connected (TCL) load, limits, default cable and installation, derating
   values and the report title block (company, revision, issue).
 
@@ -401,16 +488,15 @@ The SLD is not changed.
 
 ### Typing the lengths
 
-Everything about a panel's incoming cable is typed on the **panel**. The
-first time you click **Calculate VD** it offers to add these instance
-parameters, and a **Voltage Drop Panels** schedule (panel name, supply
-from, MCB rating, mains, demand load and the VD parameters) where you type
-every length in one place:
+Everything about a panel's incoming cable is typed on the **panel**: its
+`Feeder_Length_m`, `Feeder_Size` and `Feeder_Type`, or these instance
+parameters where the model has them (the add-ins never add parameters to
+the project):
 
 | Parameter | Type | On | What you type |
 | --- | --- | --- | --- |
 | `VD Length` | Text | panels, circuits, electrical and lighting fixtures, mechanical equipment | length of the incoming cable in metres: `175`, `175 m` (also `mm`, `ft`) |
-| `VD Installation` | Text | panels, circuits | `Cable Tray`, `Duct Bank` or `Ground`; empty = VD Settings |
+| `VD Installation` | Text | panels, circuits | `Cable Tray`, `Duct Bank` or `Ground`; empty = the voltage drop settings |
 | `VD Cable` | Text | panels, circuits | when Revit's wire size is not the cable: `4Cx16`, `4x4Cx300`, `11x1Cx630 XLPE/SWA/PVC` |
 | `VD Load kW` | Text | panels, circuits | only to override the load: the maximum demand in kW |
 | `VD PF` | Text | panels, circuits | only to override the power factor: `0.9` or `90%` |
@@ -435,14 +521,14 @@ For a panel's incoming cable:
 | --- | --- |
 | FROM / TO | Supply From (the board feeding it) / Panel Name |
 | PHASE | the panel's distribution system |
-| VOLTAGE | 400 V three phase / 230 V single phase from VD Settings, as the office sheet; or, if VD Settings says so, the panel's distribution system |
+| VOLTAGE | 400 V three phase / 230 V single phase from the voltage drop settings, as the office sheet; or, if the voltage drop settings say so, the panel's distribution system |
 | TCL (kW) | Total Connected, as in the model (Revit's kVA x the power factor of the panel's own loads: loads entered in kW at PF 1 give the same number) |
-| MDL (kW) | `VD Load kW`, or Total Estimated Demand the same way (with MDL in VD Settings), else TCL |
+| MDL (kW) | `VD Load kW`, or Total Estimated Demand the same way (with MDL in the voltage drop settings), else TCL |
 | MDL (kVA) | MDL (kW) / PF, with the PF below |
-| PF | 0.85 from VD Settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (VD Settings) the panel's own loads: true load / apparent load of its circuits |
+| PF | 0.85 from the voltage drop settings on every cable, as the office sheet; `VD PF` typed on a panel overrides it. Optionally (the voltage drop settings) the panel's own loads: true load / apparent load of its circuits |
 | Breaker rating | the panel's `Upstream_Protection_Rating_A` / `Upstream_Protection_Type` only, e.g. `40AT/100AF` + `MCCB` (MCB Rating, Mains and the feeding circuit's Rating are not used) |
 | Runs, cores, CSA | `VD Cable`, else `SLD Incoming Cable`, else the feeding circuit's wire size (Revit keeps it only there) |
-| Insulation | from `VD Cable`, else VD Settings (XLPE/SWA/PVC) |
+| Insulation | from `VD Cable`, else the voltage drop settings (XLPE/SWA/PVC) |
 
 A final circuit is read from the circuit (its panel, load, rating, poles,
 voltage, wire size), with the length from its loads.
@@ -643,11 +729,10 @@ draws the dimension strings of the sample rooms with their detectors.
 ```
 Electrical.extension/
   Electrical.tab/
-    SLD.panel/            Generate SLD, SLD Settings
+    Power.panel/          Power Studio
     Fire Alarm.panel/     Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices,
                           FA Riser, FA Settings
   FA shared parameters.txt   the FA Address shared parameter
-    Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
   lib/sld/
@@ -658,8 +743,15 @@ Electrical.extension/
     style.py       the drawing standard: sizes, text heights, fixed labels
     cables.py      BS / IEC cable descriptions
     revit_sld.py   reads the Revit model, draws into a drafting view
+    editor.py      Power Studio data: ways, edits, Auto Size, V.D recalculation (no Revit)
+    studio.py      board status and tiles, the V.D table, the settings form (no Revit)
+    editor_ui.py   the Power Studio window (editor.xaml)
+    revit_edit.py  Save to Revit: changes into the parameters already in the model
     settings.py    per-user settings
-    command.py     button entry points
+    command.py     Power Studio entry point, save, report
+  lib/elecui/
+    theme.xaml     the tab's shared window look (header, step tabs, chips, buttons)
+    __init__.py    loads a window with the theme in a tool's colour
   lib/firealarm/
     layout.py      detector points in a space outline (no Revit)
     revit_fa.py    spaces (here or in links), ceilings found by ray, placing
@@ -684,7 +776,6 @@ Electrical.extension/
     xlsx.py        small .xlsx writer (standard library only)
     revit_vd.py    panels and circuits to rows, results to parameters, setup
     settings.py    per-user settings
-    command.py     button entry points
   lib/dims/
     chains.py      rows, columns and walls to dimension strings (no Revit)
     report.py      summary shown after dimensioning
@@ -708,5 +799,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims` and `lib/wallcheck` compatible with Python
+Keep code in `lib/elecui`, `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims` and `lib/wallcheck` compatible with Python
 2.7 (no f-strings, no type hints) so it runs in pyRevit's IronPython engine.

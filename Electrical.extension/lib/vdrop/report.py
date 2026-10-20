@@ -357,6 +357,9 @@ def _row(sheet, r, row, parent_row, styles):
                               _blank(row.vd_percent)),
         "limit": row.limit, "basis": row.basis, "remarks": row.remarks(), "mv": None,
     }
+    if f.typed_vd is not None:            # typed by hand: the value, no formula
+        values["vd"] = None
+        values["vd_percent"] = row.vd_percent
     if row.mv_row is not None:
         # table value (three phase), per run
         mv_text = format_number(row.mv_table, 4) + ("*2/SQRT(3)" if row.phases == 1 else "")

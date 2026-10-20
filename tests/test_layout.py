@@ -88,9 +88,9 @@ def test_main_board_details_present():
     lay = sample_layout()
     texts = [t.text for t in lay.drawing.texts]
     for expected in ("MDB-1", "1600AT", "1600AF\nACB", "SPD", "3NO", u"R<1Ω", "TR-01",
-                     "FROM TAQA", "MV CABLE FROM TAQA",
+                     "FROM TAQA", "ADDC\nMETER", "1600A/5A",
                      "1600A,3PH+N+E,50kA FOR 1 SEC\nFORM4-TYPE6\nLOCATION: LV ROOM",
-                     u"(7 SC 630mm²", "POWER FACTOR CORRECTION"):
+                     u"7 SC 630mm² Cu/XLPE/AWA/PVC", "POWER FACTOR CORRECTION"):
         assert expected in texts, expected
     assert ("250A,3PH+N+E,35kA FOR 1 SEC\nFORM 2b, 18 WAYS\nLOCATION: ELEC. ROOM GF-48"
             "\n@ GROUND FLOOR") in texts
@@ -121,9 +121,9 @@ def test_load_names_are_vertical():
 
 
 def test_cable_label():
-    assert _cable_label(u"7 SC 630mm² Cu/XLPE/AWA/PVC") == u"(7 SC 630mm²\nCu/XLPE/AWA/PVC)"
+    assert _cable_label(u"7 SC 630mm² Cu/XLPE/AWA/PVC") == u"7 SC 630mm² Cu/XLPE/AWA/PVC"
     assert _cable_label(u"4Cx4mm² Cu/XLPE/PVC + 1Cx4mm² Cu/XLPE/PVC") == \
-        u"(4Cx4mm² Cu/XLPE/PVC\n+ 1Cx4mm² Cu/XLPE/PVC)"
+        u"4Cx4mm² Cu/XLPE/PVC\n+ 1Cx4mm² Cu/XLPE/PVC"
 
 
 def test_text_box_rotation():
@@ -285,3 +285,59 @@ def test_unconnected_boards_on_their_floor_and_only_mdb_from_utility():
     assert "LIGHTS" not in texts                      # nothing inside a DB is drawn
     assert "DB-SF-01" in texts
     assert overlaps(lay.drawing) == []
+
+
+def test_feeder_cable_text_ends_below_the_next_floor_line():
+    """A main board with only a feeder way: its cable text stays under the
+    floor line of the board it feeds (user screenshot, MDB-01 -> SMDB-01)."""
+    from sld import style
+    from sld.model import CircuitInfo, EquipmentInfo
+    equipment = [EquipmentInfo("MDB", "MDB-01", "Substation", -1.0),
+                 EquipmentInfo("SMDB", "SMDB-01", "Ground Floor Level", 0.0)]
+    circuits = [CircuitInfo("c1", "MDB", "1,3,5", rating="40 A", poles="3", start_slot=1,
+                            wire_size="(4X10)mm² CU/XLPE/SWA/PVC +(1X10)mm² CU/PVC(E)",
+                            fed_equipment_ids=["SMDB"])]
+    lay = layout_schematic(build_schematic(equipment, circuits))
+    g = dict((x.name, x) for x in lay.geoms.values())
+    mdb = g["MDB-01"]
+    floor_y = min(y for _, y in lay.bands if y > mdb.top)
+    x = mdb.way_x(mdb.board.ways[0])
+    ups = [text_box(t)[3] for t in lay.drawing.texts
+           if t.rotation and abs(t.x - x) < 1.0 and mdb.top < t.y < floor_y]
+    assert ups
+    for top in ups:
+        assert mdb.top + (top - mdb.top) * style.FLOOR_LABEL_SLACK < floor_y
+
+
+def test_fit_to_sheet_scales_lines_and_text_together():
+    from sld.geometry import fit_scale, scale_drawing
+    d = Drawing()
+    d.line(0, 0, 200, 0)
+    d.line(0, 0, 0, 100)
+    t = d.text(10, 10, "MDB-01", 2.0)
+    f = fit_scale(d, "A1")
+    assert f == 3.25                        # 841 * 0.78 / 200 = 3.28 -> 3.25 (height allows 5.0)
+    assert fit_scale(d, "1:1") == 1.0
+    scale_drawing(d, f)
+    assert d.lines[0].x2 == 650 and t.size == 6.5 and (t.x, t.y) == (32.5, 32.5)
+    big = Drawing()
+    big.line(0, 0, 5000, 0)
+    big.line(0, 0, 0, 10)
+    assert fit_scale(big, "A1") == 0.5      # never shrunk past half size
+    lay = sample_layout()
+    f = fit_scale(lay.drawing, "A1")
+    scale_drawing(lay.drawing, f)
+    x0, y0, x1, y1 = lay.drawing.bounds()
+    assert x1 - x0 <= 841 * 0.78 + 1 or f == 0.5
+
+
+def test_transformer_as_the_office_sld():
+    lay = sample_layout()
+    texts = [t.text for t in lay.drawing.texts]
+    assert texts.count(u"R<1Ω") == 4          # SPD and transformer, on both main boards
+    assert "MV CABLE FROM TAQA" not in texts
+    tr = next(t for t in lay.drawing.texts if t.text == "TR-01")
+    assert tr.align == "left"                  # name block left of the transformer
+    plain = [t.text for t in sample_layout(meter_label="").drawing.texts]
+    assert "ADDC\nMETER" not in plain and "1600A/5A" not in plain
+    assert not overlaps(lay.drawing)
