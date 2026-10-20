@@ -190,6 +190,18 @@ def power_studio(c, ink):
 
 
 
+def fcu_power(c, ink):
+    """A fan coil unit (box with its grille and fan) and a blue bolt."""
+    c.fill([rounded(2, 5, 26, 19, 2.5)], WHITE)
+    stroke(c, rounded(2, 5, 26, 19, 2.5), 1.6, ink, closed=True)
+    for y in (13.5, 16):
+        stroke(c, [(5, y), (14, y)], 1.2, ink)
+    stroke(c, circle(20, 12, 4), 1.4, ink, closed=True)
+    c.fill([circle(20, 12, 1.2)], ink)
+    badge(c, BLUE)
+    c.fill([bolt(20.2, 17.6, 0.85)], WHITE)
+
+
 def detector(c, ink):
     stroke(c, [(3, 4), (29, 4)], 1.6, ink)
     c.fill([rounded(8, 4.6, 24, 11, 3)], WHITE)
@@ -295,6 +307,7 @@ def check_settings(c, ink):
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "Power.panel/Power Studio.pushbutton", power_studio),
+    (TAB + "Mechanical.panel/FCU Power.pushbutton", fcu_power),
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
