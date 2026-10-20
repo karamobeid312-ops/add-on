@@ -141,21 +141,29 @@ def apply_risers(schematic, specs, numbering="slots"):
     taken = set()
     for spec in specs or []:
         name = (spec.get("name") or "").strip() or "RISER-%d" % (len(risers) + 1)
-        boards = []
+        boards, missing = [], []
         for t in spec.get("taps") or []:
             b = by_name.get((t.get("board") or "").strip().upper())
             if b is None:
-                warnings.append("%s: %s is not in the model." % (name, t.get("board")))
+                missing.append(t.get("board") or "")
                 continue
             if b.is_main or b.id in taken:
                 warnings.append("%s: %s cannot be on this riser." % (name, b.name))
                 continue
             boards.append((b, t))
             taken.add(b.id)
+        if missing:
+            # boards renamed or deleted since they were ticked
+            warnings.append("%s: skipped %s, no longer in the model." % (name, ", ".join(missing)))
         if not boards:
             continue
         typed = (spec.get("source") or "").strip()
-        source = by_name.get(typed.upper()) if typed else _auto_source(schematic, by_name, boards)
+        source = by_name.get(typed.upper()) if typed else None
+        if source is None:
+            source = _auto_source(schematic, by_name, boards)
+            if typed and source is not None:
+                warnings.append("%s: %s is no longer in the model; fed from %s." % (
+                    name, typed, source.name))
         if source is None:
             warnings.append("%s: the board feeding it (%s) is not in the model; not drawn." % (
                 name, typed or "none found"))
@@ -279,6 +287,26 @@ def clean_specs(specs):
     return out
 
 
+def prune(specs, names):
+    """Specs without the boards (and typed sources) that are no longer in
+    the model, e.g. renamed; risers left with no boards are dropped.
+    Returns (specs, changed)."""
+    have = set((n or "").strip().upper() for n in names)
+    out, changed = [], False
+    for s in specs or []:
+        s = dict(s)
+        taps = [t for t in s.get("taps") or [] if (t.get("board") or "").strip().upper() in have]
+        if len(taps) != len(s.get("taps") or []):
+            changed = True
+        s["taps"] = taps
+        if (s.get("source") or "").strip() and s["source"].strip().upper() not in have:
+            s["source"] = ""
+            changed = True
+        if taps:
+            out.append(s)
+        else:
+            changed = True
+    return out, changed
 
 # ---------------------------------------------------------------- automatic values
 

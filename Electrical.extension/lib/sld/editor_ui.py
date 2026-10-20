@@ -204,8 +204,9 @@ class EditorWindow(object):
         self.setting_controls = {}
         self._busy = False
         self._vd_stale = True
-        self.risers = [dict(s) for s in actions.get("risers") or []]
-        self._risers_dirty = False
+        # boards renamed or deleted since they were ticked drop off their riser
+        self.risers, self._risers_dirty = rs.prune(actions.get("risers") or [],
+                                                   [b.name for b in editor.boards])
         self.generators = [dict(s) for s in actions.get("generators") or []]
         self._generators_dirty = False
         self.supplies = [dict(s) for s in actions.get("supplies") or []]

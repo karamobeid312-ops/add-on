@@ -50,11 +50,11 @@ def test_typical_of_a_board_not_on_the_riser_is_drawn_in_full():
     assert [t.is_typical for t in s.risers[0].taps] == [False, True, False]
 
 
-def test_missing_source_is_a_warning():
+def test_missing_source_is_a_warning_and_the_feeding_board_is_found():
     specs = sample_tower.risers(2)
     specs[0]["source"] = "MDB-99"
     s, warnings = tower(floors=2, specs=specs)
-    assert s.risers == [] and "MDB-99" in warnings[0]
+    assert s.risers[0].source.name == "MDB-01" and "MDB-99" in warnings[0]
 
 
 def test_riser_boards_drawn_on_their_own_floors():
@@ -133,3 +133,21 @@ def test_ticked_boards_get_source_rating_and_fault_by_themselves():
         assert r.rating == 1000.0                    # 6 x 160A -> 1000A
         assert r.label() == "1000A TPN+E COPPER BUS BAR RISER-1   432.00KW   50KA"
     assert rs.auto_rating([160] * 5) == 800.0 and rs.auto_rating([None]) is None
+
+
+def test_renamed_boards_and_source_do_not_drop_the_riser():
+    specs = sample_tower.risers(3)
+    specs[0]["source"] = "SMDB-B/1-G"                       # renamed since
+    specs[0]["taps"].insert(0, dict(board="SMDB-B/1-F1", rating="", typical=""))
+    s, warnings = tower(floors=3, specs=specs)
+    assert len(s.risers) == 1 and s.risers[0].source.name == "MDB-01"
+    assert [t.board.name for t in s.risers[0].taps] == ["SMDB-T-1", "SMDB-T-2", "SMDB-T-3"]
+    assert len(warnings) == 2 and "SMDB-B/1-F1" in warnings[0] and "SMDB-B/1-G" in warnings[1]
+
+
+def test_prune_drops_names_no_longer_in_the_model():
+    specs = [dict(name="RISER-1", source="OLD-G", taps=[dict(board="OLD-1"), dict(board="NEW-1")]),
+             dict(name="RISER-2", source="", taps=[dict(board="OLD-2")])]
+    out, changed = rs.prune(specs, ["NEW-1", "MDB"])
+    assert changed and out == [dict(name="RISER-1", source="", taps=[dict(board="NEW-1")])]
+    assert rs.prune(out, ["new-1"]) == (out, False)
