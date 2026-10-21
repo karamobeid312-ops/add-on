@@ -152,7 +152,7 @@ class EquipmentInfo(object):
                  phases=3, neutral=True, fault_level="", incomer_device="",
                  upstream_protection="", demand_factor=None, spares=None,
                  spare_rating="", fed_by="", virtual=False, spaces=None,
-                 feeder_cable="", feeder_length=None, feeder_vd=None):
+                 feeder_cable="", feeder_length=None, feeder_vd=None, phase_kw=None):
         self.id = id
         self.name = name
         self.level_name = level_name or ""
@@ -188,6 +188,7 @@ class EquipmentInfo(object):
         self.feeder_cable = feeder_cable or ""
         self.feeder_length = feeder_length
         self.feeder_vd = feeder_vd
+        self.phase_kw = phase_kw              # (A, B, C) load as Revit splits it
 
     def supply_text(self):
         """'160A,3PH+N+E,35kA FOR 1 SEC': busbar, system and fault level,
@@ -240,7 +241,7 @@ class CircuitInfo(object):
                  rating="", poles="", voltage="", load="", wire_size="",
                  fed_equipment_ids=None, branch_load_count=0, cable="",
                  start_slot=None, is_spare=False, symbol="", connected_kw=None,
-                 length_m=None, vd_percent=None, frame="", device=""):
+                 length_m=None, vd_percent=None, frame="", device="", phase_kw=None):
         self.id = id
         self.source_id = source_id
         self.circuit_number = circuit_number or ""
@@ -261,6 +262,7 @@ class CircuitInfo(object):
         self.vd_percent = vd_percent      # cumulative voltage drop at its end
         self.frame = frame or ""          # 'SLD Frame' typed on it, e.g. 250
         self.device = device or ""        # 'SLD Breaker Type', e.g. MCB
+        self.phase_kw = phase_kw          # (A, B, C) load as Revit splits it
 
     def cable_text(self):
         """BS/IEC cable description, or Revit's raw wire size as fallback."""

@@ -279,6 +279,39 @@ def _panel_loads(element):
     return connected, demand, factor
 
 
+# Load on each phase, by name (newer / older Revit), else the built-ins.
+P_PHASES = (("Apparent Power Phase A", "Apparent Load Phase A"),
+            ("Apparent Power Phase B", "Apparent Load Phase B"),
+            ("Apparent Power Phase C", "Apparent Load Phase C"))
+BIP_PANEL_PHASES = (("RBS_ELEC_PANEL_BRANCH_CIRCUIT_APPARENT_LOAD_PHASEA",
+                     "RBS_ELEC_PANEL_TOTALLOAD_PHASEA_PARAM"),
+                    ("RBS_ELEC_PANEL_BRANCH_CIRCUIT_APPARENT_LOAD_PHASEB",
+                     "RBS_ELEC_PANEL_TOTALLOAD_PHASEB_PARAM"),
+                    ("RBS_ELEC_PANEL_BRANCH_CIRCUIT_APPARENT_LOAD_PHASEC",
+                     "RBS_ELEC_PANEL_TOTALLOAD_PHASEC_PARAM"))
+BIP_CIRCUIT_PHASES = (("RBS_ELEC_APPARENT_LOAD_PHASEA",), ("RBS_ELEC_APPARENT_LOAD_PHASEB",),
+                      ("RBS_ELEC_APPARENT_LOAD_PHASEC",))
+
+
+def _phase_loads(element, bips):
+    """(A, B, C) kVA as Revit splits the load over the phases, None when
+    not known. Only the split is used (load schedules scale it to the kW)."""
+    values = []
+    for names, bip_names in zip(P_PHASES, bips):
+        value = None
+        for name in names:
+            value = _double(element, name)
+            if value is not None:
+                break
+        for bip_name in bip_names:
+            if value is not None:
+                break
+            if getattr(BuiltInParameter, bip_name, None) is not None:
+                value = _double(element, bip_name=bip_name)
+        values.append(value * INTERNAL_POWER / 1000.0 if value else 0.0)
+    return tuple(values) if sum(values) > 0 else None
+
+
 def _ways(element, phases):
     declared = _lookup(element, "SLD Ways")
     if declared:
@@ -488,6 +521,7 @@ def extract(doc, live=None):
             feeder_cable=_typed_cable_text([el]),
             feeder_length=vd.get(el.UniqueId, (None, None))[0],
             feeder_vd=vd.get(el.UniqueId, (None, None))[1],
+            phase_kw=_phase_loads(el, BIP_PANEL_PHASES),
         ))
         ids.add(el.UniqueId)
         panels[el.UniqueId] = el
@@ -544,6 +578,7 @@ def extract(doc, live=None):
             vd_percent=vd_percent,
             frame=_lookup(system, "SLD Frame"),
             device=_lookup(system, P_BREAKER_TYPE),
+            phase_kw=None if kind == "spare" else _phase_loads(system, BIP_CIRCUIT_PHASES),
         ))
     equipment, circuits = _fed_by(equipment, circuits, panels, vd, vd_cables)
     return equipment, circuits, phases_of, warnings

@@ -48,8 +48,8 @@ NAMES = ("Steps", "BoardsTab", "VdTab", "SettingsTab", "ModelText", "StatusDot",
          "BoardsTree", "BoardTitle", "BoardChip", "BoardChipText", "BoardWays",
          "KpiConnected", "KpiDemand", "KpiIncomer", "KpiVd", "KpiBalance", "KpiBalanceSub",
          "WaysGrid", "PreviewText", "WarningsText", "SaveButton", "AutoSizeButton",
-         "ReportButton", "GenerateButton", "CloseButton", "AddSpare", "RemoveSpare",
-         "AddSpace", "RemoveSpace",
+         "ReportButton", "ScheduleButton", "GenerateButton", "CloseButton", "AddSpare",
+         "RemoveSpare", "AddSpace", "RemoveSpace",
          "VdTabText", "VdDot", "VdCables", "VdOk", "VdFailed", "VdIncomplete", "VdWorst",
          "VdWorstWhere", "VdFixes", "VdProblemsOnly", "VdSearch", "VdGrid",
          "SldSettingsPanel", "VdSettingsPanel", "ApplySettings", "SettingsNote",
@@ -182,6 +182,8 @@ class EditorWindow(object):
       settings(sld values, vd values)   keep the settings
       report(editor, path) -> message   save the V.D report (Excel + PDF)
       report_name -> default file name of the report
+      schedules(editor, path) -> message   save the MDB / SMDB load schedules (Excel)
+      schedules_name -> default file name of the load schedules
       risers -> bus bar riser specs kept for this model (sld.riser)
       save_risers(specs)                keep them
       generators -> standby generator specs kept for this model (sld.generator)
@@ -333,6 +335,7 @@ class EditorWindow(object):
         self.SaveButton.Click += self.on_save_click
         self.AutoSizeButton.Click += self.on_auto_size
         self.ReportButton.Click += self.on_report
+        self.ScheduleButton.Click += self.on_schedules
         self.GenerateButton.Click += self.on_generate
         self.CloseButton.Click += self.on_close_click
         self.AddSpare.Click += self.on_add_spare
@@ -872,6 +875,24 @@ class EditorWindow(object):
         self._status(u"Saving the voltage drop report (Excel, then PDF)...")
         try:
             message = self.actions["report"](self.editor, dialog.FileName)
+        finally:
+            self._show_states()
+        self._alert(message)
+
+    def on_schedules(self, sender, args):
+        self._commit()
+        self._safe(self._schedules)
+
+    def _schedules(self):
+        from Microsoft.Win32 import SaveFileDialog
+        dialog = SaveFileDialog()
+        dialog.Filter = "Excel workbook (*.xlsx)|*.xlsx"
+        dialog.FileName = self.actions["schedules_name"]
+        if not dialog.ShowDialog(self.win):
+            return
+        self._status(u"Saving the load schedules...")
+        try:
+            message = self.actions["schedules"](self.editor, dialog.FileName)
         finally:
             self._show_states()
         self._alert(message)
