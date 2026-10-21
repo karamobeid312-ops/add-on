@@ -243,7 +243,7 @@ def read_source(doc, level, only=None, circuits=None):
             panel=id_int(panel.Id) if panel is not None else None, panel_here=panel_here,
             slot=slot, panel_name=system.PanelName or "", number=system.CircuitNumber or "",
             group=plan.circuit_group(_kind(system), [_is_lighting(e) for e in on_floor]),
-            load_name=_load_name(system)))
+            load_name=_load_name(system), families=[_family_name(e) for e in on_floor]))
         source.systems[key] = system
         if panel is not None:
             source.panels[id_int(panel.Id)] = panel
@@ -257,6 +257,13 @@ def read_source(doc, level, only=None, circuits=None):
                     source.items.append(item)
     source.by_height = len(odd)
     return source
+
+
+def _family_name(element):
+    try:
+        return element.Symbol.Family.Name
+    except Exception:
+        return ""
 
 
 def _load_name(system):
@@ -275,6 +282,23 @@ def shown_in(doc, view):
                    FilteredElementCollector(doc, view.Id).OfClass(FamilyInstance))
     except Exception:
         return None
+
+
+def plans_of(doc, level):
+    """[(name, view)] of the plans of the level and of the levels at its
+    height (the other tower's), by name."""
+    found = []
+    for v in FilteredElementCollector(doc).OfClass(ViewPlan):
+        try:
+            if v.IsTemplate or v.GenLevel is None:
+                continue
+            if abs(v.GenLevel.Elevation - level.Elevation) > Z_TOLERANCE:
+                continue
+            found.append((v.Name, v))
+        except Exception:
+            pass
+    found.sort(key=lambda nv: nv[0].lower())
+    return found
 
 
 # ---------------------------------------------------------------- target
@@ -545,6 +569,31 @@ def _find_there(existing, view_keys, points, tolerance, claimed=()):
     return None, None
 
 
+def _trimmed(points, conns):
+    """The points without the ends on a connector: Revit adds the connector's
+    origin as that end vertex itself, so passing it too adds a vertex. The
+    points as they are when nothing would be left between the ends."""
+    start = 1 if conns[0] is not None else 0
+    end = len(points) - 1 if conns[1] is not None else len(points)
+    inner = list(points[start:end])
+    return inner if inner else list(points)
+
+
+def _no_doubles(wire, tolerance):
+    """Remove vertices Revit added next to another one (at a connector)."""
+    try:
+        i = 1
+        while i < wire.NumberOfVertices:
+            a, b = wire.GetVertex(i - 1), wire.GetVertex(i)
+            if wire.NumberOfVertices > 2 and \
+                    ((a.X - b.X) ** 2 + (a.Y - b.Y) ** 2) ** 0.5 <= tolerance:
+                wire.RemoveVertex(i if i < wire.NumberOfVertices - 1 else i - 1)
+            else:
+                i += 1
+    except Exception:
+        pass
+
+
 def _snapped(points, conns):
     """The points with the wire's ends on its connectors."""
     points = list(points)
@@ -701,7 +750,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             result.wires["removed"] += 1
         view = wires.views[view_key]
         new, error = None, None
-        for attempt in (points, _snapped(points, conns)):
+        for attempt in (_trimmed(points, conns), points, _snapped(points, conns)):
             try:
                 new = Wire.Create(wires.doc, wire.GetTypeId(), view.Id, wire.WiringType,
                                   List[XYZ](attempt), conns[0], conns[1])
@@ -714,6 +763,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
                 result.wire_errors.append(error)
             _unwired(result, targets, wanted)
             continue
+        _no_doubles(new, tolerance)
         copy_parameters(wire, new)
         wires.add(new, view_key)
         if linked is not None and link is not None:

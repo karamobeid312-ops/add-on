@@ -39,11 +39,30 @@ def _pick_levels(doc, view):
 
 
 ONE_BY_ONE = "Pick circuits one by one..."
+BY_VIEW = "Circuits shown in plans I choose..."
+IN_MODEL = "Select them in the model (click the fixtures, then Finish)..."
 
 
-def _pick_circuits(doc, source, view):
-    """Keys of the circuits to copy: by kind (Lighting, Power...), those shown
-    in the active plan, or picked one by one. None: cancelled."""
+def _picked_in_model(uidoc, circuits):
+    """Keys of the circuits of the elements the user clicks in the model, or
+    None when cancelled (Esc)."""
+    from Autodesk.Revit.UI.Selection import ObjectType
+    try:
+        refs = uidoc.Selection.PickObjects(
+            ObjectType.Element, "Copy Circuits: click the fixtures (or panels) whose "
+                                "circuits to copy, then Finish")
+    except Exception:
+        return None
+    ids = set(revit_copy.id_int(r.ElementId) for r in refs)
+    return set(c.key for c in circuits
+               if ids & (set(c.elements) | set([c.key, c.panel])))
+
+
+def _pick_circuits(doc, uidoc, source, view):
+    """Keys of the circuits to copy: by kind (Lighting, Power...), by the
+    family they feed (an FCU socket...), those shown in the active plan or in plans picked from a list, or
+    picked one by one, or by clicking their fixtures in the model. None:
+    cancelled."""
     circuits = source.circuits
     options, keys = [], {}
     for group, count in plan.groups(circuits):
@@ -57,8 +76,12 @@ def _pick_circuits(doc, source, view):
             text = "Circuits shown in this plan, %s (%d)" % (view.Name, len(here))
             options.append(text)
             keys[text] = here
-    if len(options) < 2:
-        return set(c.key for c in circuits)
+    for family, count in plan.families(circuits):
+        text = "Feeding %s (%d)" % (family, count)
+        options.append(text)
+        keys[text] = set(c.key for c in circuits if family in c.families)
+    options.append(BY_VIEW)
+    options.append(IN_MODEL)
     options.append(ONE_BY_ONE)
     picked = forms.SelectFromList.show(
         options, title="%s: copy which circuits of %s?" % (TITLE, source.level.Name),
@@ -68,6 +91,34 @@ def _pick_circuits(doc, source, view):
     chosen = set()
     for text in picked:
         chosen |= keys.get(text, set())
+    if BY_VIEW in picked:
+        plans = revit_copy.plans_of(doc, source.level)
+        names = forms.SelectFromList.show(
+            [n for n, _ in plans],
+            title="%s: copy the circuits shown in which plans of %s?"
+                  % (TITLE, source.level.Name),
+            button_name="Next", multiselect=True)
+        if not names:
+            return None
+        seen = set()
+        for name, v in plans:
+            if name in names:
+                seen |= revit_copy.shown_in(doc, v) or set()
+        shown = set(c.key for c in circuits if set(c.elements) & seen)
+        if not shown:
+            forms.alert("None of the circuits of %s is shown in %s."
+                        % (source.level.Name, ", ".join(names)), title=TITLE)
+            return None
+        chosen |= shown
+    if IN_MODEL in picked:
+        clicked = _picked_in_model(uidoc, circuits)
+        if clicked is None:
+            return None
+        chosen |= clicked
+        if not clicked:
+            forms.alert("None of the clicked elements is on a circuit of %s."
+                        % source.level.Name, title=TITLE)
+            return None
     if ONE_BY_ONE not in picked:
         return chosen
     listed = [c for c in circuits if not chosen or c.key in chosen]
@@ -149,7 +200,7 @@ def run():
             source_level.Name, " among the selected elements" if chosen else ""), title=TITLE)
         return
     if not chosen:
-        keys = _pick_circuits(doc, source, doc.ActiveView)
+        keys = _pick_circuits(doc, uidoc, source, doc.ActiveView)
         if not keys:
             return
         if len(keys) < len(source.circuits):
