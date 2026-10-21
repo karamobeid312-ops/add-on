@@ -18,6 +18,8 @@ Everything is on one **Electrical** ribbon tab, with these panels:
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
 | **Circuits** | Copy Circuits, Circuit Settings: makes the circuits of a floor again on the floors copied from it, with their wires, see [Copy circuits](#copy-circuits) |
+| **Mechanical** | FCU Power; Mirror Tower: builds Tower 2's ducts, HVAC pipes, air terminals and equipment as the mirror of Tower 1's, see [Mirror Tower for mechanical and plumbing](#mirror-tower-for-mechanical-and-plumbing) |
+| **Plumbing** | Mirror Tower: the same for water and drainage pipes, plumbing fixtures and sprinklers |
 
 ## What gets drawn
 
@@ -674,6 +676,42 @@ The **Circuits** panel of the **Electrical** tab:
 | Circuit numbers | Revit numbers new circuits in the first free slots, so they match the source panel's when its circuits had no gaps (spares and spaces are not copied). Check them in the panel schedules. |
 | Wires | Wires connected to the circuits' elements, in plans of the source floor, are drawn in the copied floor's plan where the wires pasted with the fixtures are, or else its plan of the same view type, best the one named like it (its level name swapped, e.g. `POWER - L1` → `POWER - L2`), then the one with the same view template. A pasted wire at the same spot that is connected the right way is kept; one that is not connected is replaced. The other tower's wires go in the plan of its own level when its elements have one at the same height (named like the source plan, or with its view template), else in the source floor's plan. A wire between connectors a wire already joins (panels on the axis that both towers share) is not drawn twice. Wires are drawn only between elements whose circuit was made. The output names the plans the wires went in, says why any were not drawn, and links the elements left missing a wire. |
 
+## Mirror Tower for mechanical and plumbing
+
+**Mechanical** → **Mirror Tower** and **Plumbing** → **Mirror Tower** build
+Tower 2 as the mirror of Tower 1, like the electrical Mirror Tower, for the
+other trades. They are two separate tools with the same window (blue for
+mechanical, green for plumbing):
+
+- **Top bar**: Tower 1's scope box, **Pick Tower 2...** (click 2 points of
+  Tower 1, like two core corners, then the same 2 points in Tower 2: the
+  towers may sit diagonally with the core flipped) and **Setup...**. The
+  window closes while you click and opens again. The box, the points and
+  the setup are remembered for next time.
+- **1 Floors**: per floor, the elements in Tower 1, those Tower 2 has
+  already, those to mirror and those skipped. Tick the floors and press
+  **Mirror ticked floors**: one undo takes the whole run back.
+- **2 Results**: what happened on each floor; pick a row and select its
+  elements in Revit (the new copies, or the Tower 1 elements that were not
+  mirrored).
+- **Setup**: the categories the tool takes, how Tower 2 is given (points,
+  or a plain mirror about a grid or line here or in a link), the tolerance
+  (50 mm) and joining open ends.
+
+What it does on each floor:
+
+| Step | How |
+| --- | --- |
+| Which tool | Ducts, duct fittings and accessories, flex ducts and air terminals are mechanical; plumbing fixtures, sprinklers and plumbing equipment are plumbing. Pipes, pipe fittings, accessories and flex pipes go by their system: hydronic supply / return and any system named for chilled water, heating, condensate, condenser water or refrigerant are mechanical (a condensate drain drawn as a Sanitary system is still mechanical); domestic water, sanitary, vent, storm and fire are plumbing. A fitting with no system takes the side of the pipes it is on. Mechanical equipment is mechanical unless all its connectors are plumbing pipes (pumps, water heaters, tanks). Rules in `lib/mepmirror/rules.py`. |
+| Floor | A run's lower end (a riser goes with its bottom floor), a point's height; its own level when that storey holds it. |
+| Tower 1 | In the scope box: a point inside it, a run with both ends inside it. A run with one end out of the box (into a shared riser, the podium) is skipped and listed. Elements in model groups are skipped too. An element whose mirrored spot is itself (on the mirror line) is shared and not mirrored. |
+| Already in Tower 2 | Same type (a point: else same family) at the mirrored spot within the tolerance and 0.5 m in height; a run needs both ends there. Those are not mirrored again, so running the tool twice makes no doubles. |
+| Mirror | All the floor's missing elements in one Revit Mirror (copies), so they stay connected to each other, then moved into Tower 2. Parameter values come along as Revit's Mirror copies them. |
+| Walls | Fixtures on a wall (wall-hosted or face-based on a vertical face) are placed again on Tower 2's wall face (in this model or a link), as the electrical tool does; Revit drops a move off a wall's plane. |
+| Open ends | The copies' free duct and pipe ends are joined to a free end at the same spot (within 5 mm): Tower 2's own pipes, a re-placed fixture, each other. |
+
+No parameter is created. Nothing else in Tower 2 is changed.
+
 ## Install
 
 1. Install pyRevit.
@@ -805,6 +843,12 @@ Electrical.extension/
     revit_copy.py  circuits and wires read, made again on the copied floors
     settings.py    per-user settings
     command.py     button entry points
+  lib/mepmirror/   Mirror Tower for mechanical and plumbing
+    rules.py       which tool takes which element (pipes by their system) (no Revit)
+    plan.py        Tower 1 / Tower 2 split, copies found, open ends to join (no Revit)
+    report.py      rows of the Floors and Results tabs (no Revit)
+    revit_mep.py   the model read, the mirror, walls and joints in Revit
+    window_ui.py   the window (window.xaml), command.py the buttons' entry
 tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```

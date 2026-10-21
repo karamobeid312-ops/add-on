@@ -335,10 +335,45 @@ def mirror_tower(c, ink):
         c.fill([rect(15.3, y, 16.7, y + 2.6)], GRAY)
 
 
+def _towers(c, ink, color):
+    """Tower 1 solid, Tower 2 its outline in `color`, a dashed mirror line."""
+    c.fill([rect(3, 6, 12, 29)], ink)
+    stroke(c, rect(20, 6, 29, 29), 1.6, color, closed=True)
+    for y in (3, 8, 13, 18, 23, 28):
+        c.fill([rect(15.3, y, 16.7, y + 2.6)], GRAY)
+
+
+def mirror_tower_mechanical(c, ink):
+    """Mirrored towers, each with a duct run and its branch."""
+    _towers(c, ink, BLUE)
+    for x0, x1, bx, color in ((4.5, 10.5, 9, WHITE), (21.5, 27.5, 23, BLUE)):
+        c.fill([rect(x0, 10, x1, 13)], color)
+        c.fill([rect(bx - 1.2, 13, bx + 1.2, 19)], color)
+        c.fill([rect(bx - 2.2, 19, bx + 2.2, 21)], color)
+
+
+def drop(cx, cy, r):
+    pts = [(cx, cy - 2.2 * r)]
+    for i in range(25):
+        a = math.pi * i / 24.0
+        pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+    return [(x, y) for x, y in pts]
+
+
+def mirror_tower_plumbing(c, ink):
+    """Mirrored towers, each with a riser pipe and a water drop."""
+    _towers(c, ink, GREEN)
+    for px, dx, color in ((9.5, 6, WHITE), (22.5, 25.5, GREEN)):
+        c.fill([rect(px - 0.9, 8, px + 0.9, 27)], color)
+        c.fill([drop(dx, 20, 2.2)], color)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "Power.panel/Power Studio.pushbutton", power_studio),
     (TAB + "Mechanical.panel/FCU Power.pushbutton", fcu_power),
+    (TAB + "Mechanical.panel/Mirror Tower.pushbutton", mirror_tower_mechanical),
+    (TAB + "Plumbing.panel/Mirror Tower.pushbutton", mirror_tower_plumbing),
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
