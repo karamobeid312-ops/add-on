@@ -243,6 +243,8 @@ def read(board, systems, models, values):
                           read_loads(system) if has_loads else None,
                           circuit_kind(elements), read_wiring(system))
         circuit.has_loads = has_loads
+        circuit.fcu = any(is_fcu(e) for e in elements) if not feeder else False
+        circuit.watts = circuit_watts(system)
         out.append(circuit)
     return out
 
@@ -259,6 +261,24 @@ def _symbol(element):
         return element.Document.GetElement(element.GetTypeId())
     except Exception:
         return None
+
+
+FCU_WORD = "FCU"
+
+
+def is_fcu(element):
+    """A fan coil unit's socket: FCU in its family or type name."""
+    symbol = _symbol(element)
+    names = []
+    try:
+        names.append(symbol.Family.Name)
+    except Exception:
+        pass
+    try:
+        names.append(symbol.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM).AsString())
+    except Exception:
+        pass
+    return any(FCU_WORD in (n or u"").upper() for n in names)
 
 
 def fixture_type(element):
@@ -377,6 +397,18 @@ def fixture_watts(element):
             if value:
                 return value
     return None
+
+
+def text_of(param):
+    """A parameter's value as text ('' when absent or empty)."""
+    if param is None or not param.HasValue:
+        return u""
+    try:
+        if param.StorageType == StorageType.String:
+            return (param.AsString() or u"").strip()
+        return (param.AsValueString() or u"").strip()
+    except Exception:
+        return u""
 
 
 def circuit_watts(system):

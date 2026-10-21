@@ -6,7 +6,7 @@ from pyrevit import forms, revit, script
 from circuitdesc import describe, revit_desc, revit_spares, settings
 from circuitdesc.describe import CHANGE, FEEDER, LIGHTING, NAME, NAME_NUMBER, NO_FIXTURES, \
     NUMBER_NAME
-from circuitdesc.spares import BoardPlan
+from circuitdesc.spares import SECTION_30MA, SECTION_100MA, BoardPlan
 
 TITLE = "Circuit Description"
 
@@ -147,7 +147,9 @@ def run():
             bar.update_progress(i + 1, len(boards))
     found = describe.ordered(found)
     changes = describe.by_status(found, CHANGE)
-    plans = [p for p in (_plan(b) for b in boards) if p is not None and p.changed]
+    info = dict((revit_desc.id_int(c.ref.Id), (_section(c), c.watts or 0.0))
+                for c in found)
+    plans = [p for p in (_plan(b, info) for b in boards) if p is not None and p.changed]
     if not changes and not plans:
         _show([], found, [])
         forms.alert("Nothing to change: the circuits already say their rooms and loads, "
@@ -163,9 +165,9 @@ def run():
         return
     chosen_plans = [c for c in chosen if isinstance(c, BoardPlan)]
     chosen = [c for c in chosen if not isinstance(c, BoardPlan)]
-    lighting = {}
+    lighting = {}                       # board -> its 100 mA section is all lighting
     for c in found:
-        if not c.feeder and c.labels:
+        if _section(c) == SECTION_100MA:
             lighting[c.panel] = lighting.get(c.panel, True) and c.kind == LIGHTING
     with revit.Transaction("Circuit descriptions, loads, spares and spaces"):
         failed = revit_desc.write(chosen)
@@ -174,7 +176,9 @@ def run():
             sub = SubTransaction(doc)      # a board that fails is left as it was
             sub.Start()
             try:
-                revit_spares.apply(p, lighting.get(p.panel, False))
+                revit_spares.apply(p, {
+                    SECTION_100MA: 16.0 if lighting.get(p.panel) else 20.0,
+                    SECTION_30MA: 20.0})
                 sub.Commit()
             except Exception as error:
                 sub.RollBack()
@@ -185,9 +189,16 @@ def run():
                  board_failed)
 
 
-def _plan(board):
+def _section(circuit):
+    """Lighting and FCU circuits on the 100 mA RCD, the rest on the 30 mA one."""
+    if circuit.kind == LIGHTING or getattr(circuit, "fcu", False):
+        return SECTION_100MA
+    return SECTION_30MA
+
+
+def _plan(board, info):
     try:
-        return revit_spares.plan(board)
+        return revit_spares.plan(board, info)
     except Exception:
         return None
 
@@ -195,10 +206,18 @@ def _plan(board):
 def _show_boards(done, failed):
     output = script.get_output()
     if done:
-        output.print_md("## Spares and spaces")
-        output.print_table(table_data=[[p.panel, p.ways, p.circuits, p.spares,
-                                        len(p.new_spares), p.spaces] for p in done],
-                           columns=["Board", "Ways", "Circuits", "Spares", "Added", "Spaces"])
+        output.print_md("## RCD sections, spares and spaces")
+        output.print_table(
+            table_data=[[p.panel, p.ways,
+                         u"%s, %d circuits, %d spares" % (
+                             p.rcds.get(SECTION_100MA, u"-"), p.counts.get(SECTION_100MA, 0),
+                             len(p.spare_slots.get(SECTION_100MA, []))),
+                         u"%s, %d circuits, %d spares" % (
+                             p.rcds.get(SECTION_30MA, u"-"), p.counts.get(SECTION_30MA, 0),
+                             len(p.spare_slots.get(SECTION_30MA, []))),
+                         len(p.spaces), len(p.moved)] for p in done],
+            columns=["Board", "Ways", "Section 1 (lighting + FCU)", "Section 2 (power)",
+                     "Spaces", "Moved"])
     if failed:
         output.print_md("## Boards not changed")
         output.print_table(table_data=[[p.panel, u"%s" % e] for p, e in failed],
