@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 """Entry points for the ribbon buttons."""
+from Autodesk.Revit.DB import SubTransaction
 from pyrevit import forms, revit, script
 
-from circuitdesc import describe, revit_desc, settings
-from circuitdesc.describe import CHANGE, FEEDER, NAME, NAME_NUMBER, NO_FIXTURES, NUMBER_NAME
+from circuitdesc import describe, revit_desc, revit_spares, settings
+from circuitdesc.describe import CHANGE, FEEDER, LIGHTING, NAME, NAME_NUMBER, NO_FIXTURES, \
+    NUMBER_NAME
+from circuitdesc.spares import BoardPlan
 
 TITLE = "Circuit Description"
 
@@ -18,6 +21,8 @@ class _Change(forms.TemplateListItem):
     @property
     def name(self):
         c = self.item
+        if isinstance(c, BoardPlan):
+            return u"%s  BOARD:   %s" % (c.panel, c.text())
         text = u"%s  %s:   " % (c.panel, c.number)
         if c.new != c.old:
             text += u"%s   >   %s" % (c.old or u"(blank)", c.new)
@@ -142,22 +147,62 @@ def run():
             bar.update_progress(i + 1, len(boards))
     found = describe.ordered(found)
     changes = describe.by_status(found, CHANGE)
-    if not changes:
+    plans = [p for p in (_plan(b) for b in boards) if p is not None and p.changed]
+    if not changes and not plans:
         _show([], found, [])
         forms.alert("Nothing to change: the circuits already say their rooms and loads, "
-                    "or no room was found for them (see the report).", title=TITLE)
+                    "the boards have their spares and spaces, or no room was found for "
+                    "the circuits (see the report).", title=TITLE)
         return
 
     chosen = forms.SelectFromList.show(
-        [_Change(c, checked=True) for c in changes],
+        [_Change(p, checked=True) for p in plans] + [_Change(c, checked=True) for c in changes],
         title="%s: %s (untick to keep)" % (TITLE, describe.headline(found)),
-        multiselect=True, button_name="Write descriptions", width=900, height=650)
+        multiselect=True, button_name="Write", width=900, height=650)
     if not chosen:
         return
-    with revit.Transaction("Circuit descriptions and loads"):
+    chosen_plans = [c for c in chosen if isinstance(c, BoardPlan)]
+    chosen = [c for c in chosen if not isinstance(c, BoardPlan)]
+    lighting = {}
+    for c in found:
+        if not c.feeder and c.labels:
+            lighting[c.panel] = lighting.get(c.panel, True) and c.kind == LIGHTING
+    with revit.Transaction("Circuit descriptions, loads, spares and spaces"):
         failed = revit_desc.write(chosen)
+        board_failed = []
+        for p in chosen_plans:
+            sub = SubTransaction(doc)      # a board that fails is left as it was
+            sub.Start()
+            try:
+                revit_spares.apply(p, lighting.get(p.panel, False))
+                sub.Commit()
+            except Exception as error:
+                sub.RollBack()
+                board_failed.append((p, error))
     bad = set(id(c) for c, _ in failed)
     _show([c for c in chosen if id(c) not in bad], found, failed)
+    _show_boards([p for p in chosen_plans if p not in [b for b, _ in board_failed]],
+                 board_failed)
+
+
+def _plan(board):
+    try:
+        return revit_spares.plan(board)
+    except Exception:
+        return None
+
+
+def _show_boards(done, failed):
+    output = script.get_output()
+    if done:
+        output.print_md("## Spares and spaces")
+        output.print_table(table_data=[[p.panel, p.ways, p.circuits, p.spares,
+                                        len(p.new_spares), p.spaces] for p in done],
+                           columns=["Board", "Ways", "Circuits", "Spares", "Added", "Spaces"])
+    if failed:
+        output.print_md("## Boards not changed")
+        output.print_table(table_data=[[p.panel, u"%s" % e] for p, e in failed],
+                           columns=["Board", "Why"])
 
 
 STYLE_TEXT = {
