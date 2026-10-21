@@ -4,7 +4,7 @@
 A board is laid out in two RCD sections: lighting and FCU circuits on a
 100 mA RCD, then the other (power) circuits on a 30 mA RCD. Each section
 gets 10 % spares (of its circuits, rounded up) right after its circuits;
-section 2 starts on a new way. The board's ways are the standard size
+section 2 starts on a new way, and a section takes at least 6 slots. The board's ways are the standard size
 holding all that, and every other slot of those ways is a space. Each
 RCD is the smallest standard RCCB carrying its section's load."""
 from __future__ import division
@@ -19,6 +19,7 @@ VOLTS_3PH, VOLTS_1PH = 400.0, 230.0
 CIRCUIT, SPARE, SPACE = "circuit", "spare", "space"
 
 SECTION_100MA, SECTION_30MA = 1, 2
+MIN_SECTION_SLOTS = 6           # an RCD section takes at least 6 slots (2 ways)
 SENSITIVITY = {SECTION_100MA: 100, SECTION_30MA: 30}    # mA
 
 
@@ -79,13 +80,14 @@ class BoardPlan(object):
         self.counts = {}                # section -> circuits
         self.rcds = {}                  # section -> 'RCCB 40A 4P 100mA'
         used = set()
-        slot = 1
+        slot = first = 1
         for section in (SECTION_100MA, SECTION_30MA):
             members = [i for i in self.items if i.section == section]
             if not members:
                 continue
-            if used:                    # a new section starts on a new way
-                slot = self._next_way(slot)
+            if used:                    # a new section starts on a new way,
+                slot = self._next_way(max(slot, first + MIN_SECTION_SLOTS))
+            first = slot                # at least 6 slots after the last one
             for item in members:
                 start = slot
                 if item.poles > 1:      # multi-pole breakers start on a way
@@ -105,7 +107,10 @@ class BoardPlan(object):
             self.rcds[section] = rcd_text(sum(i.load_va for i in members), section, per_way)
             slot = self._first_free(used, slot)
 
-        self.ways = ways_for(max(used) if used else 0, per_way)
+        last = max(used) if used else 0
+        if used:                        # the last section takes 6 slots too
+            last = max(last, first + MIN_SECTION_SLOTS - 1)
+        self.ways = ways_for(last, per_way)
         self.slots = self.ways * per_way
         self.spaces = [s for s in range(1, self.slots + 1) if s not in used]
         self.moved = [i for i in self.items if self.targets[i.key] != i.slot]

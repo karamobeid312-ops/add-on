@@ -74,3 +74,16 @@ def test_nothing_to_do_twice():
 
 def test_empty_board_left_alone():
     assert not board([]).changed
+
+
+def test_a_section_takes_at_least_six_slots():
+    plan = board(singles([S1, S1, S2, S2]))
+    assert plan.targets == {1: 1, 2: 2, 3: 7, 4: 8}
+    assert plan.spare_slots == {S1: [3], S2: [9]}
+    assert plan.spaces == [4, 5, 6, 10, 11, 12]
+
+
+def test_a_long_section_is_not_padded():
+    plan = board(singles([S1] * 8 + [S2]))
+    assert plan.spare_slots[S1] == [9]
+    assert plan.targets[9] == 10                    # next way after 9 slots
