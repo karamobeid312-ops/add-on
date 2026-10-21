@@ -543,6 +543,37 @@ The **Model Check** panel of the **Electrical** tab:
 | Measured | Against both side faces of the wall, in 3D: the fixture's insertion point (face-based families have it on the face they are placed on) and the points of its 3D geometry. The fixture's side is the face its insertion point is nearest, or for wall-hosted families the face its body sticks out of most. A back box behind the face is fine as long as part of the fixture is in front of it, so flush fixtures pass. |
 | Not read | Curtain walls and walls whose faces Revit cannot give. |
 
+## Circuit descriptions
+
+The **Panel Schedules** panel of the **Electrical** tab:
+
+- **Circuit Description** – fills the circuit description (the circuit's
+  *Load Name*, the CIRCUIT DESCRIPTION column of the panel schedules)
+  with the room its fixtures are in, read from the architectural link:
+  `012 FIRE FIGHTING PUMP ROOM`. When a circuit's fixtures are in several
+  rooms, each room is written once, in order: `101 OFFICE, 102 CORRIDOR`.
+  The LOAD columns are filled too: the circuit's fixtures by type, into
+  its `Load1_Type`, `Load1_Nos`, `Load1_WpU` ... `Load6_` parameters,
+  most fixtures first. TYPE is the fixture type's *Type Comments* (its
+  type name when blank), W PER UNIT the load of one fixture.
+  Open a panel schedule or select boards first, or pick the boards after
+  clicking. Every change is listed (board, circuit, was, now) to untick
+  before anything is written, in one transaction (one Undo). The report
+  lists the circuits whose fixtures are in no room; they keep their
+  description.
+- **Description Settings** – how a room is written (number + name, name
+  only, name + number), in capitals or not, and whether this model's
+  rooms and spaces are used when a fixture is in no linked room.
+
+| Item | How |
+| --- | --- |
+| Circuits | Power circuits of the boards. Spares and spaces are left alone, and so are circuits feeding other boards and circuits with nothing connected. |
+| Room of a fixture | The room of the loaded links (the architectural model) at the fixture's insertion point; then 300 mm in front of and behind it (fixtures on a wall face sit on the room boundary); then higher and lower, down to its level (ceiling lights are above the room's height). Then the spaces and rooms of this model, if the setting allows. |
+| W PER UNIT | The *Apparent Load* of the fixture's electrical connector, else an instance or type parameter named *Apparent Load*, *Wattage*, *Load*, *Power*, *Apparent Power* or *Watts*. When one type of the circuit has no load, it is worked out from the circuit's apparent load. Fixtures of the same type with different loads are separate groups. |
+| Breaker and cable | *Lighting* circuits (only lighting fixtures and devices on them): Rating (MCB) 16 A, `Circuit_Wire_Size_mm2` 2.5, `Earth_Wire_Size_mm2` 2.5, `Circuit_Wire_Rating` 20.9(4.1), `Circuit_Wire_Type` SINGLE CORE, `Circuit_Type` RAD. *Power* circuits (any other fixture on them): 20 A, 4, 4, 27.8(5.4), SINGLE CORE, RAD. |
+| RCD sections, spares and spaces | Each board is laid out in two RCD sections: lighting circuits and FCU circuits (a fixture with FCU in its family or type name) first, on a 100 mA RCD; then the other power circuits, from a new R row, on a 30 mA RCD; a section takes at least 6 ways, the rest of it spaces. A way is one slot (R1, or Y1). Circuits keep their order inside a section; 3-pole circuits start on an R row. Each section gets 10 % spares (of its circuits, rounded up) right after its circuits: 16 A in a lighting-only section, else 20 A. The board becomes the standard size (4, 6, 8, 12, 16, 18, 24, 30, 36, 42 rows of R, Y, B) holding all that: *Max #1 Pole Breakers* and *No_Of_Ways* = its ways (a 12 row board is 36 ways). Every other slot is a space. Each section's RCD is the smallest RCCB (25, 40, 63, 80, 100, 125 A) carrying its connected load at 400 V three phase (230 V single phase), written as `RCCB 40A 4P 100mA` to *Section1_Protection* / *Section2_Protection*. Shown in the preview as a BOARD line; untick it to leave the board as it is. |
+| Written | The *Load Name*, the wiring parameters above and the existing `LoadN_Type` / `LoadN_Nos` / `LoadN_WpU` parameters (groups not used are cleared). No parameter is created. |
+
 ## Install
 
 1. Install pyRevit.
@@ -614,6 +645,7 @@ Electrical.extension/
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
+    Panel Schedules.panel/  Circuit Description, Description Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -659,6 +691,13 @@ Electrical.extension/
     check.py       is a fixture on its wall face: floating, set in, off the wall... (no Revit)
     report.py      the problems by kind, what to do, not checked
     revit_check.py fixtures, their host wall (here or in a link), faces and geometry measured
+    settings.py    per-user settings
+    command.py     button entry points
+  lib/circuitdesc/
+    spares.py      RCD sections, 10 % spares, ways, spaces, RCCB sizes (no Revit)
+    revit_spares.py  slots read, circuits moved into sections, spares/spaces/ways/RCDs written
+    describe.py    room labels, descriptions, what happens to each circuit (no Revit)
+    revit_desc.py  boards and circuits, the room of each fixture in the links, Load Name written
     settings.py    per-user settings
     command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing

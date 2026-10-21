@@ -1,0 +1,192 @@
+# -*- coding: utf-8 -*-
+"""Circuit descriptions from the rooms or spaces of their fixtures (no Revit)."""
+import re
+
+NUMBER_NAME = "number name"
+NAME = "name"
+NAME_NUMBER = "name number"
+STYLES = [NUMBER_NAME, NAME, NAME_NUMBER]
+
+SEPARATOR = ", "
+
+# the breaker and cable of a final circuit, office standard
+POWER = "power"             # sockets, power outlets, equipment
+LIGHTING = "lighting"       # only light fittings on it
+MCB = "MCB"                 # the circuit's Rating (A)
+WIRING = {
+    POWER: [(MCB, u"20"), ("Circuit_Wire_Size_mm2", u"4"), ("Earth_Wire_Size_mm2", u"4"),
+            ("Circuit_Wire_Rating", u"27.8(5.4)"), ("Circuit_Wire_Type", u"SINGLE CORE"), ("Circuit_Type", u"RAD")],
+    LIGHTING: [(MCB, u"16"), ("Circuit_Wire_Size_mm2", u"2.5"), ("Earth_Wire_Size_mm2", u"2.5"),
+               ("Circuit_Wire_Rating", u"20.9(4.1)"), ("Circuit_Wire_Type", u"SINGLE CORE"),
+               ("Circuit_Type", u"RAD")],
+}
+WIRING_NAMES = [name for name, _ in WIRING[POWER]]
+
+
+def wiring_text(kind):
+    """'MCB 20 A, 4 / 4 mm², 27.8(5.4), SINGLE CORE' for the preview."""
+    v = dict(WIRING[kind])
+    return u"MCB %s A, %s / %s mm\u00b2, %s, %s, %s" % (
+        v[MCB], v["Circuit_Wire_Size_mm2"], v["Earth_Wire_Size_mm2"],
+        v["Circuit_Wire_Rating"], v["Circuit_Wire_Type"], v["Circuit_Type"])
+
+LOAD_SLOTS = 6              # Load1_Type / _Nos / _WpU ... Load6_ on the circuits
+
+# what happens to a circuit
+CHANGE = "change"           # gets a new description
+SAME = "same"               # already says it
+NOT_FOUND = "not found"     # none of its fixtures is in a room or space
+NO_FIXTURES = "no fixtures"
+FEEDER = "feeder"           # feeds another board: keeps its description
+
+
+def _clean(text):
+    return u" ".join((text or u"").split())
+
+
+def label(number, name, style=NUMBER_NAME, upper=True):
+    """What a room or space is called in a description: '012 PUMP ROOM'."""
+    number, name = _clean(number), _clean(name)
+    if style == NAME:
+        parts = [name or number]
+    elif style == NAME_NUMBER:
+        parts = [name, number]
+    else:
+        parts = [number, name]
+    text = u" ".join(p for p in parts if p)
+    return text.upper() if upper else text
+
+
+def describe(labels):
+    """The description of a circuit whose fixtures are in `labels` (one per
+    fixture, None when it is in no room): each room once, in order."""
+    seen, out = set(), []
+    for text in labels:
+        if text and text not in seen:
+            seen.add(text)
+            out.append(text)
+    return SEPARATOR.join(out)
+
+
+def number_text(value):
+    """'36', '7.5' or '' for a count or a load in W."""
+    if value is None:
+        return u""
+    value = round(float(value), 1)
+    if value == int(value):
+        return u"%d" % int(value)
+    return u"%.1f" % value
+
+
+def fill_unknown(fixtures, circuit_watts):
+    """Fixtures [(type, watts)] with the load of the one type whose fixtures
+    have none worked out from the circuit's load (all unknown types: unchanged)."""
+    unknown = set(kind for kind, watts in fixtures if watts is None)
+    if len(unknown) != 1 or not circuit_watts:
+        return list(fixtures)
+    known = sum(watts for _, watts in fixtures if watts is not None)
+    count = sum(1 for _, watts in fixtures if watts is None)
+    rest = circuit_watts - known
+    if rest <= 0:
+        return list(fixtures)
+    return [(kind, watts if watts is not None else rest / count) for kind, watts in fixtures]
+
+
+def group_loads(fixtures, slots=LOAD_SLOTS):
+    """The load groups of a circuit from its fixtures [(type, watts)]:
+    [(type, nos, W per unit)], most fixtures first, padded to `slots`
+    with ('', '', ''); and whether some types did not fit."""
+    counts, order = {}, []
+    for kind, watts in fixtures:
+        key = (_clean(kind), number_text(watts))
+        if key not in counts:
+            counts[key] = 0
+            order.append(key)
+        counts[key] += 1
+    keys = sorted(order, key=lambda k: (-counts[k], order.index(k)))
+    groups = [(k[0], u"%d" % counts[k], k[1]) for k in keys[:slots]]
+    groups += [(u"", u"", u"")] * (slots - len(groups))
+    return groups, len(keys) > slots
+
+
+def loads_text(groups):
+    """'2 x LED 36W (36 W), 1 x EXIT (5 W)' for the preview."""
+    parts = []
+    for kind, nos, wpu in groups:
+        if nos:
+            parts.append(u"%s x %s%s" % (nos, kind or u"?", u" (%s W)" % wpu if wpu else u""))
+    return u", ".join(parts)
+
+
+class Circuit(object):
+    """A circuit of a board, as read from the model."""
+
+    def __init__(self, ref, panel, number, slot, old, labels, feeder=False,
+                 fixtures=(), old_loads=None, kind=None, old_wiring=None):
+        self.ref = ref                  # the Revit circuit
+        self.panel = panel              # board name
+        self.number = number            # R1, 12...
+        self.slot = slot
+        self.old = old or u""
+        self.labels = list(labels)      # one per fixture, None when not in a room
+        self.feeder = feeder
+        self.found = describe(self.labels)
+        self.new = self.found or self.old   # kept when no room is found
+        self.loads, self.overflow = group_loads(fixtures)
+        self.old_loads = list(old_loads) if old_loads is not None else list(self.loads)
+        # power and lighting circuits get the office breaker and cable. Only
+        # the parameters on the circuit (in old_wiring) are written.
+        self.kind = kind
+        self.old_wiring = dict(old_wiring or {})
+        self.wiring = dict(self.old_wiring)
+        if kind in WIRING:
+            for name, value in WIRING[kind]:
+                if name in self.wiring:
+                    self.wiring[name] = value
+
+    @property
+    def wiring_changed(self):
+        return self.wiring != self.old_wiring
+
+    @property
+    def loads_changed(self):
+        return self.loads != self.old_loads
+
+    @property
+    def status(self):
+        if self.feeder:
+            return FEEDER
+        if not self.labels:
+            return NO_FIXTURES
+        if self.new != self.old or self.loads_changed or self.wiring_changed:
+            return CHANGE
+        if not self.found:
+            return NOT_FOUND
+        return SAME
+
+    @property
+    def missing(self):
+        """Fixtures of the circuit in no room or space."""
+        return sum(1 for text in self.labels if not text)
+
+
+def _natural(text):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", text or u"")]
+
+
+def ordered(circuits):
+    """Circuits by board, then by slot (as in the panel schedule)."""
+    return sorted(circuits, key=lambda c: (_natural(c.panel),
+                                           c.slot if c.slot is not None else 10 ** 6,
+                                           _natural(c.number)))
+
+
+def by_status(circuits, status):
+    return [c for c in circuits if c.status == status]
+
+
+def headline(circuits):
+    n = len(by_status(circuits, CHANGE))
+    boards = len(set(c.panel for c in circuits))
+    return u"%d circuit%s of %d board%s to describe" % (
+        n, "" if n == 1 else "s", boards, "" if boards == 1 else "s")
