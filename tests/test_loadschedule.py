@@ -81,15 +81,16 @@ def test_sheet_names_unique_and_valid():
 
 def test_workbook_formulas(tmp_path):
     wb, sheets = ls.build(sample(), {"project": "KEZAD", "location": "ABU DHABI"})
-    path = str(tmp_path / "schedules.xlsx")
-    wb.save(path)
-    import openpyxl
-    book = openpyxl.load_workbook(path)
-    assert book.sheetnames[0] == "MDB-1" and book.sheetnames[-1] == ls.SCHEDULE_SHEET
-    ws = book["SMDB-GF-M1"]
-    assert ws["B3"].value == "SMDB-GF-M1" and ws["B4"].value == "MDB-1"
-    assert ws["K8"].value == "='SMDB-1ST-01'!K18"           # board row: its sheet's totals
-    assert ws["N10"].value.startswith("=VLOOKUP(B10,")      # DB row: Revit panel loads
+    wb.save(str(tmp_path / "schedules.xlsx"))
+    import zipfile
+    with zipfile.ZipFile(str(tmp_path / "schedules.xlsx")) as z:
+        assert "xl/worksheets/sheet1.xml" in z.namelist()
+    names = [w.name for w in wb.sheets]
+    assert names[0] == "MDB-1" and names[-1] == ls.SCHEDULE_SHEET
+    ws = wb.sheets[names.index("SMDB-GF-M1")]
+    assert ws.value(3, 2) == "SMDB-GF-M1" and ws.value(4, 2) == "MDB-1"
+    assert ws.value(8, 11).text == "'SMDB-1ST-01'!K18"       # board row: its sheet's totals
+    assert ws.value(10, 14).text.startswith("VLOOKUP(B10,")  # DB row: Revit panel loads
     t = sheet(sheets, "SMDB-GF-M1").total_row
-    assert ws["U%d" % (t + 1)].value == "=SUM(N8:N%d)" % (t - 1)
-    assert "Project/Building Name : KEZAD" in ws["A1"].value
+    assert ws.value(t + 1, 21).text == "SUM(N8:N%d)" % (t - 1)
+    assert "Project/Building Name : KEZAD" in ws.value(1, 1)
