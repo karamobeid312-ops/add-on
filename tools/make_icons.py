@@ -162,25 +162,8 @@ def badge(canvas, color):
 
 # ---------------------------------------------------------------- icons
 
-def calculate_vd(c, ink):
-    stroke(c, [(5, 4), (5, 27), (28, 27)], 2.0, ink)
-    stroke(c, [(8, 9), (13.5, 12), (19, 16.5), (25.5, 23)], 2.4, BLUE)
-    for x, y in [(8, 9), (13.5, 12), (19, 16.5), (25.5, 23)]:
-        c.fill([circle(x, y, 2.3)], BLUE)
-    c.fill([bolt(20.5, 1.2, 0.95)], AMBER)
 
 
-def vd_report(c, ink):
-    page = [(5, 2.5), (18.5, 2.5), (24, 8), (24, 29.5), (5, 29.5)]
-    c.fill([page], WHITE)
-    c.fill([[(18.5, 2.5), (18.5, 8), (24, 8)]], LIGHT)
-    stroke(c, page, 1.4, ink, closed=True)
-    for y in (12, 15.5, 19, 22.5):
-        stroke(c, [(8.5, y), (15.5, y)], 1.2, GRAY)
-    stroke(c, [(11.5, 11), (11.5, 23.5)], 1.0, GRAY)
-    c.fill([rounded(16.5, 17, 30.5, 31, 2.5)], RED)
-    stroke(c, [(23.5, 19.8), (23.5, 27.2)], 2.0, WHITE)
-    stroke(c, [(20.3, 24.2), (23.5, 27.4), (26.7, 24.2)], 2.0, WHITE)
 
 
 def settings_gear(c, ink, color, glyph):
@@ -189,27 +172,34 @@ def settings_gear(c, ink, color, glyph):
     glyph(c)
 
 
-def vd_settings(c, ink):
-    settings_gear(c, ink, AMBER, lambda c: c.fill([bolt(21.2, 18.2, 0.8)], WHITE))
 
 
-def generate_sld(c, ink):
+
+
+def power_studio(c, ink):
+    """The SLD mark in amber."""
     stroke(c, circle(16, 5.8, 4.2), 1.6, ink, closed=True)
     stroke(c, circle(16, 11.2, 4.2), 1.6, ink, closed=True)
     stroke(c, [(16, 15.4), (16, 19)], 1.6, ink)
     for x in (7, 16, 25):
         stroke(c, [(x, 19), (x, 28)], 1.6, ink)
-        c.fill([rect(x - 2, 21.8, x + 2, 25.8)], BLUE)
+        c.fill([rect(x - 2, 21.8, x + 2, 25.8)], AMBER)
         c.fill([circle(x, 28.6, 1.9)], ink)
-    stroke(c, [(4, 19), (28, 19)], 2.8, BLUE)
+    stroke(c, [(4, 19), (28, 19)], 2.8, AMBER)
 
 
-def sld_settings(c, ink):
-    def glyph(c):
-        stroke(c, [(19.5, 21.5), (28.5, 21.5)], 1.6, WHITE)
-        for x in (21, 24, 27):
-            stroke(c, [(x, 21.5), (x, 27)], 1.3, WHITE)
-    settings_gear(c, ink, BLUE, glyph)
+
+
+def fcu_power(c, ink):
+    """A fan coil unit (box with its grille and fan) and a blue bolt."""
+    c.fill([rounded(2, 5, 26, 19, 2.5)], WHITE)
+    stroke(c, rounded(2, 5, 26, 19, 2.5), 1.6, ink, closed=True)
+    for y in (13.5, 16):
+        stroke(c, [(5, y), (14, y)], 1.2, ink)
+    stroke(c, circle(20, 12, 4), 1.4, ink, closed=True)
+    c.fill([circle(20, 12, 1.2)], ink)
+    badge(c, BLUE)
+    c.fill([bolt(20.2, 17.6, 0.85)], WHITE)
 
 
 def detector(c, ink):
@@ -347,17 +337,14 @@ def mirror_tower(c, ink):
 
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
-    (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
-    (TAB + "SLD.panel/Settings.pushbutton", sld_settings),
+    (TAB + "Power.panel/Power Studio.pushbutton", power_studio),
+    (TAB + "Mechanical.panel/FCU Power.pushbutton", fcu_power),
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
     (TAB + "Fire Alarm.panel/Address Devices.pushbutton", address_devices),
     (TAB + "Fire Alarm.panel/FA Riser.pushbutton", fa_riser),
     (TAB + "Fire Alarm.panel/Settings.pushbutton", fa_settings),
-    (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
-    (TAB + "Voltage Drop.panel/VD Report.pushbutton", vd_report),
-    (TAB + "Voltage Drop.panel/Settings.pushbutton", vd_settings),
     (TAB + "Dimensions.panel/Dimension Devices.pushbutton", dimension_devices),
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
     (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
