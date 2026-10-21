@@ -18,8 +18,8 @@ def test_spares_ten_percent_rounded_up():
 
 
 def test_standard_way_sizes():
-    assert ways_for(32) == 12 and ways_for(36) == 12 and ways_for(37) == 16
-    assert ways_for(3) == 4
+    assert ways_for(32) == 36 and ways_for(36) == 36 and ways_for(37) == 48
+    assert ways_for(3) == 12
 
 
 def test_rcd_from_the_section_load():
@@ -38,7 +38,7 @@ def test_lighting_and_fcu_first_then_power_on_a_new_way():
     assert plan.spare_slots[S1] == [5]                          # 1 spare for 4 circuits
     assert [t[k] for k in (1, 3, 6)] == [7, 8, 9]               # section 2 on a new way
     assert plan.spare_slots[S2] == [10]
-    assert plan.ways == 4 and plan.slots == 12
+    assert plan.ways == 12 and plan.slots == 12
     assert plan.spaces == [6, 11, 12]
     assert plan.changed and len(plan.moved) == 7
 
@@ -46,7 +46,7 @@ def test_lighting_and_fcu_first_then_power_on_a_new_way():
 def test_section_rcds_and_text():
     plan = board(singles([S1] * 3 + [S2] * 3, load=5000.0))
     assert plan.rcds == {S1: u"RCCB 25A 4P 100mA", S2: u"RCCB 25A 4P 30mA"}
-    assert plan.text() == (u"4 ways (was 14), RCCB 25A 4P 100mA: 3 circuits + 1 spare, "
+    assert plan.text() == (u"12 ways (was 42), RCCB 25A 4P 100mA: 3 circuits + 1 spare, "
                            u"RCCB 25A 4P 30mA: 3 circuits + 1 spare, 4 spaces, 3 circuits moved")
 
 
@@ -60,7 +60,7 @@ def test_three_pole_circuit_starts_on_a_way():
 def test_only_power():
     plan = board(singles([S2] * 29))
     assert S1 not in plan.rcds
-    assert plan.spare_slots[S2] == [30, 31, 32] and plan.ways == 12
+    assert plan.spare_slots[S2] == [30, 31, 32] and plan.ways == 36
     assert plan.spaces == [33, 34, 35, 36] and not plan.moved
 
 

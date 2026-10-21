@@ -108,6 +108,7 @@ def _cell(view, slot):
 
 
 def _set_ways(board, ways, slots):
+    """Max #1 Pole Breakers and No_Of_Ways: a way is one slot (R1 or Y1)."""
     p = board.get_Parameter(BuiltInParameter.RBS_ELEC_MAX_POLE_BREAKERS)
     if p is not None and not p.IsReadOnly and p.AsInteger() != slots:
         p.Set(slots)
