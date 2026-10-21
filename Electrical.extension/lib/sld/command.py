@@ -121,6 +121,34 @@ def _report(doc, editor, path):
     return u"%s\n\nExcel: %s\nPDF: %s" % (headline, path, pdf_path)
 
 
+def _schedules_name(doc):
+    from vdrop import revit_vd
+    name = re.sub(r'[\\/:*?"<>|]+', " ", revit_vd.project_info(doc).get("project") or "")
+    name = name.strip()
+    return ("%s Load Schedules.xlsx" % name) if name else "Load Schedules.xlsx"
+
+
+def _schedules(doc, editor, path):
+    """MDB / SMDB load schedules (one sheet per board) of the values shown
+    in the window. Returns the message shown."""
+    from sld import loadschedule
+    from vdrop import revit_vd
+    project = revit_vd.project_info(doc)
+    workbook, sheets = loadschedule.build(editor, project)
+    if not sheets:
+        return u"No MDB or SMDB was found to make a load schedule for."
+    try:
+        workbook.save(path)
+    except Exception as error:
+        return (u"Could not save the load schedules:\n%s\n\nIf the file is open in Excel, "
+                u"close it and try again." % error)
+    _open(path)
+    message = u"Load schedules saved: %s\n\n%s" % (path, loadschedule.summary(sheets))
+    if editor.dirty():
+        message += u"\n\nThey have your unsaved changes; Save to Revit to keep them."
+    return message
+
+
 def _model_text(doc, editor):
     from vdrop import revit_vd
     name = revit_vd.project_info(doc).get("project") or doc.Title
@@ -139,6 +167,8 @@ def run():
     actions = {"save": lambda ed: _save(doc, ed), "settings": _keep_settings,
                "report": lambda ed, path: _report(doc, ed, path),
                "report_name": _report_name(doc),
+               "schedules": lambda ed, path: _schedules(doc, ed, path),
+               "schedules_name": _schedules_name(doc),
                "save_risers": lambda specs: settings.save_risers(_project(doc), specs),
                "save_generators": lambda specs: settings.save_generators(_project(doc), specs),
                "save_supplies": lambda specs: settings.save_supplies(_project(doc), specs)}

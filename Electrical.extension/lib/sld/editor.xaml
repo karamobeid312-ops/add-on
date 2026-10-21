@@ -112,6 +112,8 @@
                   ToolTip="Size the feeder cable and breaker of every SMDB and DB from its connected load (office XLPE/SWA/PVC table)"/>
           <Button x:Name="ReportButton" Content="Export V.D report" Margin="4,0"
                   ToolTip="Save the voltage drop report as Excel and PDF, with the values shown here"/>
+          <Button x:Name="ScheduleButton" Content="Load schedules" Margin="4,0"
+                  ToolTip="Save the MDB / SMDB load schedules (one Excel sheet per board, office format) with the values shown here"/>
           <Button x:Name="SaveButton" Content="Save to Revit" Margin="4,0"
                   ToolTip="Write the changes and the V.D results into the parameters already in the model"/>
           <Button x:Name="GenerateButton" Content="Draw SLD" Margin="4,0,0,0"
