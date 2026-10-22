@@ -195,6 +195,7 @@ def run(domain):
                        if revit_mep._bic(name) is not None],
         "outline": outline,
         "read": lambda unticked: revit_mep.read_model(doc, domain, unticked),
+        "in_links": lambda unticked: revit_mep.in_links(doc, domain, unticked),
         "mirror": lambda keys, sides, placement, about, tolerance, join: _mirror(
             doc, title, state["model"], keys, sides, placement, about, tolerance, join),
         "label_of": label_of,

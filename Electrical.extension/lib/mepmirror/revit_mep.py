@@ -231,6 +231,29 @@ def read_model(doc, domain, unticked=()):
     return model
 
 
+def in_links(doc, domain, unticked=()):
+    """[(linked model title, count)] of the tool's categories in the loaded
+    links: a tool can only change the model that is open, so when this
+    model has none, they are likely in the MEP model linked here."""
+    found, seen = [], set()
+    for _, link_doc in revit_mirror.linked_models(doc):
+        title = link_doc.Title
+        if title in seen:
+            continue
+        seen.add(title)
+        n = 0
+        for name in categories(domain, unticked).values():
+            try:
+                n += FilteredElementCollector(link_doc).OfCategory(_bic(name)) \
+                    .WhereElementIsNotElementType().GetElementCount()
+            except Exception:
+                pass
+        if n:
+            found.append((title, n))
+    found.sort(key=lambda p: -p[1])
+    return found
+
+
 # ---------------------------------------------------------------- mirroring
 
 class FloorResult(object):

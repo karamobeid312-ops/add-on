@@ -303,7 +303,7 @@ class MirrorWindow(object):
         self._fill_floors()
         todo = sum(len(s.missing) for s in self.sides.values())
         if not self.sides:
-            self._status(u"No %s elements in the model." % self.domain, "warn")
+            self._no_elements()
         elif placement is None:
             self._status(u"Pick Tower 2, then tick the floors to mirror.", "")
         elif todo:
@@ -311,6 +311,26 @@ class MirrorWindow(object):
                          % todo, "ok")
         else:
             self._status(u"Tower 2 has all of Tower 1's %s elements." % self.domain, "ok")
+
+    def _no_elements(self):
+        """Say why the floors are empty: the ducts and pipes are usually in
+        the mechanical / plumbing model linked here, and a link cannot be
+        changed from this model."""
+        try:
+            links = self.revit["in_links"](self.state["unticked"])
+        except Exception:
+            links = []
+        if not links:
+            self._status(u"No %s elements in this model or its links." % self.domain, "warn")
+            return
+        names = u", ".join(u"%s (%d)" % (t, n) for t, n in links[:3])
+        self._status(u"No %s elements in this model; they are in the link %s. Open that model "
+                     u"and run Mirror Tower there." % (self.domain, names), "warn")
+        self._alert(u"This model has no %s elements: they are in the linked model\n\n%s\n\n"
+                    u"A tool can only change the model that is open, not a link. Open that "
+                    u"model in Revit (with this extension) and run Mirror Tower there." % (
+                        self.domain, u"\n".join(u"  %s: %d elements" % (t, n)
+                                                for t, n in links)))
 
     def _fill_floors(self):
         model = self.state["model"]
