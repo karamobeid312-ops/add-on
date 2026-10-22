@@ -322,28 +322,43 @@ def _reference_of(tag):
         return None
 
 
-def _leader(tag, new_tag, new_ref, placement):
-    """Tower 1 tag's leader (free end and elbow) mirrored onto the new tag."""
+def _leader(tag, new_tag, new_ref, placement, head):
+    """Tower 1 tag's leader mirrored onto the new tag: its end condition,
+    its free end and its elbow. A leader with no elbow stays straight:
+    Revit gives a new leader an elbow of its own, so the copy's elbow is
+    put on the straight line from its end to its head."""
     try:
         new_tag.LeaderEndCondition = tag.LeaderEndCondition
     except Exception:
         pass
     ref = _reference_of(tag)
+    end = None
     try:
         if tag.LeaderEndCondition == LeaderEndCondition.Free:
             if ref is not None:
-                new_tag.SetLeaderEnd(new_ref, _moved_point(placement, tag.GetLeaderEnd(ref)))
+                end = _moved_point(placement, tag.GetLeaderEnd(ref))
+                new_tag.SetLeaderEnd(new_ref, end)
             else:
-                new_tag.LeaderEnd = _moved_point(placement, tag.LeaderEnd)
+                end = _moved_point(placement, tag.LeaderEnd)
+                new_tag.LeaderEnd = end
     except Exception:
-        pass
+        end = None
     try:
         if ref is not None:
-            if tag.HasLeaderElbow(ref):
-                new_tag.SetLeaderElbow(new_ref, _moved_point(placement,
-                                                             tag.GetLeaderElbow(ref)))
-        elif tag.HasElbow:
-            new_tag.LeaderElbow = _moved_point(placement, tag.LeaderElbow)
+            has, set_elbow = tag.HasLeaderElbow(ref), \
+                lambda p: new_tag.SetLeaderElbow(new_ref, p)
+            elbow = tag.GetLeaderElbow(ref) if has else None
+        else:
+            has = tag.HasElbow
+            elbow = tag.LeaderElbow if has else None
+
+            def set_elbow(p):
+                new_tag.LeaderElbow = p
+        if has:
+            set_elbow(_moved_point(placement, elbow))
+        elif end is not None:
+            set_elbow(XYZ(end.X + (head.X - end.X) * 0.25, end.Y + (head.Y - end.Y) * 0.25,
+                          end.Z + (head.Z - end.Z) * 0.25))
     except Exception:
         pass
 
@@ -367,9 +382,9 @@ def mirror_tags(doc, tags, pairs, placement):
                 head = _moved_point(placement, tag.TagHeadPosition)
                 new_tag = IndependentTag.Create(doc, tag.GetTypeId(), tag.OwnerViewId, ref,
                                                 tag.HasLeader, tag.TagOrientation, head)
-                if tag.HasLeader:
-                    _leader(tag, new_tag, ref, placement)
                 new_tag.TagHeadPosition = head
+                if tag.HasLeader:
+                    _leader(tag, new_tag, ref, placement, head)
                 tags.add(target, new_tag)
                 made += 1
             except Exception:
