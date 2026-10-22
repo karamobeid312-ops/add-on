@@ -299,17 +299,19 @@ class _WallFace(object):
 
 
 class WallIndex(object):
-    """Vertical faces of walls and columns (this model and links) in an
-    area of a floor, on a plan grid. Read once per floor."""
+    """Vertical faces of walls and columns (this model and, with `links`,
+    its links) in an area of a floor, on a plan grid. Read once per floor."""
 
-    def __init__(self, doc, extent, z_low, z_high):
+    def __init__(self, doc, extent, z_low, z_high, links=True):
         self.cells = {}
         self.faces = 0
         options = Options()
         options.ComputeReferences = True
         x0, y0, x1, y1 = extent
-        sources = [(None, doc, Transform.Identity)] + \
-            [(link, link_doc, link.GetTotalTransform()) for link, link_doc in linked_models(doc)]
+        sources = [(None, doc, Transform.Identity)]
+        if links:
+            sources += [(link, link_doc, link.GetTotalTransform())
+                        for link, link_doc in linked_models(doc)]
         for link, source_doc, transform in sources:
             for name in WALL_CATEGORIES:
                 bic = getattr(BuiltInCategory, name, None)

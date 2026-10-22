@@ -709,6 +709,8 @@ What it does on each floor:
 | Mirror | All the floor's missing elements in one Revit Mirror (copies), so they stay connected to each other, then moved into Tower 2. Parameter values come along as Revit's Mirror copies them. |
 | Walls | Fixtures on a wall (wall-hosted or face-based on a vertical face) are placed again on Tower 2's wall face (in this model or a link), as the electrical tool does; Revit drops a move off a wall's plane. |
 | Open ends | The copies' free duct and pipe ends are joined to a free end at the same spot (within 5 mm): Tower 2's own pipes, a re-placed fixture, each other. |
+| Tags | Each Tower 1 tag on a mirrored element is made again on its Tower 2 copy, in the same view, its head (and a free leader end and elbow) at the mirrored spot; the text is never mirrored. A copy that already has a tag of that type in that view keeps it, so a floor Tower 2 has complete can be ticked again just to add missing tags. |
+| Links | The Mechanical tool reads no linked model (walls for wall fixtures come from this model only). The Plumbing tool reads the links' walls, and when this model has no plumbing it names the link that has it. |
 
 No parameter is created. Nothing else in Tower 2 is changed.
 

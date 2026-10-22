@@ -201,3 +201,15 @@ def test_sides_without_tower2_split_by_box_only():
     sides = sides_of(Model(), BOX, None, TOL)
     assert sorted(t.key for t in sides[1].tower1) == [1, 2]
     assert [t.key for t in sides[1].leaves] == [3]
+
+
+def test_near_keeps_only_things_by_the_open_ends():
+    things = [Thing(1, 1, (0, 0, 0), (10, 0, 0)), Thing(2, 1, (50, 50, 0)),
+              Thing(3, 1, (11, 1, 0)), Thing(4, 1, (10, 0, 9))]
+    assert plan.near(things, [(10.5, 0.5, 0)], 3.0) == set([1, 3])
+
+
+def test_tags_row():
+    from mepmirror import report
+    rows = report.result_rows(_Result(tags=3), {}.get, lambda i: i)
+    assert [v["what"] for v, _, _ in rows] == [u"Tags made on Tower 2's copies"]

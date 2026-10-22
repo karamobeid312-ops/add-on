@@ -184,6 +184,26 @@ def landed(expected, made, placement, tolerance, z_tolerance=Z_TOLERANCE):
     return pair(probe, placement, tolerance, z_tolerance).copies
 
 
+def near(things, points, reach):
+    """Keys of the Things with an end within `reach` (plan and height) of
+    one of the points (x, y, z): the only ones whose open ends can meet."""
+    size = max(reach, 1e-9)
+    cells = {}
+    for p in points:
+        cells.setdefault(_cell(p, size), []).append(p)
+    found = set()
+    for t in things:
+        for e in t.ends():
+            cx, cy = _cell(e, size)
+            if any(abs(p[0] - e[0]) <= reach and abs(p[1] - e[1]) <= reach and
+                   abs(p[2] - e[2]) <= reach
+                   for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                   for p in cells.get((cx + dx, cy + dy), ())):
+                found.add(t.key)
+                break
+    return found
+
+
 JOIN = 5.0 / 304.8              # ft: open ends this near are the same joint
 
 

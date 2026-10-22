@@ -25,7 +25,7 @@ def floor_row(name, side, picked_tower2):
         text = u"%d to mirror" % todo
         state = OK
     elif side.tower1:
-        text = u"Tower 2 has them all"
+        text = u"Tower 2 has them all (tick to add missing tags)"
         state = NONE
     else:
         text = u"Nothing to mirror"
@@ -69,6 +69,8 @@ def result_rows(result, label_of, key_of):
         count=result.rehosted)
     add(u"Open ends joined", OK, [], item=u"to Tower 2's pipes and ducts and each other",
         count=result.joined)
+    add(u"Tags made on Tower 2's copies", OK, [], item=u"same view, mirrored spot",
+        count=getattr(result, "tags", 0))
     add(u"Already in Tower 2", NONE, [], item=u"same type at the mirrored spot",
         count=result.already)
     add(u"On the mirror line: shared, not mirrored", NONE, [], item=u"", count=result.shared)

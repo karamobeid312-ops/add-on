@@ -344,8 +344,9 @@ class MirrorWindow(object):
             values, state = report.floor_row(model.names[key], side, placement is not None)
             values["key"] = u"%d" % key
             values["state"] = state
-            can = placement is not None and bool(side.missing)
-            write = can and (key in ticked if ticked is not None else True)
+            # a floor Tower 2 has complete can still be run: it adds the missing tags
+            can = placement is not None and bool(side.missing or side.copies)
+            write = can and (key in ticked if ticked is not None else bool(side.missing))
             items.append((values, write, can))
         table = self._table(FLOOR_COLUMNS, items)
         table.ColumnChanged += lambda s, e: self._mirror_info()
@@ -426,11 +427,14 @@ class MirrorWindow(object):
             self._alert(u"Pick Tower 2 first: the button in the top bar.")
             return
         self._keep_ticks()
-        keys = [k for k in self._ticked() if self.sides.get(k) and self.sides[k].missing]
+        keys = [k for k in self._ticked() if self.sides.get(k) and
+                (self.sides[k].missing or self.sides[k].copies)]
         if not keys:
-            self._alert(u"Tick a floor with elements to mirror.")
+            self._alert(u"Tick a floor with elements to mirror (or to tag).")
             return
         self._status(u"Mirroring %d floor(s)..." % len(keys), "")
+        import time
+        start = time.time()
         try:
             results = self.revit["mirror"](keys, self.sides, self.state["placement"],
                                            geometry.centre(self.outline), self._tolerance(),
@@ -447,16 +451,17 @@ class MirrorWindow(object):
         self.state["results"] = rows
         self.state["new_ids"] = new_ids
         self._fill_results()
-        self._status(u"Re-reading the model...", "")
-        self.state["model"] = self.revit["read"](self.state["unticked"])
-        self.state["read_with"] = set(self.state["unticked"])
+        self.revit["after"](results)
         self.refresh()
         self.Steps.SelectedIndex = 1
         self._select(new_ids)
         bad = sum(1 for _, state, _ in rows if state == report.BAD)
         warn = sum(1 for _, state, _ in rows if state == report.WARN)
-        self._status(u"%d elements mirrored into Tower 2 (selected in Revit)%s." % (
-            len(new_ids), u"; %d rows to check in Results" % (bad + warn) if bad + warn else u""),
+        tags = sum(getattr(r, "tags", 0) for r in results)
+        self._status(u"%d elements mirrored into Tower 2 (selected in Revit), %d tags, "
+                     u"in %.1f s%s." % (
+            len(new_ids), tags, time.time() - start,
+            u"; %d rows to check in Results" % (bad + warn) if bad + warn else u""),
             "bad" if bad else ("warn" if warn else "ok"))
 
     def _fill_results(self):

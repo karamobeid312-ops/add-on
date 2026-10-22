@@ -20,8 +20,8 @@ from __future__ import division
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, ConnectorType, Domain, ElementId,
-    ElementTransformUtils, FamilyInstance, FilteredElementCollector, LocationCurve,
-    LocationPoint,
+    ElementTransformUtils, FamilyInstance, FilteredElementCollector, IndependentTag,
+    LeaderEndCondition, LocationCurve, LocationPoint, Reference, XYZ,
 )
 from System.Collections.Generic import List
 
@@ -184,11 +184,17 @@ class Model(object):
         self.elements = {}          # key -> element
         self.categories = {}        # key -> BuiltInCategory name
         self.other_side = 0         # pipes / equipment that are the other tool's
+        self.domain = None
+        self.links = True           # walls of the links read for wall fixtures
+        self.cat_names = {}         # category id -> BuiltInCategory name
 
 
 def read_model(doc, domain, unticked=()):
     cats = categories(domain, unticked)
     model = Model()
+    model.domain = domain
+    model.links = domain != rules.MECHANICAL       # the user's rule: Mechanical reads no link
+    model.cat_names = cats
     all_levels = rc.levels(doc)
     for level in all_levels:
         f = rc.Floor(level, all_levels)
@@ -231,6 +237,24 @@ def read_model(doc, domain, unticked=()):
     return model
 
 
+def add_new(doc, model, results):
+    """The copies just made added to the model, so the floors show them
+    without reading the whole model again."""
+    for r in results:
+        for i in r.mirrored:
+            e = doc.GetElement(i)
+            name = model.cat_names.get(_category(e)) if e is not None else None
+            if name is None:
+                continue
+            t = thing(e, name)
+            floor = plan.pick_floor(t, model.floors) if t is not None else None
+            if floor is None:
+                continue
+            model.things.setdefault(floor, []).append(t)
+            model.elements[t.key] = e
+            model.categories[t.key] = name
+
+
 def in_links(doc, domain, unticked=()):
     """[(linked model title, count)] of the tool's categories in the loaded
     links: a tool can only change the model that is open, so when this
@@ -254,6 +278,105 @@ def in_links(doc, domain, unticked=()):
     return found
 
 
+# ---------------------------------------------------------------- tags
+
+def _tagged_keys(tag):
+    try:
+        return [id_int(i) for i in tag.GetTaggedLocalElementIds()]      # Revit 2022+
+    except Exception:
+        pass
+    try:
+        return [id_int(tag.TaggedLocalElementId)]
+    except Exception:
+        return []
+
+
+class Tags(object):
+    """The model's tags (IndependentTag) by the element they tag, read once
+    per run."""
+
+    def __init__(self, doc):
+        self.by_element = {}
+        for tag in FilteredElementCollector(doc).OfClass(IndependentTag):
+            for k in _tagged_keys(tag):
+                self.by_element.setdefault(k, []).append(tag)
+
+    def has(self, key, view_key, type_key):
+        return any(id_int(t.OwnerViewId) == view_key and id_int(t.GetTypeId()) == type_key
+                   for t in self.by_element.get(key, ()))
+
+    def add(self, key, tag):
+        self.by_element.setdefault(key, []).append(tag)
+
+
+def _moved_point(placement, p):
+    x, y = placement.apply(p.X, p.Y)
+    return XYZ(x, y, p.Z)
+
+
+def _reference_of(tag):
+    try:
+        refs = tag.GetTaggedReferences()                                  # Revit 2022+
+        return refs[0] if refs.Count else None
+    except Exception:
+        return None
+
+
+def _leader(tag, new_tag, new_ref, placement):
+    """Tower 1 tag's leader (free end and elbow) mirrored onto the new tag."""
+    try:
+        new_tag.LeaderEndCondition = tag.LeaderEndCondition
+    except Exception:
+        pass
+    ref = _reference_of(tag)
+    try:
+        if tag.LeaderEndCondition == LeaderEndCondition.Free:
+            if ref is not None:
+                new_tag.SetLeaderEnd(new_ref, _moved_point(placement, tag.GetLeaderEnd(ref)))
+            else:
+                new_tag.LeaderEnd = _moved_point(placement, tag.LeaderEnd)
+    except Exception:
+        pass
+    try:
+        if ref is not None:
+            if tag.HasLeaderElbow(ref):
+                new_tag.SetLeaderElbow(new_ref, _moved_point(placement,
+                                                             tag.GetLeaderElbow(ref)))
+        elif tag.HasElbow:
+            new_tag.LeaderElbow = _moved_point(placement, tag.LeaderElbow)
+    except Exception:
+        pass
+
+
+def mirror_tags(doc, tags, pairs, placement):
+    """Tower 1's tags made again on Tower 2's copies, in the same views, at
+    the mirrored spot (text is never mirrored). pairs: [(Tower 1 key, Tower
+    2 element)]. A copy that has a tag of that type in that view already is
+    left as it is. Returns how many tags were made."""
+    made = 0
+    for key, element in pairs:
+        if element is None:
+            continue
+        target = id_int(element.Id)
+        for tag in list(tags.by_element.get(key, ())):
+            try:
+                view_key, type_key = id_int(tag.OwnerViewId), id_int(tag.GetTypeId())
+                if tags.has(target, view_key, type_key):
+                    continue
+                ref = Reference(element)
+                head = _moved_point(placement, tag.TagHeadPosition)
+                new_tag = IndependentTag.Create(doc, tag.GetTypeId(), tag.OwnerViewId, ref,
+                                                tag.HasLeader, tag.TagOrientation, head)
+                if tag.HasLeader:
+                    _leader(tag, new_tag, ref, placement)
+                new_tag.TagHeadPosition = head
+                tags.add(target, new_tag)
+                made += 1
+            except Exception:
+                pass
+    return made
+
+
 # ---------------------------------------------------------------- mirroring
 
 class FloorResult(object):
@@ -270,6 +393,7 @@ class FloorResult(object):
         self.rehosted = 0           # of them, placed again on Tower 2's walls
         self.off_spot = []          # new ids Revit kept off their Tower 2 spot
         self.joined = 0             # open ends joined
+        self.tags = 0               # tags made on Tower 2's copies
         self.no_wall = []           # Tower 1 ids with no wall at their Tower 2 spot
         self.refused = []           # Tower 1 ids Revit did not mirror
         self.errors = []            # what Revit said
@@ -313,13 +437,14 @@ def _mirror(doc, elements, plane, result):
     return made
 
 
-def _walls(doc, things, placement, floor):
+def _walls(doc, things, placement, floor, links=True):
     spots = [placement.apply(t.a[0], t.a[1]) for t in things]
     pad = 5.0
     extent = (min(x for x, _ in spots) - pad, min(y for _, y in spots) - pad,
               max(x for x, _ in spots) + pad, max(y for _, y in spots) + pad)
     _, low, high = floor
-    return revit_mirror.WallIndex(doc, extent, low, high if high is not None else low + 30.0)
+    return revit_mirror.WallIndex(doc, extent, low, high if high is not None else low + 30.0,
+                                  links)
 
 
 def _open_ends(doc, keys):
@@ -354,11 +479,20 @@ def _connector(doc, key, connector_id):
     return None
 
 
-def join_open_ends(doc, new_keys, around_keys):
+REACH = 3.0         # ft: an element with an end this near a new open end may meet it
+
+
+def join_open_ends(doc, new_keys, around):
     """Connect each free end of the new elements to a free end at the same
-    spot (of another new one or one of `around_keys`). Returns how many."""
+    spot (of another new one or one of the `around` Things near them).
+    Returns how many."""
     new_keys = set(new_keys)
-    ends = _open_ends(doc, list(new_keys) + [k for k in around_keys if k not in new_keys])
+    ends = _open_ends(doc, list(new_keys))
+    if not ends:
+        return 0
+    others = plan.near([t for t in around if t.key not in new_keys], [e[2] for e in ends],
+                       REACH)
+    ends += _open_ends(doc, list(others))
     joined = 0
     for e, f in plan.joints(ends):
         if e[0] not in new_keys and f[0] not in new_keys:
@@ -385,7 +519,7 @@ def _on_a_face(element):
     return hosted and facing is not None and abs(facing[2]) < 0.3
 
 
-def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True):
+def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True, tags=None):
     """Mirror the floor's missing Tower 1 elements into Tower 2. floor:
     (level key, low, high). Returns a FloorResult."""
     key, _, _ = floor
@@ -396,6 +530,17 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
     result.leaves = [model.elements[t.key].Id for t in side.leaves]
     result.grouped = [model.elements[t.key].Id for t in side.grouped]
     if not side.missing:
+        if tags is not None and side.copies:
+            tx = revit_mirror._transaction(doc, "Mirror Tower tags: %s" % result.floor)
+            tx.Start()
+            try:
+                result.tags = mirror_tags(doc, tags, [(k, _get(doc, t)) for k, t in
+                                                      side.copies.items()], placement)
+                tx.Commit()
+            except Exception:
+                if tx.HasStarted() and not tx.HasEnded():
+                    tx.RollBack()
+                raise
         return result
     level = model.levels.get(key)
     elements = dict((t.key, model.elements[t.key]) for t in side.missing)
@@ -408,7 +553,7 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
     try:
         walls, made = None, {}          # Tower 1 key -> new element
         if walled:
-            walls = _walls(doc, walled, placement, floor)
+            walls = _walls(doc, walled, placement, floor, model.links)
             made.update(revit_mirror._rehost(doc, [t.key for t in walled], elements, placement,
                                              walls, level, result))
             result.rehosted = len(made)
@@ -444,15 +589,19 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
                      and not t.run]
             if again:
                 if walls is None:
-                    walls = _walls(doc, again, placement, floor)
+                    walls = _walls(doc, again, placement, floor, model.links)
                 placed = revit_mirror._rehost(doc, [t.key for t in again], elements, placement,
                                               walls, level, result)
                 made.update(placed)
                 result.rehosted += len(placed)
             doc.Regenerate()
         if join and made:
-            around = [t.key for t in side.pool] + [t.key for t in side.shared]
-            result.joined = join_open_ends(doc, [id_int(e.Id) for e in made.values()], around)
+            result.joined = join_open_ends(doc, [id_int(e.Id) for e in made.values()],
+                                           side.pool + side.shared)
+        if tags is not None:
+            pairs = [(k, e) for k, e in made.items()] + \
+                [(k, _get(doc, t)) for k, t in side.copies.items()]
+            result.tags = mirror_tags(doc, tags, pairs, placement)
         tx.Commit()
     except Exception:
         if tx.HasStarted() and not tx.HasEnded():

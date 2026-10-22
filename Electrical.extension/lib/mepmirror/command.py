@@ -121,12 +121,13 @@ def pick_placement(doc, uidoc, mode, title):
 def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join):
     floors = dict((f[0], f) for f in model.floors)
     results = []
+    tags = revit_mep.Tags(doc)
     group = TransactionGroup(doc, title)
     group.Start()
     try:
         for key in keys:
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
-                                                  about, tolerance, join))
+                                                  about, tolerance, join, tags))
         group.Assimilate()
     except Exception:
         if group.HasStarted() and not group.HasEnded():
@@ -195,7 +196,9 @@ def run(domain):
                        if revit_mep._bic(name) is not None],
         "outline": outline,
         "read": lambda unticked: revit_mep.read_model(doc, domain, unticked),
-        "in_links": lambda unticked: revit_mep.in_links(doc, domain, unticked),
+        "in_links": lambda unticked: [] if domain == rules.MECHANICAL else
+        revit_mep.in_links(doc, domain, unticked),
+        "after": lambda results: revit_mep.add_new(doc, state["model"], results),
         "mirror": lambda keys, sides, placement, about, tolerance, join: _mirror(
             doc, title, state["model"], keys, sides, placement, about, tolerance, join),
         "label_of": label_of,
