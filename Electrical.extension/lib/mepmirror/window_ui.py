@@ -345,7 +345,7 @@ class MirrorWindow(object):
             values["key"] = u"%d" % key
             values["state"] = state
             # a floor Tower 2 has complete can still be run: it adds the missing tags
-            can = placement is not None and bool(side.missing or side.copies)
+            can = bool(side.tower1 or side.missing or side.copies)
             write = can and (key in ticked if ticked is not None else bool(side.missing))
             items.append((values, write, can))
         table = self._table(FLOOR_COLUMNS, items)
@@ -376,7 +376,7 @@ class MirrorWindow(object):
 
     def _keep_ticks(self):
         view = self.FloorGrid.ItemsSource
-        if view is None or self.state.get("placement") is None:
+        if view is None:
             return
         ticked = set(self.state.get("ticked") or ())
         for row in view:

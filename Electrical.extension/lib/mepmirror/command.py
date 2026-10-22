@@ -216,5 +216,4 @@ def run(domain):
         if found is not None:
             state["placement"] = found
             state["placement_text"] = _describe(found, state["mode"])
-            state["ticked"] = None
             config.keep({"placement": _placement_text(found), "mode": state["mode"]})
