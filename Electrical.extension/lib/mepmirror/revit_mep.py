@@ -422,9 +422,20 @@ def _id_list(ids):
     return found
 
 
-def _mirror(doc, elements, plane, result):
+def _mirror(doc, elements, plane, result, tag_ids=()):
     """Mirror copies of the elements, all at once (they stay connected);
-    one by one if Revit refuses the lot. Returns the new ElementIds."""
+    one by one if Revit refuses the lot. Their tags (tag_ids) go in the
+    same Mirror when Revit takes them: the copies are then tagged with
+    Tower 1's leaders exactly. Returns the new ElementIds."""
+    if tag_ids:
+        ids = _id_list([e.Id for e in elements] + list(tag_ids))
+        try:
+            if ElementTransformUtils.CanMirrorElements(doc, ids):
+                made = ElementTransformUtils.MirrorElements(doc, ids, plane, True)
+                if made is not None:
+                    return list(made)
+        except Exception:
+            pass                # without the tags: they are made again afterwards
     ids = _id_list([e.Id for e in elements])
     try:
         if ElementTransformUtils.CanMirrorElements(doc, ids):
@@ -574,13 +585,29 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
             result.rehosted = len(made)
         if rest:
             plane, move = revit_mirror._plane(placement, about)
-            new_ids = _mirror(doc, [elements[t.key] for t in rest], plane, result)
+            tag_ids = []
+            if tags is not None:
+                for t in rest:
+                    tag_ids.extend(tag.Id for tag in tags.by_element.get(t.key, ()))
+            new_ids = _mirror(doc, [elements[t.key] for t in rest], plane, result, tag_ids)
             # the copies of the tool's categories (not the insulation that comes along)
             cats = set(int(_bic(n)) for n in set(model.categories.values()))
             ours = [e for e in (doc.GetElement(i) for i in new_ids)
                     if e is not None and _category(e) in cats]
-            if ours and move.GetLength() > 1e-9:
-                ElementTransformUtils.MoveElements(doc, _id_list([e.Id for e in ours]), move)
+            copied_tags = [e for e in (doc.GetElement(i) for i in new_ids)
+                           if isinstance(e, IndependentTag)]
+            new_keys = set(id_int(e.Id) for e in ours)
+            for tag in list(copied_tags):
+                if not set(_tagged_keys(tag)) & new_keys:   # still on Tower 1's element
+                    doc.Delete(tag.Id)
+                    copied_tags.remove(tag)
+            moving = [e.Id for e in ours] + [tag.Id for tag in copied_tags]
+            if moving and move.GetLength() > 1e-9:
+                ElementTransformUtils.MoveElements(doc, _id_list(moving), move)
+            for tag in copied_tags:
+                for k in _tagged_keys(tag):
+                    tags.add(k, tag)
+            result.tags += len(copied_tags)
             doc.Regenerate()
             things = {}
             for e in ours:
@@ -616,7 +643,7 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
         if tags is not None:
             pairs = [(k, e) for k, e in made.items()] + \
                 [(k, _get(doc, t)) for k, t in side.copies.items()]
-            result.tags = mirror_tags(doc, tags, pairs, placement)
+            result.tags += mirror_tags(doc, tags, pairs, placement)
         tx.Commit()
     except Exception:
         if tx.HasStarted() and not tx.HasEnded():
