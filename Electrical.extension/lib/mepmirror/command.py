@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Entry point of the Mirror Tower (Mechanical) and (Plumbing) buttons."""
+"""Entry point of the Mirror Tower (Mechanical), (Plumbing) and (Firefighting) buttons."""
 import time
 
 from Autodesk.Revit.DB import CurveElement, ElementId, Grid, TransactionGroup
@@ -14,7 +14,8 @@ from mepmirror import window_ui as wui
 from mirrortower import geometry, revit_mirror
 
 SECTIONS = {rules.MECHANICAL: "MepMirrorTowerMechanical",
-            rules.PLUMBING: "MepMirrorTowerPlumbing"}
+            rules.PLUMBING: "MepMirrorTowerPlumbing",
+            rules.FIRE: "MepMirrorTowerFirefighting"}
 STRETCH = 0.3 / 0.3048      # ft: the two pairs of points must be this near the same apart
 
 

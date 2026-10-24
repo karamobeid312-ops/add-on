@@ -368,12 +368,21 @@ def mirror_tower_plumbing(c, ink):
         c.fill([drop(dx, 20, 2.2)], color)
 
 
+def mirror_tower_fire(c, ink):
+    """Mirrored towers, each with a sprinkler pipe and a red flame."""
+    _towers(c, ink, RED)
+    for px, fx, color in ((9.5, 6, WHITE), (22.5, 25.5, RED)):
+        c.fill([rect(px - 0.9, 8, px + 0.9, 27)], color)
+        c.fill([flame(fx, 22, 7)], color)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "Power.panel/Power Studio.pushbutton", power_studio),
     (TAB + "Mechanical.panel/FCU Power.pushbutton", fcu_power),
     (TAB + "Mechanical.panel/Mirror Tower.pushbutton", mirror_tower_mechanical),
     (TAB + "Plumbing.panel/Mirror Tower.pushbutton", mirror_tower_plumbing),
+    (TAB + "Fire Fighting.panel/Mirror Tower.pushbutton", mirror_tower_fire),
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),

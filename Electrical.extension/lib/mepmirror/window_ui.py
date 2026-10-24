@@ -40,10 +40,26 @@ TEXT = {
                        u"Tower 2's ducts, HVAC pipes, air terminals and equipment as the mirror "
                        u"of Tower 1's"),
     rules.PLUMBING: (u"Mirror Tower · Plumbing", u"PLMB",
-                     u"Tower 2's water and drainage pipes, fixtures and sprinklers as the mirror "
-                     u"of Tower 1's"),
+                     u"Tower 2's water and drainage pipes and fixtures as the mirror of "
+                     u"Tower 1's"),
+    rules.FIRE: (u"Mirror Tower · Firefighting", u"FIRE",
+                 u"Tower 2's fire pipes, sprinklers, hose reels and fire pumps as the mirror "
+                 u"of Tower 1's"),
 }
-ACCENTS = {rules.MECHANICAL: "#2F7FD8", rules.PLUMBING: "#3E9B4F"}
+ACCENTS = {rules.MECHANICAL: "#2F7FD8", rules.PLUMBING: "#3E9B4F", rules.FIRE: "#D9472B"}
+INFO = {
+    rules.MECHANICAL: u"Pipes are split by their system: chilled water, heating, condensate "
+                      u"and refrigerant are mechanical; water and drainage go to Plumbing, "
+                      u"fire to Firefighting. Equipment is mechanical unless all its pipes are "
+                      u"plumbing (pumps, water heaters) or fire (fire pumps).",
+    rules.PLUMBING: u"Pipes are split by their system: water, drainage and vent are plumbing; "
+                    u"chilled water, heating, condensate and refrigerant go to Mechanical, fire "
+                    u"protection to Firefighting. Fixtures named for fire (hose reels) are "
+                    u"Firefighting's.",
+    rules.FIRE: u"Fire protection pipes (wet, dry, pre-action, or named fire, sprinkler, hose "
+                u"reel, hydrant, riser), sprinklers, fixtures named for fire (hose reel "
+                u"cabinets, landing valves) and equipment whose pipes are all fire (fire pumps).",
+}
 
 
 def window_xaml():
@@ -89,7 +105,7 @@ class MirrorWindow(object):
     """Plain controller around the XamlReader window.
 
     revit: dict of callbacks and values from mepmirror.command:
-      domain                rules.MECHANICAL or rules.PLUMBING
+      domain                rules.MECHANICAL, PLUMBING or FIRE
       boxes                 [scope box names]
       outline(name)         Tower 1's outline in plan [(x, y)]
       read(unticked)        revit_mep.Model of the tool's elements
@@ -188,18 +204,7 @@ class MirrorWindow(object):
             item = ListBoxItem()
             item.Content = box
             self.CategoryList.Items.Add(item)
-        if self.domain == rules.MECHANICAL:
-            self.CategoryInfo.Text = (u"Pipes are split by their system: chilled water, heating, "
-                                      u"condensate and refrigerant are mechanical; water, "
-                                      u"drainage and fire are the Plumbing tool's. Equipment is "
-                                      u"mechanical unless all its pipes are plumbing (pumps, "
-                                      u"water heaters).")
-        else:
-            self.CategoryInfo.Text = (u"Pipes are split by their system: water, drainage, vent "
-                                      u"and fire are plumbing; chilled water, heating, condensate "
-                                      u"and refrigerant are the Mechanical tool's. Equipment is "
-                                      u"plumbing when all its pipes are plumbing (pumps, water "
-                                      u"heaters).")
+        self.CategoryInfo.Text = INFO[self.domain]
         for _, text in MODES:
             self.ModeCombo.Items.Add(text)
         modes = [m for m, _ in MODES]
@@ -359,8 +364,8 @@ class MirrorWindow(object):
             u"type at the mirrored spot, within %s mm) is not mirrored again.%s%s" % (
                 self.state.get("box") or u"?",
                 (u"%.1f" % self.state["tolerance_mm"]).rstrip(u"0").rstrip(u"."), skipped_note,
-                (u" %d pipes and pieces of equipment are the %s tool's." % (
-                    other, u"Plumbing" if self.domain == rules.MECHANICAL else u"Mechanical"))
+                (u" Left to the other tools: %s." % u", ".join(
+                    u"%d to %s" % (n, rules.NAMES.get(d, d)) for d, n in sorted(other.items())))
                 if other else u""))
         self._mirror_info()
 

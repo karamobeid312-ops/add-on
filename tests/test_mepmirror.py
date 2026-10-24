@@ -3,7 +3,7 @@ from mirrortower.geometry import mirror_placement
 from mepmirror import plan, rules
 from mepmirror.plan import Thing
 
-M, P = rules.MECHANICAL, rules.PLUMBING
+M, P, F = rules.MECHANICAL, rules.PLUMBING, rules.FIRE
 BOX = [(0, 0), (10, 0), (10, 10), (0, 10)]      # Tower 1
 LINE = mirror_placement((15, 0), (15, 1))        # Tower 2 is x -> 30 - x
 TOL = 0.05 / 0.3048
@@ -18,7 +18,7 @@ def test_hydronic_pipes_are_mechanical():
 
 def test_water_and_drainage_are_plumbing():
     for kind in (u"Domestic Cold Water", u"Domestic Hot Water", u"Sanitary", u"Vent",
-                 u"Fire Protection Wet", u"Other"):
+                 u"Other"):
         assert rules.pipe_domain(kind, [u"DCW"]) == P
 
 
@@ -213,3 +213,31 @@ def test_tags_row():
     from mepmirror import report
     rows = report.result_rows(_Result(tags=3), {}.get, lambda i: i)
     assert [v["what"] for v, _, _ in rows] == [u"Tags made on Tower 2's copies"]
+
+
+# ---------------------------------------------------------------- firefighting
+
+def test_fire_pipes():
+    assert rules.pipe_domain(u"Fire Protection Wet", [u"FP"]) == F
+    assert rules.pipe_domain(u"FireProtectWet") == F
+    assert rules.pipe_domain(u"Other", [u"Sprinkler Main"]) == F
+    assert rules.pipe_domain(u"Other", [u"Hose Reel"]) == F
+    assert rules.pipe_domain(u"Other", [u"FHC-1"]) == F
+    assert rules.pipe_domain(u"Domestic Cold Water", [u"DCW"]) == P
+
+
+def test_fire_fixtures_and_pumps():
+    assert rules.fixture_domain([], u"Hose Reel Cabinet : Type A") == F
+    assert rules.fixture_domain([F, F], u"Cabinet") == F
+    assert rules.fixture_domain([P], u"WC : Wall hung") == P
+    assert rules.fixture_domain([P], u"Fire hose reel") == F      # the name wins
+    assert rules.equipment_domain(0, [F, F], u"Pump") == F
+    assert rules.equipment_domain(0, [], u"Fire Pump : Jockey") == F
+    assert rules.equipment_domain(0, [P, F]) == P
+    assert rules.equipment_domain(1, [F]) == M
+
+
+def test_each_tool_has_its_categories():
+    assert "OST_Sprinklers" in dict(rules.CATEGORIES[F])
+    assert "OST_Sprinklers" not in dict(rules.CATEGORIES[P])
+    assert rules.FIXED["OST_Sprinklers"] == F

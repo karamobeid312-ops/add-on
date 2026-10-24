@@ -115,7 +115,24 @@ def _equipment_domain(element):
                 pipes.append(rules.pipe_domain(u"%s" % c.PipeSystemType, names))
         except Exception:
             pass
-    return rules.equipment_domain(ducts, pipes)
+    return rules.equipment_domain(ducts, pipes, _label(element, None))
+
+
+def _fixture_domain(element):
+    pipes = []
+    for c in connectors(element):
+        try:
+            if c.Domain == Domain.DomainPiping:
+                names = []
+                try:
+                    if c.MEPSystem is not None:
+                        names.append(c.MEPSystem.Name)
+                except Exception:
+                    pass
+                pipes.append(rules.pipe_domain(u"%s" % c.PipeSystemType, names))
+        except Exception:
+            pass
+    return rules.fixture_domain(pipes, _label(element, None))
 
 
 def _neighbours(element):
@@ -183,7 +200,7 @@ class Model(object):
         self.things = {}            # level key -> [Thing]
         self.elements = {}          # key -> element
         self.categories = {}        # key -> BuiltInCategory name
-        self.other_side = 0         # pipes / equipment that are the other tool's
+        self.other_side = {}        # other tool's side -> its elements here (pipes...)
         self.domain = None
         self.links = True           # walls of the links read for wall fixtures
         self.cat_names = {}         # category id -> BuiltInCategory name
@@ -218,6 +235,8 @@ def read_model(doc, domain, unticked=()):
                 sides[t.key] = _pipe_domain(e)
             elif name in rules.EQUIPMENT:
                 sides[t.key] = _equipment_domain(e)
+            elif name in rules.FIXTURES:
+                sides[t.key] = _fixture_domain(e)
             else:
                 sides[t.key] = rules.FIXED.get(name, domain)
     for key, side in sides.items():
@@ -226,7 +245,7 @@ def read_model(doc, domain, unticked=()):
     sides = rules.settle(sides, neighbours)
     for key, (t, e, name) in pending.items():
         if sides[key] != domain:
-            model.other_side += 1
+            model.other_side[sides[key]] = model.other_side.get(sides[key], 0) + 1
             continue
         floor = plan.pick_floor(t, model.floors)
         if floor is None:

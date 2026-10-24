@@ -19,7 +19,8 @@ Everything is on one **Electrical** ribbon tab, with these panels:
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
 | **Circuits** | Copy Circuits, Circuit Settings: makes the circuits of a floor again on the floors copied from it, with their wires, see [Copy circuits](#copy-circuits) |
 | **Mechanical** | FCU Power; Mirror Tower: builds Tower 2's ducts, HVAC pipes, air terminals and equipment as the mirror of Tower 1's, see [Mirror Tower for mechanical and plumbing](#mirror-tower-for-mechanical-and-plumbing) |
-| **Plumbing** | Mirror Tower: the same for water and drainage pipes, plumbing fixtures and sprinklers |
+| **Plumbing** | Mirror Tower: the same for water and drainage pipes and plumbing fixtures |
+| **Fire Fighting** | Mirror Tower: the same for fire protection pipes, sprinklers, hose reels and fire pumps |
 
 ## What gets drawn
 
@@ -678,10 +679,10 @@ The **Circuits** panel of the **Electrical** tab:
 
 ## Mirror Tower for mechanical and plumbing
 
-**Mechanical** → **Mirror Tower** and **Plumbing** → **Mirror Tower** build
+**Mechanical**, **Plumbing** and **Fire Fighting** → **Mirror Tower** build
 Tower 2 as the mirror of Tower 1, like the electrical Mirror Tower, for the
-other trades. They are two separate tools with the same window (blue for
-mechanical, green for plumbing):
+other trades. They are three separate tools with the same window (blue for
+mechanical, green for plumbing, red for firefighting):
 
 - **Top bar**: Tower 1's scope box, **Pick Tower 2...** (click 2 points of
   Tower 1, like two core corners, then the same 2 points in Tower 2: the
@@ -702,7 +703,7 @@ What it does on each floor:
 
 | Step | How |
 | --- | --- |
-| Which tool | Ducts, duct fittings and accessories, flex ducts and air terminals are mechanical; plumbing fixtures, sprinklers and plumbing equipment are plumbing. Pipes, pipe fittings, accessories and flex pipes go by their system: hydronic supply / return and any system named for chilled water, heating, condensate, condenser water or refrigerant are mechanical (a condensate drain drawn as a Sanitary system is still mechanical); domestic water, sanitary, vent, storm and fire are plumbing. A fitting with no system takes the side of the pipes it is on. Mechanical equipment is mechanical unless all its connectors are plumbing pipes (pumps, water heaters, tanks). Rules in `lib/mepmirror/rules.py`. |
+| Which tool | Ducts, duct fittings and accessories, flex ducts and air terminals are mechanical; sprinklers are firefighting; plumbing fixtures and plumbing equipment are plumbing unless named for fire (hose reel cabinets, landing valves, extinguishers) or all their pipes are fire pipes. Pipes, pipe fittings, accessories and flex pipes go by their system: fire protection systems and any system named for fire, sprinklers, hose reels, hydrants or wet / dry risers are firefighting; hydronic supply / return and any system named for chilled water, heating, condensate, condenser water or refrigerant are mechanical (a condensate drain drawn as a Sanitary system is still mechanical); domestic water, sanitary, vent and storm are plumbing. A fitting with no system takes the side of the pipes it is on. Mechanical equipment is mechanical unless named for fire or all its pipes are fire pipes (fire pumps: firefighting) or plumbing pipes (water pumps, heaters, tanks: plumbing). Rules in `lib/mepmirror/rules.py`. |
 | Floor | A run's lower end (a riser goes with its bottom floor), a point's height; its own level when that storey holds it. |
 | Tower 1 | In the scope box: a point inside it, a run with both ends inside it. A run with one end out of the box (into a shared riser, the podium) is skipped and listed. Elements in model groups are skipped too. An element whose mirrored spot is itself (on the mirror line) is shared and not mirrored. |
 | Already in Tower 2 | Same type (a point: else same family) at the mirrored spot within the tolerance and 0.5 m in height; a run needs both ends there. Those are not mirrored again, so running the tool twice makes no doubles. |
@@ -710,7 +711,7 @@ What it does on each floor:
 | Walls | Fixtures on a wall (wall-hosted or face-based on a vertical face) are placed again on Tower 2's wall face (in this model or a link), as the electrical tool does; Revit drops a move off a wall's plane. |
 | Open ends | The copies' free duct and pipe ends are joined to a free end at the same spot (within 5 mm): Tower 2's own pipes, a re-placed fixture, each other. |
 | Tags | Each Tower 1 tag on a mirrored element is made again on its Tower 2 copy, in the same view, its head (and a free leader end and elbow) at the mirrored spot; the text is never mirrored. A copy that already has a tag of that type in that view keeps it, so a floor Tower 2 has complete can be ticked again just to add missing tags. |
-| Links | The Mechanical tool reads no linked model (walls for wall fixtures come from this model only). The Plumbing tool reads the links' walls, and when this model has no plumbing it names the link that has it. |
+| Links | The Mechanical tool reads no linked model (walls for wall fixtures come from this model only). The Plumbing and Firefighting tools read the links' walls, and when this model has no plumbing it names the link that has it. |
 
 No parameter is created. Nothing else in Tower 2 is changed.
 
