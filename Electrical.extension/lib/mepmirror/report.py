@@ -50,6 +50,63 @@ def _labels(keys, label_of, most=3):
     return text
 
 
+def _names(names, most=4):
+    names = list(names)
+    text = u", ".join(names[:most])
+    if len(names) > most:
+        text += u" and %d more" % (len(names) - most)
+    return text
+
+
+def _pairs(pairs, most=4):
+    return _names([u"%s -> %s" % (a, b) for a, b in pairs], most)
+
+
+def circuit_rows(floor, circuits):
+    """[(values, state, ids)] of a copycircuits LevelResult: Tower 1's
+    circuits made again in Tower 2, and their wires."""
+    from copycircuits.plan import ALREADY, FALLBACK
+    from copycircuits.report import wire_lines
+    rows = []
+
+    def add(what, state, ids, item, count=None):
+        n = count if count is not None else len(ids)
+        if n:
+            rows.append(({"floor": floor, "what": what, "count": u"%d" % n, "item": item},
+                         state, list(ids)))
+
+    on = circuits.on_panel()
+    add(u"Circuits made on Tower 2's boards", OK, [m.key for m in on],
+        _names([m.job.circuit.label for m in on]))
+    off = circuits.off_panel()
+    add(u"Circuits made but not on their board", WARN, [m.key for m in off],
+        off[0].panel_error if off else u"")
+    add(u"Circuits Revit refused", BAD, [], _names([u"%s: %s" % (j.circuit.label, msg)
+                                                    for j, msg in circuits.failed], 2),
+        count=len(circuits.failed))
+    already = [s for s in circuits.skipped if s.reason == ALREADY]
+    add(u"Circuits already in Tower 2", NONE, [], _names([s.circuit.label for s in already]),
+        count=len(already))
+    other = [s for s in circuits.not_copied() if s.reason != ALREADY]
+    add(u"Circuits not made: none of their elements is in Tower 2", WARN, [],
+        _names([s.circuit.label for s in other]), count=len(other))
+    alone = [m for m in circuits.panels if m.how == FALLBACK]
+    add(u"Board with no Tower 2 board: Tower 2's circuits put on it", WARN, [],
+        _names([m.name for m in alone]), count=len(alone))
+    onto = getattr(circuits, "onto_boards", [])
+    add(u"Circuits put back on their board", OK, onto, u"left on no board by an earlier run")
+    failed = getattr(circuits, "onto_failed", [])
+    add(u"Circuits Revit would not put on their board", BAD, [],
+        _names([u"%s: %s" % (label, error) for label, error in failed], 2), count=len(failed))
+    lines = wire_lines(circuits)
+    if lines:
+        w = circuits.wires
+        bad = w["refused"] or w["no_view"] or w["no_copy"] or w["no_circuit"]
+        add(u"Wires", WARN if bad else OK, circuits.unwired, u" ".join(lines),
+            count=w["drawn"] or len(lines))
+    return rows
+
+
 def result_rows(result, label_of, key_of):
     """[(values, state, ids)] of one floor's FloorResult for the Results
     tab. label_of(key) names an element (family : type); key_of(id) is the
@@ -71,6 +128,12 @@ def result_rows(result, label_of, key_of):
         count=result.joined)
     add(u"Tags made on Tower 2's copies", OK, [], item=u"same view, mirrored spot",
         count=getattr(result, "tags", 0))
+    renamed = getattr(result, "renamed", ())
+    add(u"Boards named for Tower 2", OK, [], item=_pairs(renamed), count=len(renamed))
+    by_name = getattr(result, "by_name", ())
+    add(u"Boards found in Tower 2 by name", NONE, [], item=_pairs(by_name), count=len(by_name))
+    check = getattr(result, "not_renamed", ())
+    add(u"Board names to check by hand", WARN, [], item=_names(check), count=len(check))
     add(u"Already in Tower 2", NONE, [], item=u"same type at the mirrored spot",
         count=result.already)
     add(u"On the mirror line: shared, not mirrored", NONE, [], item=u"", count=result.shared)
@@ -80,6 +143,8 @@ def result_rows(result, label_of, key_of):
     add(u"No wall at its Tower 2 spot: not placed", BAD, result.no_wall)
     add(u"Revit refused", BAD, result.refused,
         item=u"; ".join(result.errors[:2]) if result.errors else None)
+    if getattr(result, "circuits", None) is not None:
+        rows.extend(circuit_rows(result.floor, result.circuits))
     if not rows:
         rows.append(({"floor": result.floor, "what": u"Nothing to do", "count": u"",
                       "item": u""}, NONE, []))

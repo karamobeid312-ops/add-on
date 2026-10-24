@@ -432,6 +432,12 @@ class FloorResult(object):
         self.refused = []           # Tower 1 ids Revit did not mirror
         self.errors = []            # what Revit said
         self.why = {}               # (family : type, why not placed) -> count
+        self.made = {}              # Tower 1 key -> its new copy's ElementId
+        # electrical only (mepmirror.electrical)
+        self.renamed = []           # (Tower 1 board name, Tower 2 board name)
+        self.not_renamed = []       # board names to check by hand
+        self.by_name = []           # (Tower 1 board, Tower 2 board found by name)
+        self.circuits = None        # copycircuits LevelResult: circuits and wires made
 
 
 def _id_list(ids):
@@ -678,5 +684,6 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
                 result.refused.append(elements[k].Id)
             continue
         result.mirrored.append(e.Id)
+        result.made[k] = e.Id
     result.off_spot = [i for i in result.off_spot if doc.GetElement(i) is not None]
     return result

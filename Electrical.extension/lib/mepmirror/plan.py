@@ -95,6 +95,30 @@ class Side(object):
         self.pool = []              # the rest of the floor: Tower 2's things...
         self.copies = {}            # Tower 1 key -> Tower 2 key found
         self.missing = []           # Tower 1 Things Tower 2 has not got
+        self.named = set()          # Tower 1 boards whose copy was found by name
+
+
+def pair_by_name(side, names, swap):
+    """Tower 1 boards still missing whose Tower 2 board is named like them
+    with the swap text (DB-B1-L4 -> DB-B2-L4) are paired with it: moved
+    from side.missing to side.copies, their keys put in side.named.
+    names: {board key: board name} of every board; swap: (old, new)."""
+    if not swap or not swap[0]:
+        return side
+    by_name = dict((n.strip().upper(), k) for k, n in names.items() if n)
+    taken = set(side.copies.values())
+    rest = []
+    for t in side.missing:
+        want = geometry.swap_name(names.get(t.key) or u"", swap[0], swap[1])
+        other = by_name.get(want.strip().upper()) if want else None
+        if other is not None and other != t.key and other not in taken:
+            side.copies[t.key] = other
+            side.named.add(t.key)
+            taken.add(other)
+        else:
+            rest.append(t)
+    side.missing = rest
+    return side
 
 
 def split(things, box, placement, tolerance):

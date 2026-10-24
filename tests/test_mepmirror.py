@@ -241,3 +241,58 @@ def test_each_tool_has_its_categories():
     assert "OST_Sprinklers" in dict(rules.CATEGORIES[F])
     assert "OST_Sprinklers" not in dict(rules.CATEGORIES[P])
     assert rules.FIXED["OST_Sprinklers"] == F
+
+
+# ---------------------------------------------------------------- electrical
+
+def test_electrical_takes_its_own_categories():
+    E = rules.ELECTRICAL
+    names = dict(rules.CATEGORIES[E])
+    assert "OST_ElectricalEquipment" in names and "OST_LightingFixtures" in names
+    assert rules.FIXED["OST_LightingFixtures"] == E
+    for other in (M, P, F):
+        assert "OST_LightingFixtures" not in dict(rules.CATEGORIES[other])
+
+
+def test_boards_found_by_name_are_not_mirrored_again():
+    things = [Thing(1, 10, (2, 2, 9)), Thing(2, 30, (3, 3, 9)),     # light, board
+              Thing(7, 31, (40, 40, 9))]                            # Tower 2's board, elsewhere
+    side = plan.pair(plan.split(things, BOX, LINE, TOL), LINE, TOL)
+    assert sorted(t.key for t in side.missing) == [1, 2]
+    names = {2: u"CBS-B/1-F1", 7: u"CBS-B/2-F1"}
+    plan.pair_by_name(side, names, (u"B1", u"B2"))
+    assert side.copies == {2: 7} and side.named == set([2])
+    assert [t.key for t in side.missing] == [1]
+    side = plan.pair(plan.split(things, BOX, LINE, TOL), LINE, TOL)
+    plan.pair_by_name(side, names, (u"", u""))
+    assert len(side.missing) == 2
+
+
+def test_board_and_circuit_rows():
+    from copycircuits import plan as cplan
+    from copycircuits.report import LevelResult, Made
+    from mepmirror import report
+
+    class Circuit(object):
+        def __init__(self, label):
+            self.label = label
+
+    class Job(object):
+        def __init__(self, label):
+            self.circuit = Circuit(label)
+            self.missing, self.already, self.elements = [], [], [1]
+
+    c = LevelResult(u"L5", u"mirrored")
+    c.made = [Made(Job(u"DB-B1/1"), 101), Made(Job(u"DB-B1/2"), 102, u"system differs")]
+    c.skipped = [cplan.Skipped(Circuit(u"DB-B1/3"), cplan.ALREADY)]
+    c.wires["drawn"] = 4
+    c.wire_views = {u"L5 Power": 4}
+    r = _Result(renamed=[(u"DB-B1", u"DB-B2")], not_renamed=[u"MCC (2)"], circuits=c)
+    rows = report.result_rows(r, {}.get, lambda i: i)
+    whats = dict((v["what"], (v, state, ids)) for v, state, ids in rows)
+    assert whats[u"Boards named for Tower 2"][0]["item"] == u"DB-B1 -> DB-B2"
+    assert whats[u"Board names to check by hand"][1] == report.WARN
+    assert whats[u"Circuits made on Tower 2's boards"][2] == [101]
+    assert whats[u"Circuits made but not on their board"][1] == report.WARN
+    assert whats[u"Circuits already in Tower 2"][0]["count"] == u"1"
+    assert whats[u"Wires"][0]["count"] == u"4"

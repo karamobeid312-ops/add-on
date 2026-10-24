@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Which tool takes which element: Mechanical, Plumbing or Firefighting
-(no Revit needed).
+(no Revit needed). The electrical Mirror Tower takes the electrical
+categories as they are (boards, lights, devices).
 
 Ducts, duct fittings and accessories, flex ducts and air terminals are
 mechanical. Sprinklers are firefighting. Plumbing fixtures and plumbing
@@ -26,6 +27,7 @@ from __future__ import division
 MECHANICAL = "mechanical"
 PLUMBING = "plumbing"
 FIRE = "firefighting"
+ELECTRICAL = "electrical"
 
 # (Revit BuiltInCategory name, label shown in the window)
 DUCT_CATEGORIES = (
@@ -52,20 +54,36 @@ SPRINKLER_CATEGORIES = (
     ("OST_Sprinklers", u"Sprinklers"),
 )
 
+ELECTRICAL_CATEGORIES = (
+    ("OST_ElectricalEquipment", u"Boards (electrical equipment)"),
+    ("OST_LightingFixtures", u"Lighting fixtures"),
+    ("OST_LightingDevices", u"Lighting devices (switches)"),
+    ("OST_ElectricalFixtures", u"Electrical fixtures (sockets)"),
+    ("OST_FireAlarmDevices", u"Fire alarm devices"),
+    ("OST_DataDevices", u"Data devices"),
+    ("OST_CommunicationDevices", u"Communication devices"),
+    ("OST_SecurityDevices", u"Security devices"),
+    ("OST_TelephoneDevices", u"Telephone devices"),
+    ("OST_NurseCallDevices", u"Nurse call devices"),
+)
+
 # categories each tool looks at (pipes, equipment and fixtures are then split)
 CATEGORIES = {
     MECHANICAL: DUCT_CATEGORIES + EQUIPMENT_CATEGORIES + PIPE_CATEGORIES,
     PLUMBING: PIPE_CATEGORIES + FIXTURE_CATEGORIES + EQUIPMENT_CATEGORIES,
     FIRE: PIPE_CATEGORIES + SPRINKLER_CATEGORIES + FIXTURE_CATEGORIES + EQUIPMENT_CATEGORIES,
+    ELECTRICAL: ELECTRICAL_CATEGORIES,
 }
-NAMES = {MECHANICAL: u"Mechanical", PLUMBING: u"Plumbing", FIRE: u"Firefighting"}
+NAMES = {MECHANICAL: u"Mechanical", PLUMBING: u"Plumbing", FIRE: u"Firefighting",
+         ELECTRICAL: u"Electrical"}
 PIPED = set(name for name, _ in PIPE_CATEGORIES)
 EQUIPMENT = set(name for name, _ in EQUIPMENT_CATEGORIES)
 FIXTURES = set(name for name, _ in FIXTURE_CATEGORIES)
 FIXED = dict([(name, MECHANICAL) for name, _ in DUCT_CATEGORIES] +
-             [(name, FIRE) for name, _ in SPRINKLER_CATEGORIES])
+             [(name, FIRE) for name, _ in SPRINKLER_CATEGORIES] +
+             [(name, ELECTRICAL) for name, _ in ELECTRICAL_CATEGORIES])
 LABELS = dict(DUCT_CATEGORIES + EQUIPMENT_CATEGORIES + PIPE_CATEGORIES + FIXTURE_CATEGORIES +
-              SPRINKLER_CATEGORIES)
+              SPRINKLER_CATEGORIES + ELECTRICAL_CATEGORIES)
 
 # in the system's name, type name or abbreviation: a mechanical pipe
 MECHANICAL_WORDS = (u"chilled", u"chw", u"hydronic", u"condensate", u"condensation",

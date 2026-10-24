@@ -17,8 +17,8 @@ Everything is on one **Electrical** ribbon tab, with these panels:
 | **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops, addresses them and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops), [Addresses](#addresses) and [Fire alarm riser](#fire-alarm-riser) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
-| **Circuits** | Copy Circuits, Circuit Settings: makes the circuits of a floor again on the floors copied from it, with their wires, see [Copy circuits](#copy-circuits) |
-| **Mechanical** | FCU Power; Mirror Tower: builds Tower 2's ducts, HVAC pipes, air terminals and equipment as the mirror of Tower 1's, see [Mirror Tower for mechanical and plumbing](#mirror-tower-for-mechanical-and-plumbing) |
+| **Circuits** | Copy Circuits, Circuit Settings: makes the circuits of a floor again on the floors copied from it, with their wires, see [Copy circuits](#copy-circuits); Mirror Tower: builds Tower 2's boards, lights and devices as the mirror of Tower 1's, with their circuits and wires, see [Mirror Tower](#mirror-tower) |
+| **Mechanical** | FCU Power; Mirror Tower: builds Tower 2's ducts, HVAC pipes, air terminals and equipment as the mirror of Tower 1's, see [Mirror Tower](#mirror-tower) |
 | **Plumbing** | Mirror Tower: the same for water and drainage pipes and plumbing fixtures |
 | **Fire Fighting** | Mirror Tower: the same for fire protection pipes, sprinklers, hose reels and fire pumps |
 
@@ -677,11 +677,11 @@ The **Circuits** panel of the **Electrical** tab:
 | Circuit numbers | Revit numbers new circuits in the first free slots, so they match the source panel's when its circuits had no gaps (spares and spaces are not copied). Check them in the panel schedules. |
 | Wires | Wires connected to the circuits' elements, in plans of the source floor, are drawn in the copied floor's plan where the wires pasted with the fixtures are, or else its plan of the same view type, best the one named like it (its level name swapped, e.g. `POWER - L1` → `POWER - L2`), then the one with the same view template. A pasted wire at the same spot that is connected the right way is kept; one that is not connected is replaced. The other tower's wires go in the plan of its own level when its elements have one at the same height (named like the source plan, or with its view template), else in the source floor's plan. A wire between connectors a wire already joins (panels on the axis that both towers share) is not drawn twice. Wires are drawn only between elements whose circuit was made. The output names the plans the wires went in, says why any were not drawn, and links the elements left missing a wire. |
 
-## Mirror Tower for mechanical and plumbing
+## Mirror Tower
 
-**Mechanical**, **Plumbing** and **Fire Fighting** → **Mirror Tower** build
-Tower 2 as the mirror of Tower 1, like the electrical Mirror Tower, for the
-other trades. They are three separate tools with the same window (blue for
+**Circuits**, **Mechanical**, **Plumbing** and **Fire Fighting** → **Mirror
+Tower** build Tower 2 as the mirror of Tower 1, one trade each. They are four
+separate tools with the same window (teal for electrical, blue for
 mechanical, green for plumbing, red for firefighting):
 
 - **Top bar**: Tower 1's scope box, **Pick Tower 2...** (click 2 points of
@@ -697,7 +697,8 @@ mechanical, green for plumbing, red for firefighting):
   mirrored).
 - **Setup**: the categories the tool takes, how Tower 2 is given (points,
   or a plain mirror about a grid or line here or in a link), the tolerance
-  (50 mm) and joining open ends.
+  (50 mm) and joining open ends; for electrical, the board name text that
+  changes (B1 -> B2) and whether circuits and wires are made.
 
 What it does on each floor:
 
@@ -711,6 +712,7 @@ What it does on each floor:
 | Walls | Fixtures on a wall (wall-hosted or face-based on a vertical face) are placed again on Tower 2's wall face (in this model or a link), as the electrical tool does; Revit drops a move off a wall's plane. |
 | Open ends | The copies' free duct and pipe ends are joined to a free end at the same spot (within 5 mm): Tower 2's own pipes, a re-placed fixture, each other. |
 | Tags | Each Tower 1 tag on a mirrored element is made again on its Tower 2 copy, in the same view, its head (and a free leader end and elbow) at the mirrored spot; the text is never mirrored. A copy that already has a tag of that type in that view keeps it, so a floor Tower 2 has complete can be ticked again just to add missing tags. |
+| Electrical | Boards, lighting fixtures and devices, electrical fixtures, fire alarm, data, communication, security, telephone and nurse call devices. A Tower 1 board whose Tower 2 board is already named like it with the swap text (`CBS-B/1-F1` -> `CBS-B/2-F1`, the separator is kept) is not mirrored again. Mirrored boards are renamed with the swap (with ` (2)` added when the text is not in the name). Then Tower 1's circuits are made again on Tower 2's copies and boards, with the source circuits' parameters, and their wires drawn mirrored (as [Copy circuits](#copy-circuits) does); the Results tab lists the boards renamed, the circuits made, refused or already there, and the wires. |
 | Links | The Mechanical tool reads no linked model (walls for wall fixtures come from this model only). The Plumbing and Firefighting tools read the links' walls, and when this model has no plumbing it names the link that has it. |
 
 No parameter is created. Nothing else in Tower 2 is changed.
@@ -846,7 +848,7 @@ Electrical.extension/
     revit_copy.py  circuits and wires read, made again on the copied floors
     settings.py    per-user settings
     command.py     button entry points
-  lib/mepmirror/   Mirror Tower for mechanical and plumbing
+  lib/mepmirror/   Mirror Tower window and engine (electrical, mechanical, plumbing, firefighting)
     rules.py       which tool takes which element (pipes by their system) (no Revit)
     plan.py        Tower 1 / Tower 2 split, copies found, open ends to join (no Revit)
     report.py      rows of the Floors and Results tabs (no Revit)

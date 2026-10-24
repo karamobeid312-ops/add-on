@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Entry point of the Mirror Tower (Mechanical), (Plumbing) and (Firefighting) buttons."""
+"""Entry point of the Mirror Tower buttons: Electrical (Circuits panel),
+Mechanical, Plumbing and Firefighting."""
 import time
 
 from Autodesk.Revit.DB import CurveElement, ElementId, Grid, TransactionGroup
@@ -9,11 +10,12 @@ from pyrevit import forms, revit, script
 from System.Collections.Generic import List
 
 from copycircuits.placement import Placement
-from mepmirror import revit_mep, rules
+from mepmirror import electrical, revit_mep, rules
 from mepmirror import window_ui as wui
 from mirrortower import geometry, revit_mirror
 
-SECTIONS = {rules.MECHANICAL: "MepMirrorTowerMechanical",
+SECTIONS = {rules.ELECTRICAL: "ElectricalMirrorTower",       # the earlier electrical tool's
+            rules.MECHANICAL: "MepMirrorTowerMechanical",
             rules.PLUMBING: "MepMirrorTowerPlumbing",
             rules.FIRE: "MepMirrorTowerFirefighting"}
 STRETCH = 0.3 / 0.3048      # ft: the two pairs of points must be this near the same apart
@@ -119,7 +121,23 @@ def pick_placement(doc, uidoc, mode, title):
     return placement
 
 
-def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join):
+def _electrical(doc, model, keys, sides, results, placement, tolerance, state):
+    """Boards named for Tower 2 (B1 -> B2) on every floor, then Tower 1's
+    circuits made again there (after all the boards, as a board may feed
+    another floor)."""
+    swap = state.get("swap") or (u"", u"")
+    by_name = revit_mirror.boards_by_name(doc)
+    for key, result in zip(keys, results):
+        electrical.name_boards(doc, model, sides[key], result, swap, by_name)
+    if not state.get("circuits", True):
+        return
+    by_name = revit_mirror.boards_by_name(doc)       # with the boards just made
+    for key, result in zip(keys, results):
+        electrical.make_circuits(doc, model, key, sides[key], result, placement, tolerance,
+                                 swap, by_name, state.get("wires", True))
+
+
+def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, state):
     floors = dict((f[0], f) for f in model.floors)
     results = []
     tags = revit_mep.Tags(doc)
@@ -129,6 +147,8 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join):
         for key in keys:
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
                                                   about, tolerance, join, tags))
+        if model.domain == rules.ELECTRICAL:
+            _electrical(doc, model, keys, sides, results, placement, tolerance, state)
         group.Assimilate()
     except Exception:
         if group.HasStarted() and not group.HasEnded():
@@ -169,11 +189,16 @@ def run(domain):
         tolerance_mm = float(config.get("tolerance_mm", 50.0))
     except Exception:
         tolerance_mm = 50.0
+    def flag(name):
+        return config.get(name, True) not in (False, u"False", u"false", 0, u"0")
+
     state = {
-        "box": config.get("box", None), "mode": mode, "placement": placement,
+        "box": config.get("box", None) or config.get("scope_box", None), "mode": mode, "placement": placement,
         "placement_text": (u"last used: " + _describe(placement, mode)) if placement else u"",
         "unticked": unticked, "read_with": set(unticked), "tolerance_mm": tolerance_mm,
-        "join": join, "model": None, "ticked": None, "results": [], "new_ids": [],
+        "join": join and domain != rules.ELECTRICAL, "model": None,
+        "swap": (config.get("swap_from", u"B1") or u"", config.get("swap_to", u"B2") or u""),
+        "circuits": flag("circuits"), "wires": flag("wires"), "ticked": None, "results": [], "new_ids": [],
     }
 
     def select(ids):
@@ -201,13 +226,26 @@ def run(domain):
         revit_mep.in_links(doc, domain, unticked),
         "after": lambda results: revit_mep.add_new(doc, state["model"], results),
         "mirror": lambda keys, sides, placement, about, tolerance, join: _mirror(
-            doc, title, state["model"], keys, sides, placement, about, tolerance, join),
+            doc, title, state["model"], keys, sides, placement, about, tolerance,
+            join and domain != rules.ELECTRICAL, state),
         "label_of": label_of,
         "key_of": lambda element_id: revit_mep.id_int(element_id),
         "select": select,
         "keep": config.keep,
         "model_text": doc.Title,
     }
+    if domain == rules.ELECTRICAL:
+        names = {}
+
+        def adjust(sides):
+            if not names:
+                names.update(electrical.board_names(doc))
+            electrical.pair_by_name(sides, names, state.get("swap"))
+
+        def after(results):
+            revit_mep.add_new(doc, state["model"], results)
+            names.clear()                   # boards just made or renamed
+        callbacks.update(adjust=adjust, after=after)
     state["open_s"] = time.time() - start
     while True:
         win = wui.MirrorWindow(callbacks, state)

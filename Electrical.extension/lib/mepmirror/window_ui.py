@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""The Mirror Tower (Mechanical / Plumbing) window (WPF), in the Electrical
+"""The Mirror Tower (Electrical / Mechanical / Plumbing / Firefighting) window (WPF), in the Electrical
 tab's shared look: a top bar (Tower 1's scope box, Tower 2, Setup), the
 Floors and Results tabs, and a Setup pop-up.
 
@@ -24,7 +24,8 @@ NAMES = ("BadgeText", "TitleText", "SubText", "ModelText", "StatusDot", "StatusT
          "FloorsInfo", "TickAllButton", "TickNoneButton", "MirrorButton", "MirrorInfo",
          "FloorGrid", "ResultsTabText", "SelectRowButton", "SelectNewButton", "ResultsInfo",
          "ResultGrid", "SetupPanel", "SetupDone", "CategoryList", "CategoryInfo", "ModeCombo",
-         "ToleranceText", "JoinCheck")
+         "ToleranceText", "JoinCheck", "ElectricalPanel", "SwapFromText", "SwapToText",
+         "CircuitsCheck", "WiresCheck")
 FLOOR_COLUMNS = ("key", "floor", "tower1", "already", "todo", "skipped", "status", "state")
 RESULT_COLUMNS = ("key", "floor", "what", "count", "item", "status", "state")
 
@@ -36,6 +37,9 @@ MODES = ((BY_POINTS, u"Click 2 points in Tower 1, then the same 2 in Tower 2"),
          (LINE_LINK, u"Plain mirror about a grid or line in a linked model"))
 
 TEXT = {
+    rules.ELECTRICAL: (u"Mirror Tower · Electrical", u"ELEC",
+                       u"Tower 2's boards, lights and devices as the mirror of Tower 1's, with "
+                       u"their circuits and wires"),
     rules.MECHANICAL: (u"Mirror Tower · Mechanical", u"MECH",
                        u"Tower 2's ducts, HVAC pipes, air terminals and equipment as the mirror "
                        u"of Tower 1's"),
@@ -46,8 +50,11 @@ TEXT = {
                  u"Tower 2's fire pipes, sprinklers, hose reels and fire pumps as the mirror "
                  u"of Tower 1's"),
 }
-ACCENTS = {rules.MECHANICAL: "#2F7FD8", rules.PLUMBING: "#3E9B4F", rules.FIRE: "#D9472B"}
+ACCENTS = {rules.ELECTRICAL: "#1A9A8A", rules.MECHANICAL: "#2F7FD8", rules.PLUMBING: "#3E9B4F", rules.FIRE: "#D9472B"}
 INFO = {
+    rules.ELECTRICAL: u"Boards, lights, switches, sockets and the other devices. Boards are "
+                      u"renamed for Tower 2 with the text set on the right; then Tower 1's "
+                      u"circuits are made again on Tower 2's copies and boards.",
     rules.MECHANICAL: u"Pipes are split by their system: chilled water, heating, condensate "
                       u"and refrigerant are mechanical; water and drainage go to Plumbing, "
                       u"fire to Firefighting. Equipment is mechanical unless all its pipes are "
@@ -212,6 +219,15 @@ class MirrorWindow(object):
         self.ModeCombo.SelectedIndex = modes.index(mode) if mode in modes else 0
         self.ToleranceText.Text = (u"%.1f" % self.state["tolerance_mm"]).rstrip(u"0").rstrip(u".")
         self.JoinCheck.IsChecked = bool(self.state.get("join", True))
+        if self.domain == rules.ELECTRICAL:
+            from System.Windows import Visibility
+            self.JoinCheck.Visibility = Visibility.Collapsed
+            self.ElectricalPanel.Visibility = Visibility.Visible
+            swap = self.state.get("swap") or (u"", u"")
+            self.SwapFromText.Text = swap[0]
+            self.SwapToText.Text = swap[1]
+            self.CircuitsCheck.IsChecked = bool(self.state.get("circuits", True))
+            self.WiresCheck.IsChecked = bool(self.state.get("wires", True))
 
     def _setup(self, show):
         from System.Windows import Visibility
@@ -233,6 +249,13 @@ class MirrorWindow(object):
                           join=bool(self.JoinCheck.IsChecked))
         self.revit["keep"]({"unticked": u"|".join(sorted(unticked)), "mode": mode,
                             "tolerance_mm": tolerance, "join": bool(self.JoinCheck.IsChecked)})
+        if self.domain == rules.ELECTRICAL:
+            swap = ((self.SwapFromText.Text or u"").strip(), (self.SwapToText.Text or u"").strip())
+            self.state.update(swap=swap, circuits=bool(self.CircuitsCheck.IsChecked),
+                              wires=bool(self.WiresCheck.IsChecked))
+            self.revit["keep"]({"swap_from": swap[0], "swap_to": swap[1],
+                                "circuits": self.state["circuits"],
+                                "wires": self.state["wires"]})
         self._tower2_text()
         if unticked != set(self.state["read_with"]):
             self._status(u"Reading the model...", "")
@@ -305,6 +328,8 @@ class MirrorWindow(object):
             self.Tower2Text.Text = u"puts Tower 2 on top of Tower 1: pick it again"
             placement = None
         self.sides = sides_of(model, self.outline, placement, self._tolerance())
+        if placement is not None and self.revit.get("adjust"):
+            self.revit["adjust"](self.sides)       # boards found by name (B1 -> B2)
         self._fill_floors()
         todo = sum(len(s.missing) for s in self.sides.values())
         if not self.sides:
@@ -358,6 +383,11 @@ class MirrorWindow(object):
         self.FloorGrid.ItemsSource = table.DefaultView
         skipped_note = u" A run with one end out of the box (into a riser, the podium) is " \
                        u"skipped, not mirrored."
+        if self.domain == rules.ELECTRICAL:
+            swap = self.state.get("swap") or (u"", u"")
+            skipped_note = (u" A board is also found by its name (%s -> %s)." % swap
+                            if swap[0] else u"") + u" Circuits are made again on every " \
+                u"ticked floor (Setup)." * bool(self.state.get("circuits", True))
         other = model.other_side
         self.FloorsInfo.Text = (
             u"Tower 1 is everything in scope box %s; Tower 2 already having an element (same "
@@ -463,9 +493,11 @@ class MirrorWindow(object):
         bad = sum(1 for _, state, _ in rows if state == report.BAD)
         warn = sum(1 for _, state, _ in rows if state == report.WARN)
         tags = sum(getattr(r, "tags", 0) for r in results)
-        self._status(u"%d elements mirrored into Tower 2 (selected in Revit), %d tags, "
+        circuits = [r.circuits for r in results if getattr(r, "circuits", None) is not None]
+        more = u", %d circuits" % sum(len(c.made) for c in circuits) if circuits else u""
+        self._status(u"%d elements mirrored into Tower 2 (selected in Revit), %d tags%s, "
                      u"in %.1f s%s." % (
-            len(new_ids), tags, time.time() - start,
+            len(new_ids), tags, more, time.time() - start,
             u"; %d rows to check in Results" % (bad + warn) if bad + warn else u""),
             "bad" if bad else ("warn" if warn else "ok"))
 

@@ -215,6 +215,19 @@
                          VerticalContentAlignment="Center"/>
                 <CheckBox x:Name="JoinCheck" Margin="0,12,0,0"
                           Content="Join the copies' open ends to pipes and ducts at the same spot"/>
+                <StackPanel x:Name="ElectricalPanel" Visibility="Collapsed">
+                  <TextBlock Text="Board names: the text that changes from Tower 1 to Tower 2 (DB-B1-L4 -> DB-B2-L4: B1 -> B2). Empty: names kept."
+                             Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBox x:Name="SwapFromText" Width="80" VerticalContentAlignment="Center"/>
+                    <TextBlock Text="  ->  " VerticalAlignment="Center"/>
+                    <TextBox x:Name="SwapToText" Width="80" VerticalContentAlignment="Center"/>
+                  </StackPanel>
+                  <CheckBox x:Name="CircuitsCheck" Margin="0,12,0,0"
+                            Content="Make Tower 1's circuits again on Tower 2's copies and boards"/>
+                  <CheckBox x:Name="WiresCheck" Margin="0,6,0,0"
+                            Content="Draw the circuits' wires too"/>
+                </StackPanel>
               </StackPanel>
             </Grid>
           </DockPanel>
