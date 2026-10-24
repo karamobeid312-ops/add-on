@@ -221,6 +221,8 @@
                            Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
                 <TextBox x:Name="ToleranceText" Width="80" HorizontalAlignment="Left"
                          VerticalContentAlignment="Center"/>
+                <CheckBox x:Name="TagsCheck" Margin="0,12,0,0"
+                          Content="Mirror the tags too (untick: only the elements, much faster)"/>
                 <CheckBox x:Name="JoinCheck" Margin="0,12,0,0"
                           Content="Join the copies' open ends to pipes and ducts at the same spot"/>
                 <StackPanel x:Name="ElectricalPanel" Visibility="Collapsed">

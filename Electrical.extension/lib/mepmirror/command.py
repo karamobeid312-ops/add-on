@@ -178,7 +178,7 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
         """Part of the step running done (share 0 to 1)."""
         if progress is not None:
             progress(done[0] + share * done[1], total, text)
-    tags = revit_mep.Tags(doc)
+    tags = revit_mep.Tags(doc) if state.get("tags", True) else None
     group = TransactionGroup(doc, title)
     group.Start()
     try:
@@ -244,7 +244,8 @@ def run(domain):
         "unticked": unticked, "read_with": set(unticked), "tolerance_mm": tolerance_mm,
         "join": join and domain != rules.ELECTRICAL, "model": None,
         "swap": (config.get("swap_from", u"B1") or u"", config.get("swap_to", u"B2") or u""),
-        "circuits": flag("circuits"), "wires": flag("wires"), "ticked": None, "results": [],
+        "circuits": flag("circuits"), "wires": flag("wires"), "tags": flag("tags"),
+        "ticked": None, "results": [],
         "new_ids": [],
     }
 

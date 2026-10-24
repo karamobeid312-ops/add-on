@@ -697,8 +697,9 @@ mechanical, green for plumbing, red for firefighting):
   mirrored).
 - **Setup**: the categories the tool takes, how Tower 2 is given (points,
   or a plain mirror about a grid or line here or in a link), the tolerance
-  (50 mm) and joining open ends; for electrical, the board name text that
-  changes (B1 -> B2) and whether circuits and wires are made.
+  (50 mm), joining open ends and whether tags are mirrored too; for
+  electrical, the board name text that changes (B1 -> B2) and whether
+  circuits and wires are made.
 
 What it does on each floor:
 
