@@ -343,53 +343,90 @@ def _reference_of(tag):
         return None
 
 
-def _leader(tag, new_tag, new_ref, placement, head):
-    """Tower 1 tag's leader mirrored onto the new tag: its end condition,
-    its free end and its elbow. A leader with no elbow stays straight:
-    Revit gives a new leader an elbow of its own, so the copy's elbow is
-    put on the straight line from its end to its head."""
-    try:
-        new_tag.LeaderEndCondition = tag.LeaderEndCondition
-    except Exception:
-        pass
-    ref = _reference_of(tag)
-    end = None
-    try:
-        if tag.LeaderEndCondition == LeaderEndCondition.Free:
-            if ref is not None:
-                end = _moved_point(placement, tag.GetLeaderEnd(ref))
-                new_tag.SetLeaderEnd(new_ref, end)
-            else:
-                end = _moved_point(placement, tag.LeaderEnd)
-                new_tag.LeaderEnd = end
-    except Exception:
-        end = None
-    try:
-        if ref is not None:
-            has, set_elbow = tag.HasLeaderElbow(ref), \
-                lambda p: new_tag.SetLeaderElbow(new_ref, p)
-            elbow = tag.GetLeaderElbow(ref) if has else None
-        else:
-            has = tag.HasElbow
-            elbow = tag.LeaderElbow if has else None
+class _TagPlan(object):
+    """What a Tower 1 tag's copy needs, all read before any tag is made:
+    reading a tag's head or leader after the model changed makes Revit
+    regenerate it, which done once per tag took minutes."""
 
-            def set_elbow(p):
-                new_tag.LeaderElbow = p
-        if has:
-            set_elbow(_moved_point(placement, elbow))
-        elif end is not None:
-            set_elbow(XYZ(end.X + (head.X - end.X) * 0.25, end.Y + (head.Y - end.Y) * 0.25,
-                          end.Z + (head.Z - end.Z) * 0.25))
-    except Exception:
-        pass
+    def __init__(self, tag, element, view, placement):
+        self.element = element
+        self.view = view
+        self.type_id = tag.GetTypeId()
+        self.has_leader = tag.HasLeader
+        self.orientation = tag.TagOrientation
+        self.head = _moved_point(placement, tag.TagHeadPosition)
+        self.condition = None
+        self.end = None
+        self.elbow = None
+        if not self.has_leader:
+            return
+        try:
+            self.condition = tag.LeaderEndCondition
+        except Exception:
+            pass
+        ref = _reference_of(tag)
+        try:
+            if self.condition == LeaderEndCondition.Free:
+                self.end = _moved_point(placement, tag.GetLeaderEnd(ref) if ref is not None
+                                        else tag.LeaderEnd)
+        except Exception:
+            self.end = None
+        try:
+            if ref is not None:
+                has = tag.HasLeaderElbow(ref)
+                elbow = tag.GetLeaderElbow(ref) if has else None
+            else:
+                has = tag.HasElbow
+                elbow = tag.LeaderElbow if has else None
+            if has:
+                self.elbow = _moved_point(placement, elbow)
+            elif self.end is not None:
+                # no elbow: Revit gives a new leader one of its own, so the
+                # copy's goes on the straight line from its end to its head
+                h, e = self.head, self.end
+                self.elbow = XYZ(e.X + (h.X - e.X) * 0.25, e.Y + (h.Y - e.Y) * 0.25,
+                                 e.Z + (h.Z - e.Z) * 0.25)
+        except Exception:
+            pass
+
+    def make(self, doc):
+        ref = Reference(self.element)
+        new_tag = IndependentTag.Create(doc, self.type_id, self.view, ref, self.has_leader,
+                                        self.orientation, self.head)
+        new_tag.TagHeadPosition = self.head
+        if not self.has_leader:
+            return new_tag
+        try:
+            if self.condition is not None:
+                new_tag.LeaderEndCondition = self.condition
+        except Exception:
+            pass
+        try:
+            if self.end is not None:
+                try:
+                    new_tag.SetLeaderEnd(ref, self.end)                   # Revit 2022+
+                except Exception:
+                    new_tag.LeaderEnd = self.end
+        except Exception:
+            pass
+        try:
+            if self.elbow is not None:
+                try:
+                    new_tag.SetLeaderElbow(ref, self.elbow)
+                except Exception:
+                    new_tag.LeaderElbow = self.elbow
+        except Exception:
+            pass
+        return new_tag
 
 
 def mirror_tags(doc, tags, pairs, placement):
-    """Tower 1's tags made again on Tower 2's copies, in the same views, at
-    the mirrored spot (text is never mirrored). pairs: [(Tower 1 key, Tower
-    2 element)]. A copy that has a tag of that type in that view already is
-    left as it is. Returns how many tags were made."""
-    made = 0
+    """Tower 1's tags made again on Tower 2's copies, in the same views (a
+    wire's in its own view), at the mirrored spot (text is never
+    mirrored). pairs: [(Tower 1 key, Tower 2 element)]. A copy that has a
+    tag of that type in that view already is left as it is. Returns how
+    many tags were made."""
+    plans, wanted = [], set()
     for key, element in pairs:
         if element is None:
             continue
@@ -398,23 +435,23 @@ def mirror_tags(doc, tags, pairs, placement):
             view_id = element.OwnerViewId if element.ViewSpecific else None
         except Exception:
             view_id = None
-        for tag in list(tags.by_element.get(key, ())):
+        for tag in tags.by_element.get(key, ()):
             try:
                 view = view_id if view_id is not None else tag.OwnerViewId
-                view_key, type_key = id_int(view), id_int(tag.GetTypeId())
-                if tags.has(target, view_key, type_key):
+                spot = (target, id_int(view), id_int(tag.GetTypeId()))
+                if spot in wanted or tags.has(*spot):
                     continue
-                ref = Reference(element)
-                head = _moved_point(placement, tag.TagHeadPosition)
-                new_tag = IndependentTag.Create(doc, tag.GetTypeId(), view, ref,
-                                                tag.HasLeader, tag.TagOrientation, head)
-                new_tag.TagHeadPosition = head
-                if tag.HasLeader:
-                    _leader(tag, new_tag, ref, placement, head)
-                tags.add(target, new_tag)
-                made += 1
+                wanted.add(spot)
+                plans.append((target, _TagPlan(tag, element, view, placement)))
             except Exception:
                 pass
+    made = 0
+    for target, plan_ in plans:
+        try:
+            tags.add(target, plan_.make(doc))
+            made += 1
+        except Exception:
+            pass
     return made
 
 

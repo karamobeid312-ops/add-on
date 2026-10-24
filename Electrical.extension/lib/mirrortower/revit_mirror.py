@@ -412,13 +412,22 @@ def _why(result, element, reason):
     result.why[key] = result.why.get(key, 0) + 1
 
 
+def _error(result, element, error):
+    result.refused.append(element.Id)
+    text = rc._message(error)
+    if text not in result.errors:
+        result.errors.append(text)
+
+
 def _rehost(doc, keys, elements, placement, walls, level, result, tick=None):
     """Place the wall elements again on Tower 2's walls, at their mirrored
-    spot. tick(done, total) after each. Returns {Tower 1 key: new element}."""
-    made = {}
-    for i, k in enumerate(keys):
-        if tick is not None:
-            tick(i, len(keys))
+    spot. tick(done, total) as it goes. Returns {Tower 1 key: new element}.
+
+    Everything is read first (transforms, spots, faces), then the copies
+    are made: reading an element's position after a change makes Revit
+    regenerate the model, which done once per element took minutes."""
+    spots = []
+    for k in keys:
         e = elements[k]
         try:
             t = e.GetTotalTransform()
@@ -436,24 +445,35 @@ def _rehost(doc, keys, elements, placement, walls, level, result, tick=None):
                 _why(result, e, u"no wall face at its Tower 2 spot")
                 continue
             symbol = e.Symbol
-            if not symbol.IsActive:
-                symbol.Activate()
-            if e.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased:
-                new = doc.Create.NewFamilyInstance(face.ref, on, XYZ(hx, hy, t.BasisX.Z), symbol)
-            elif face.link is None and isinstance(face.element, Wall):
-                new = doc.Create.NewFamilyInstance(on, symbol, face.element, level,
-                                                   StructuralType.NonStructural)
-            else:
+            based = symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased
+            if not based and not (face.link is None and isinstance(face.element, Wall)):
                 result.no_wall.append(e.Id)
                 _why(result, e, u"wall-hosted family, and Tower 2's wall is in a link")
                 continue
-            rc.copy_parameters(e, new)
-            made[k] = new
+            spots.append((k, e, symbol, based, face, on, XYZ(hx, hy, t.BasisX.Z)))
         except Exception as error:
-            result.refused.append(e.Id)
-            text = rc._message(error)
-            if text not in result.errors:
-                result.errors.append(text)
+            _error(result, e, error)
+    made = {}
+    for i, (k, e, symbol, based, face, on, direction) in enumerate(spots):
+        if tick is not None:
+            tick(i, len(spots))
+        try:
+            if not symbol.IsActive:
+                symbol.Activate()
+            if based:
+                made[k] = doc.Create.NewFamilyInstance(face.ref, on, direction, symbol)
+            else:
+                made[k] = doc.Create.NewFamilyInstance(on, symbol, face.element, level,
+                                                       StructuralType.NonStructural)
+        except Exception as error:
+            _error(result, e, error)
+    for k, new in made.items():
+        try:
+            rc.copy_parameters(elements[k], new)
+        except Exception:
+            pass
+    if tick is not None:
+        tick(len(spots), len(spots))
     return made
 
 
