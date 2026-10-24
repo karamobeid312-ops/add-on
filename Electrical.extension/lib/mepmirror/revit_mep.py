@@ -662,6 +662,8 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
                 made.update(placed)
                 result.rehosted += len(placed)
             doc.Regenerate()
+        for k, e in made.items():
+            rc.keep_workset(elements[k], e)     # the copy stays on Tower 1's workset
         if join and made:
             result.joined = join_open_ends(doc, [id_int(e.Id) for e in made.values()],
                                            side.pool + side.shared)

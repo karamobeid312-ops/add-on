@@ -419,6 +419,24 @@ def copy_parameters(src, dst):
         except Exception:
             other = None
         _set_like(p, other, bip in ids_ok)
+    keep_workset(src, dst)
+
+
+_WORKSET = getattr(BuiltInParameter, "ELEM_PARTITION_PARAM", None)
+
+
+def keep_workset(src, dst):
+    """dst put on src's workset (in a workshared model). A view's elements
+    (wires, tags) are on their view's workset: left as they are."""
+    try:
+        if not dst.Document.IsWorkshared:
+            return
+        a, b = src.get_Parameter(_WORKSET), dst.get_Parameter(_WORKSET)
+        if a is None or b is None or b.IsReadOnly or a.AsInteger() == b.AsInteger():
+            return
+        b.Set(a.AsInteger())
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- wires
