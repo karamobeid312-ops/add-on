@@ -27,7 +27,7 @@ def test_roles_main_board_db():
     assert b["MDB-1"].role == MAIN_BOARD
     assert b["SMDB-1"].role == BOARD
     assert "LDB-1" not in b and "PANEL-X" not in b       # drawn as DB boxes
-    assert [w.kind for w in b["SMDB-1"].ways] == [DB_BOX, DB_BOX]
+    assert [w.kind for w in b["SMDB-1"].ways] == [DB_BOX, DB_BOX, SPARE, SPARE, SPARE]
     assert b["MDB-1"].ways[0].kind == FEEDER
     assert b["SMDB-1"].parent is b["MDB-1"]
 
@@ -110,7 +110,7 @@ def test_ups_between_boards_with_two_inputs():
     b = boards(s)
     assert s.warnings == []
     gf = b["SMDB-GF"]
-    assert [w.kind for w in gf.ways] == [TO_UPS, TO_UPS]
+    assert [w.kind for w in gf.ways] == [TO_UPS, TO_UPS, SPARE, SPARE, SPARE]
     assert len(gf.pass_throughs) == 1 and len(gf.pass_throughs[0].input_ways) == 2
     assert b["USMDB-GF"].feed_pass_through is gf.pass_throughs[0]
     assert b["USMDB-GF"].parent is gf and b["USMDB-GF"] in gf.children
@@ -137,8 +137,40 @@ def test_rating_lines():
                     cable=u"4Cx16mm² Cu/XLPE/PVC + 1Cx16mm² Cu/XLPE/PVC")
     from sld.model import Way
     assert Way(c, FEEDER, "1", "X").rating_lines() == [
-        "63A TP", u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
+        u"4Cx16mm² Cu/XLPE/PVC", u"+ 1Cx16mm² Cu/XLPE/PVC"]
     assert Way(c, SPARE, "1", "SPARE").rating_lines() == []
+    assert Way(c, PFC, "1", "PFC").rating_lines() == []
+
+
+def test_breaker_lines_trip_and_frame():
+    from sld.model import breaker_lines, frame_rating
+    assert breaker_lines("40 A") == ["40AT", "100AF", "MCCB"]
+    assert breaker_lines("125 A") == ["125AT", "160AF", "MCCB"]
+    assert breaker_lines("125 A", frame="250") == ["125AT", "250AF", "MCCB"]
+    assert breaker_lines(20.0) == ["20AT", "100AF", "MCCB"]
+    assert breaker_lines("") == ["MCCB"]
+    assert frame_rating(5000, (100, 160)) == 5000      # beyond the largest frame
+    spare = CircuitInfo("s", "x", "9", rating="40 A", is_spare=True)
+    assert spare.breaker_lines() == ["40AT", "100AF", "MCCB"]
+
+
+def test_supply_text():
+    e = EquipmentInfo("x", "SMDB-2F", mains_rating=160.0, fault_level="35 kA")
+    assert e.supply_text() == "160A,3PH+N+E,35kA FOR 1 SEC"
+    assert EquipmentInfo("y", "DB", phases=1).supply_text() == "1PH+N+E"
+    assert EquipmentInfo("z", "DB", neutral=False, fault_level="50000").supply_text() == \
+        "3PH+E,50kA FOR 1 SEC"
+    e.incomer_rating = "125 A"
+    assert e.incomer_lines() == ["125AT", "160AF", "MCCB"]
+
+
+def test_main_incomer_is_mccb_below_800a():
+    e = EquipmentInfo("x", "SMDB-01", incomer_rating=160.0)
+    assert e.main_incomer_lines() == ["160AT", "160AF", "MCCB"]
+    e.incomer_rating = 1600.0
+    assert e.main_incomer_lines() == ["1600AT", "1600AF", "ACB"]
+    e.incomer_rating = None
+    assert e.main_incomer_lines() == ["ACB"]
 
 
 def test_sample_drawing_structure():
@@ -159,3 +191,264 @@ def test_sample_drawing_structure():
 
 def test_natural_key():
     assert sorted(["10", "2", "1,3,5", "B", "a"], key=natural_key) == ["1,3,5", "2", "10", "a", "B"]
+
+
+def _smdb_with_loads():
+    equipment = [eq("SMDB-2F"),
+                 eq("ACB-Z1-2F", connected_kw=2.5, demand_kw=2.2),
+                 eq("LDB-Z1-2F", connected_kw=13.4, demand_kw=12.0),
+                 eq("UPS", family_name="UPS"), eq("USMDB")]
+    circuits = [ckt("SMDB-2F", 1, ["ACB-Z1-2F"], length_m=100.0, vd_percent=2.971),
+                ckt("SMDB-2F", 4, ["LDB-Z1-2F"], length_m=50.0),
+                ckt("SMDB-2F", 7, load_name="AHU-1", branch_load_count=1, connected_kw=4.0),
+                ckt("SMDB-2F", 10, ["UPS"]), ckt("SMDB-2F", 13, ["UPS"]),
+                ckt("SMDB-2F", 16, is_spare=True),
+                ckt("UPS", 1, ["USMDB"])]
+    return build_schematic(equipment, circuits)
+
+
+def test_way_loads_from_db_or_final_circuit():
+    ways = boards(_smdb_with_loads())["SMDB-2F"].ways
+    assert ways[0].loads() == (2.5, 2.2)
+    assert ways[2].loads() == (4.0, 4.0)          # final circuit: DL = CL
+    assert ways[5].loads() == (None, None)        # spare
+
+
+def test_length_and_vd_printed_along_the_way():
+    ways = boards(_smdb_with_loads())["SMDB-2F"].ways
+    assert ways[0].vd_text() == "L:100m  V.D:2.97%"
+    assert ways[0].rating_lines()[-1] == "L:100m  V.D:2.97%"
+    assert ways[1].vd_text() == "L:50m"           # no V.D worked out
+    assert ways[2].vd_text() == ""
+
+
+def test_load_totals_count_each_equipment_once():
+    smdb = boards(_smdb_with_loads())["SMDB-2F"]
+    cl, df, dl = smdb.load_totals()
+    assert abs(cl - (2.5 + 13.4 + 4.0)) < 1e-9    # UPS has no load: skipped
+    assert abs(dl - (2.2 + 12.0 + 4.0)) < 1e-9
+    assert abs(df - dl / cl) < 1e-9
+    ups = [w for w in smdb.ways if w.kind == TO_UPS]
+    ups[0].target.connected_kw = ups[0].target.demand_kw = 10.0
+    assert abs(smdb.load_totals()[0] - 29.9) < 1e-9   # two ways, one UPS
+
+
+def test_no_load_totals_without_loads():
+    s = build_schematic([eq("SMDB-1"), eq("LDB-1")], [ckt("SMDB-1", 1, ["LDB-1"])])
+    assert boards(s)["SMDB-1"].load_totals() is None
+
+
+def test_parse_protection_reads_the_fields_together():
+    from sld.model import parse_protection
+    assert parse_protection("40AT/100AF", "MCCB") == (40.0, 100.0, "MCCB")
+    assert parse_protection("AT/AF", "40A") == (40.0, None, None)   # values swapped
+    assert parse_protection("100A,3P", "MCS") == (100.0, None, "MCS")
+    assert parse_protection("", "") == (None, None, None)
+
+
+def test_way_breaker_from_upstream_protection_of_the_fed_panel():
+    equipment = [eq("SMDB-01"), eq("DB-01", upstream_protection="AT/AF 40A"),
+                 eq("DB-02", upstream_protection="63AT/250AF MCCB")]
+    circuits = [ckt("SMDB-01", 1, ["DB-01"], rating="20 A"),
+                ckt("SMDB-01", 4, ["DB-02"], rating="20 A"),
+                ckt("SMDB-01", 7, load_name="MISC", branch_load_count=1, rating="20 A")]
+    ways = boards(build_schematic(equipment, circuits))["SMDB-01"].ways
+    assert ways[0].breaker_lines() == ["40AT", "100AF", "MCCB"]
+    assert ways[1].breaker_lines() == ["63AT", "250AF", "MCCB"]
+    assert ways[2].breaker_lines() == ["20AT", "100AF", "MCCB"]   # circuit Rating
+
+
+def test_incomer_from_office_parameters():
+    e = EquipmentInfo("x", "DB", incomer_rating="100A,3P", incomer_device="MCCB")
+    assert e.incomer_lines() == ["100AT", "100AF", "MCCB"]
+    e.incomer_device = "MCS"
+    assert e.incomer_lines() == ["100A", "MCS"]                  # a switch has no trip
+    assert e.main_incomer_lines() == ["100A", "MCS"]
+
+
+def test_board_load_table_uses_its_own_revit_totals():
+    equipment = [eq("SMDB-01", connected_kw=4.8, demand_kw=3.36, demand_factor=0.7),
+                 eq("DB-01", connected_kw=0.8, demand_kw=0.6)]
+    circuits = [ckt("SMDB-01", 1, ["DB-01"]),
+                ckt("SMDB-01", 4, load_name="MISC", branch_load_count=1, connected_kw=4.0)]
+    smdb = boards(build_schematic(equipment, circuits))["SMDB-01"]
+    assert smdb.load_totals() == (4.8, 0.7, 3.36)
+    smdb.equipment.demand_factor = None                          # factor from the loads
+    assert abs(smdb.load_totals()[1] - 0.7) < 1e-9
+
+
+def _loads(board, n, **kw):
+    return [ckt(board, 1 + 3 * i, load_name="L%d" % (i + 1), branch_load_count=1, **kw)
+            for i in range(n)]
+
+
+def test_sub_main_board_gets_three_spares_when_there_is_room():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 15, rating="32 A")
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    spares = [w for w in b["SMDB-1"].ways if w.kind == SPARE]
+    assert [w.label for w in spares] == ["16", "17", "18"]
+    assert all(w.name == "SPARE" for w in spares)
+    assert spares[0].breaker_lines() == ["32AT", "100AF", "MCCB"]
+    assert spares[0].rating_lines() == [] and spares[0].loads() == (None, None)
+    assert [w.kind for w in b["MDB-1"].ways] == [FEEDER]        # main board unchanged
+    assert s.warnings == []
+
+
+def test_sub_main_board_gets_two_spares_at_sixteen_ways():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 16)
+    s = build_schematic(equipment, circuits)
+    assert [w.label for w in boards(s)["SMDB-1"].ways][-2:] == ["17", "18"]
+    assert len(boards(s)["SMDB-1"].ways) == 18
+    assert s.warnings == []
+
+
+def test_sub_main_board_over_the_limit_warns():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 17)
+    s = build_schematic(equipment, circuits)
+    assert len(boards(s)["SMDB-1"].ways) == 18                  # filled up to 18
+    assert any("SMDB-1 uses 17 ways" in w and "18 circuit breakers" in w for w in s.warnings)
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 20)
+    s = build_schematic(equipment, circuits)
+    assert len(boards(s)["SMDB-1"].ways) == 20                  # nothing added
+    assert any("SMDB-1 uses 20 ways" in w for w in s.warnings)
+
+
+def test_spares_already_in_the_model_count():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = ([ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 4)
+                + [ckt("SMDB-1", 13, is_spare=True), ckt("SMDB-1", 16, is_spare=True)])
+    ways = boards(build_schematic(equipment, circuits))["SMDB-1"].ways
+    assert [w.kind for w in ways].count(SPARE) == 3
+    assert ways[-1].label == "7"
+    circuits += [ckt("SMDB-1", 19, is_spare=True), ckt("SMDB-1", 22, is_spare=True)]
+    ways = boards(build_schematic(equipment, circuits))["SMDB-1"].ways
+    assert [w.kind for w in ways].count(SPARE) == 4             # none removed
+
+
+def test_single_pole_breakers_share_a_way_in_the_limit():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + [
+        ckt("SMDB-1", i + 1, poles="1", load_name="L%d" % i, branch_load_count=1)
+        for i in range(45)]                                     # 45 breakers, 15 ways
+    s = build_schematic(equipment, circuits)
+    ways = boards(s)["SMDB-1"].ways
+    assert [w.label for w in ways if w.kind == SPARE] == ["16", "17", "18"]
+    assert s.warnings == []
+
+
+def test_spare_rating_is_the_most_common_breaker():
+    from sld.model import Board, add_spares
+    equipment = [eq("SMDB-01"), eq("DB-01", upstream_protection="63AT/250AF"),
+                 eq("DB-02", upstream_protection="63AT/250AF")]
+    circuits = [ckt("SMDB-01", 1, ["DB-01"]), ckt("SMDB-01", 4, ["DB-02"]),
+                ckt("SMDB-01", 7, load_name="X", branch_load_count=1, rating="20 A")]
+    ways = boards(build_schematic(equipment, circuits))["SMDB-01"].ways
+    assert ways[-1].kind == SPARE and ways[-1].circuit.rating == "63A"
+    b = Board(eq("SMDB-02"), BOARD)                             # nothing known
+    assert add_spares(b) == [] and [w.circuit.rating for w in b.ways] == ["", "", ""]
+
+
+def test_spares_named_sub_main_root_and_revit_numbering():
+    equipment = [eq("SMDB-01"), eq("DB-01"), eq("MDB-9")]
+    circuits = [ckt("SMDB-01", 1, ["DB-01"])]
+    s = build_schematic(equipment, circuits, numbering="revit")
+    b = boards(s)
+    assert [w.label for w in b["SMDB-01"].ways] == ["1", "", "", ""]
+    assert b["MDB-9"].ways == []                                # main board: no spares
+    b = boards(build_schematic(equipment, circuits, spares=False))
+    assert [w.kind for w in b["SMDB-01"].ways] == [DB_BOX]
+
+
+def test_spares_fit_the_declared_ways_or_grow_the_board_by_two():
+    def smdb(n, ways="12"):
+        equipment = [eq("MDB-1"), eq("SMDB-1", ways=ways)]
+        circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", n)
+        s = build_schematic(equipment, circuits)
+        b = boards(s)["SMDB-1"]
+        return [w.kind for w in b.ways].count(SPARE), b.way_count(), s.warnings
+    assert smdb(9) == (3, 12, [])
+    assert smdb(10) == (2, 12, [])
+    assert smdb(11) == (2, 13, [])                              # board grows by 2
+    assert smdb(15, ways="14 WAYS") == (2, 17, [])
+
+
+def test_single_pole_spares_in_the_model_count_by_way():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    sp_spares = [ckt("SMDB-1", 31 + i, poles="1", is_spare=True) for i in range(3)]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 10) + sp_spares
+    b = boards(build_schematic(equipment, circuits))["SMDB-1"]
+    assert [w.label for w in b.ways if w.kind == SPARE] == ["R11", "Y11", "B11", "12", "13"]
+    # a way shared with a load is not a spare way
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"]),
+                ckt("SMDB-1", 1, poles="1", load_name="L", branch_load_count=1),
+                ckt("SMDB-1", 2, poles="1", is_spare=True),
+                ckt("SMDB-1", 3, poles="1", is_spare=True)]
+    b = boards(build_schematic(equipment, circuits))["SMDB-1"]
+    assert [w.label for w in b.ways] == ["R1", "Y1", "B1", "2", "3", "4"]
+    # 17 ways and one spare way: warn
+    circuits = ([ckt("MDB-1", 1, ["SMDB-1"])] + _loads("SMDB-1", 17)
+                + [ckt("SMDB-1", 52 + i, poles="1", is_spare=True) for i in range(3)])
+    s = build_schematic(equipment, circuits)
+    assert boards(s)["SMDB-1"].way_count() == 18
+    assert any("SMDB-1 uses 17 ways" in w for w in s.warnings)
+
+
+def test_way_count_counts_single_pole_breakers_by_way():
+    equipment = [eq("MDB-1"), eq("SMDB-1")]
+    circuits = [ckt("MDB-1", 1, ["SMDB-1"])] + [
+        ckt("SMDB-1", i + 1, poles="1", load_name="L%d" % i, branch_load_count=1)
+        for i in range(45)]
+    assert boards(build_schematic(equipment, circuits))["SMDB-1"].way_count() == 18
+
+
+def test_unconnected_panels_only_mdb_is_main():
+    equipment = [eq("MDB-1", level_name="Substation"), eq("SMDB-GF-01", level_name="Ground Floor"),
+                 eq("DB-FF-01", level_name="First Floor", connected_kw=12.0, demand_kw=9.0),
+                 eq("EMDB-1"), eq("PANEL-X")]
+    circuits = [ckt("DB-FF-01", 1, load_name="LIGHTING"), ckt("SMDB-GF-01", 1, load_name="AHU")]
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    assert b["MDB-1"].role == MAIN_BOARD and b["EMDB-1"].role == MAIN_BOARD
+    assert b["SMDB-GF-01"].role == BOARD and b["SMDB-GF-01"].parent is None
+    assert sorted(r.name for r in s.roots) == ["EMDB-1", "MDB-1", "SMDB-GF-01"]
+    assert "DB-FF-01" not in b                       # a DB is never drawn as a board
+    assert [e.name for e in s.loose_dbs] == ["DB-FF-01", "PANEL-X"]
+
+
+def test_fed_db_is_not_loose():
+    s = build_schematic([eq("MDB-1"), eq("DB-1")], [ckt("MDB-1", 1, ["DB-1"])])
+    assert s.loose_dbs == []
+
+
+def test_fed_by_board_in_another_model_is_built_from_its_boards():
+    from sld.model import add_fed_by, fed_by_links
+    equipment = [eq("SMDB-GF-01", fed_by="MDB-01", connected_kw=45.0, demand_kw=30.0,
+                    upstream_protection="100AT/100AF MCCB", level_name="Ground Floor"),
+                 eq("SMDB-FF-01", fed_by="mdb-01", connected_kw=20.0, demand_kw=10.0),
+                 eq("DB-FF-01", fed_by="SMDB-FF-01", connected_kw=5.0, demand_kw=4.0),
+                 eq("SMDB-X", fed_by="SMDB-GF-01")]
+    circuits = [ckt("SMDB-GF-01", 1, ["SMDB-X"])]          # SMDB-X is fed in the model
+    links = fed_by_links(dict((e.id, e) for e in equipment),
+                         set(f for c in circuits for f in c.fed_equipment_ids))
+    assert sorted(links) == ["DB-FF-01", "SMDB-FF-01", "SMDB-GF-01"]
+    assert links["SMDB-GF-01"] is links["SMDB-FF-01"]       # one MDB-01, any case
+    assert links["DB-FF-01"].name == "SMDB-FF-01"           # a board in this model
+    equipment, circuits = add_fed_by(equipment, circuits, links,
+                                     {"SMDB-GF-01": dict(cable="(4X25)mm² CU/XLPE/SWA/PVC",
+                                                         length_m=40.0, vd_percent=1.2)})
+    s = build_schematic(equipment, circuits)
+    b = boards(s)
+    mdb = b["MDB-01"]
+    assert mdb.role == MAIN_BOARD and mdb.equipment.virtual and mdb in s.roots
+    assert [w.name for w in mdb.ways] == ["SMDB-FF-01", "SMDB-GF-01"]
+    assert all(w.kind == FEEDER for w in mdb.ways)
+    assert mdb.load_totals()[0] == 65.0 and mdb.load_totals()[2] == 40.0
+    assert mdb.equipment.main_incomer_lines() == ["160AT", "160AF", "MCCB"]   # 65 kW CL
+    assert b["SMDB-GF-01"].parent is mdb
+    assert b["SMDB-GF-01"].feed_way.circuit.length_m == 40.0
+    assert [w.kind for w in b["SMDB-FF-01"].ways][0] == DB_BOX
+    assert s.loose_dbs == []

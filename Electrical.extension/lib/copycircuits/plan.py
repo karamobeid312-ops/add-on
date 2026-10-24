@@ -102,8 +102,9 @@ class Circuit(object):
     """A circuit of the source model, as far as the plan needs it."""
 
     def __init__(self, key, kind, elements, panel=None, panel_here=False, slot=0,
-                 panel_name="", number="", group=None, load_name=""):
+                 panel_name="", number="", group=None, load_name="", families=()):
         self.key = key
+        self.families = sorted(set(f for f in families if f))  # family names it feeds
         self.group = group or kind      # what the user picks by: Lighting, Power, Data...
         self.load_name = load_name      # e.g. "LIGHTING - BEDROOM 1"
         self.kind = kind                # system type: power, data, fire alarm...
@@ -147,9 +148,23 @@ def groups(circuits):
 
 
 def circuit_label(circuit):
-    """The circuit as listed for picking: Lighting | DB-F4-01 / 3 | load name."""
+    """The circuit as listed for picking: Lighting | DB-F4-01 / 3 | load name |
+    the families it feeds (so the list's search finds FCU...)."""
     text = u"%s | %s" % (circuit.group, circuit.label)
-    return text + (u" | %s" % circuit.load_name if circuit.load_name else u"")
+    if circuit.load_name:
+        text += u" | %s" % circuit.load_name
+    if circuit.families:
+        text += u" | %s" % u", ".join(circuit.families)
+    return text
+
+
+def families(circuits):
+    """[(family name, circuit count)] of the families the circuits feed, by name."""
+    count = {}
+    for c in circuits:
+        for f in c.families:
+            count[f] = count.get(f, 0) + 1
+    return [(f, count[f]) for f in sorted(count, key=lambda f: f.lower())]
 
 
 class Job(object):
