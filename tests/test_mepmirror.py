@@ -296,3 +296,11 @@ def test_board_and_circuit_rows():
     assert whats[u"Circuits made but not on their board"][1] == report.WARN
     assert whats[u"Circuits already in Tower 2"][0]["count"] == u"1"
     assert whats[u"Wires"][0]["count"] == u"4"
+
+
+def test_progress_text():
+    from mepmirror.window_ui import progress_text
+    assert progress_text(0.0, 0) == u"0 %"
+    assert progress_text(0.5, 20) == u"50 % · about 20 s left"
+    assert progress_text(0.25, 60) == u"25 % · about 3 min left"
+    assert progress_text(1.0, 60) == u"100 %"

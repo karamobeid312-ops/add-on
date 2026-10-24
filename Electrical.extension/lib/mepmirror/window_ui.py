@@ -25,7 +25,7 @@ NAMES = ("BadgeText", "TitleText", "SubText", "ModelText", "StatusDot", "StatusT
          "FloorGrid", "ResultsTabText", "SelectRowButton", "SelectNewButton", "ResultsInfo",
          "ResultGrid", "SetupPanel", "SetupDone", "CategoryList", "CategoryInfo", "ModeCombo",
          "ToleranceText", "JoinCheck", "ElectricalPanel", "SwapFromText", "SwapToText",
-         "CircuitsCheck", "WiresCheck")
+         "CircuitsCheck", "WiresCheck", "RunPanel", "RunText", "RunBar")
 FLOOR_COLUMNS = ("key", "floor", "tower1", "already", "todo", "skipped", "status", "state")
 RESULT_COLUMNS = ("key", "floor", "what", "count", "item", "status", "state")
 
@@ -83,6 +83,18 @@ def parse_mm(text, default):
     return min(max(value, 1.0), 1000.0)
 
 
+def progress_text(share, elapsed):
+    """'45 % · about 1 min left' for the bar (share done, 0 to 1; seconds
+    gone)."""
+    text = u"%d %%" % int(round(share * 100))
+    if share < 0.05 or share >= 1.0 or elapsed < 2:
+        return text
+    left = elapsed * (1 - share) / share
+    if left < 60:
+        return text + u" · about %d s left" % max(5, int(round(left / 5.0)) * 5)
+    return text + u" · about %d min left" % int(round(left / 60.0))
+
+
 def sides_of(model, outline, placement, tolerance):
     """{floor key: plan.Side} of every floor with things, paired when
     Tower 2 is given."""
@@ -116,7 +128,8 @@ class MirrorWindow(object):
       boxes                 [scope box names]
       outline(name)         Tower 1's outline in plan [(x, y)]
       read(unticked)        revit_mep.Model of the tool's elements
-      mirror(keys, sides, placement, about, tolerance, join) -> [FloorResult]
+      mirror(keys, sides, placement, about, tolerance, join, progress) -> [FloorResult]
+                            progress(done, total, text) moves the bar
       label_of(key), key_of(element id), select(ids)
       keep(values)          remember the choices for next time
       model_text            the header's right side
@@ -470,14 +483,19 @@ class MirrorWindow(object):
         self._status(u"Mirroring %d floor(s)..." % len(keys), "")
         import time
         start = time.time()
+        self._run_bar(True)
         try:
             results = self.revit["mirror"](keys, self.sides, self.state["placement"],
                                            geometry.centre(self.outline), self._tolerance(),
-                                           bool(self.state.get("join", True)))
+                                           bool(self.state.get("join", True)),
+                                           lambda done, total, text: self._progress(
+                                               done, total, text, start))
         except Exception as error:
+            self._run_bar(False)
             self._status(u"Revit stopped the run: nothing was changed.", "bad")
             self._alert(u"Revit stopped the run, nothing was changed:\n\n%s" % error)
             return
+        self._run_bar(False)
         rows = []
         new_ids = []
         for r in results:
@@ -500,6 +518,23 @@ class MirrorWindow(object):
             len(new_ids), tags, more, time.time() - start,
             u"; %d rows to check in Results" % (bad + warn) if bad + warn else u""),
             "bad" if bad else ("warn" if warn else "ok"))
+
+    def _run_bar(self, show):
+        from System.Windows import Visibility
+        self.RunBar.Value = 0
+        self.RunText.Text = u""
+        self.RunPanel.Visibility = Visibility.Visible if show else Visibility.Collapsed
+        self.MirrorButton.IsEnabled = not show
+        ui.pump(self.win)
+
+    def _progress(self, done, total, text, start):
+        """The bar at done / total, the step running and the time left."""
+        import time
+        share = min(max(done / total, 0.0), 1.0) if total else 0.0
+        self.RunBar.Value = share * 100
+        self.RunText.Text = progress_text(share, time.time() - start)
+        self.StatusText.Text = text
+        ui.pump(self.win)
 
     def _fill_results(self):
         rows = self.state.get("results") or []

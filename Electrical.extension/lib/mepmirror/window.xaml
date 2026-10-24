@@ -78,6 +78,14 @@
     <Border DockPanel.Dock="Bottom" Style="{StaticResource FooterBar}">
       <DockPanel LastChildFill="True">
         <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="Close" Margin="4,0,0,0"/>
+        <StackPanel x:Name="RunPanel" DockPanel.Dock="Right" Orientation="Horizontal"
+                    VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed">
+          <TextBlock x:Name="RunText" VerticalAlignment="Center" Margin="0,0,8,0"
+                     Foreground="{StaticResource MutedBrush}"/>
+          <ProgressBar x:Name="RunBar" Width="240" Height="12" Minimum="0" Maximum="100"
+                       Foreground="{StaticResource AccentBrush}" Background="{StaticResource BarBrush}"
+                       BorderBrush="{StaticResource LineBrush}"/>
+        </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
           <Ellipse x:Name="StatusDot" Width="10" Height="10" Margin="0,0,8,0"
                    Fill="{StaticResource NoneBrush}"/>

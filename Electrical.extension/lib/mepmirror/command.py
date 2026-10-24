@@ -121,34 +121,60 @@ def pick_placement(doc, uidoc, mode, title):
     return placement
 
 
-def _electrical(doc, model, keys, sides, results, placement, tolerance, state):
+def _electrical(doc, model, keys, sides, results, placement, tolerance, state, step):
     """Boards named for Tower 2 (B1 -> B2) on every floor, then Tower 1's
     circuits made again there (after all the boards, as a board may feed
     another floor)."""
     swap = state.get("swap") or (u"", u"")
     by_name = revit_mirror.boards_by_name(doc)
     for key, result in zip(keys, results):
+        step(u"Board names, %s..." % result.floor, 0)
         electrical.name_boards(doc, model, sides[key], result, swap, by_name)
     if not state.get("circuits", True):
         return
     by_name = revit_mirror.boards_by_name(doc)       # with the boards just made
     for key, result in zip(keys, results):
+        step(u"Circuits and wires, %s..." % result.floor, len(sides[key].tower1))
         electrical.make_circuits(doc, model, key, sides[key], result, placement, tolerance,
                                  swap, by_name, state.get("wires", True))
 
 
-def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, state):
+def _work(model, keys, sides, state):
+    """How much each step weighs on the progress bar: the elements it
+    mirrors (a floor with none still counts 1), the circuits after."""
+    total = sum(len(sides[k].missing) + 1 for k in keys)
+    if model.domain == rules.ELECTRICAL:
+        total += len(keys)
+        if state.get("circuits", True):
+            total += sum(len(sides[k].tower1) + 1 for k in keys)
+    return total
+
+
+def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, state,
+            progress=None):
     floors = dict((f[0], f) for f in model.floors)
     results = []
+    total = _work(model, keys, sides, state)
+    done = [0, 0]                   # work done, weight of the step running
+
+    def step(text, weight):
+        done[0] += done[1]
+        done[1] = weight + 1
+        if progress is not None:
+            progress(done[0], total, text)
     tags = revit_mep.Tags(doc)
     group = TransactionGroup(doc, title)
     group.Start()
     try:
         for key in keys:
+            step(u"Mirroring %s: %d elements..." % (model.names.get(key, u""),
+                                                   len(sides[key].missing)),
+                 len(sides[key].missing))
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
                                                   about, tolerance, join, tags))
         if model.domain == rules.ELECTRICAL:
-            _electrical(doc, model, keys, sides, results, placement, tolerance, state)
+            _electrical(doc, model, keys, sides, results, placement, tolerance, state, step)
+        step(u"Saving...", 0)
         group.Assimilate()
     except Exception:
         if group.HasStarted() and not group.HasEnded():
@@ -225,9 +251,9 @@ def run(domain):
         "in_links": lambda unticked: [] if domain == rules.MECHANICAL else
         revit_mep.in_links(doc, domain, unticked),
         "after": lambda results: revit_mep.add_new(doc, state["model"], results),
-        "mirror": lambda keys, sides, placement, about, tolerance, join: _mirror(
+        "mirror": lambda keys, sides, placement, about, tolerance, join, progress=None: _mirror(
             doc, title, state["model"], keys, sides, placement, about, tolerance,
-            join and domain != rules.ELECTRICAL, state),
+            join and domain != rules.ELECTRICAL, state, progress),
         "label_of": label_of,
         "key_of": lambda element_id: revit_mep.id_int(element_id),
         "select": select,
