@@ -357,7 +357,10 @@ def read_target(doc, level, type_keys, family_keys, exclude=()):
 
 FIRST = ("RBS_ELEC_CIRCUIT_WIRE_TYPE_PARAM", "RBS_ELEC_CIRCUIT_RATING_PARAM",
          "RBS_ELEC_CIRCUIT_FRAME_PARAM")
-ID_PARAMS = ("RBS_ELEC_CIRCUIT_WIRE_TYPE_PARAM",)
+# element-id values copied too: the wire type, and a board's circuit naming
+# scheme (R6 / Y3 by phase, or 6 / 3 by number), else Tower 2's board numbers
+# its circuits its own way
+ID_PARAMS = ("RBS_ELEC_CIRCUIT_WIRE_TYPE_PARAM", "RBS_ELEC_CIRCUIT_NAMING")
 SKIP = ("ALL_MODEL_MARK",)
 
 
