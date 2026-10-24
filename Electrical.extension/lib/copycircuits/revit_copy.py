@@ -783,6 +783,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             continue
         _no_doubles(new, tolerance)
         copy_parameters(wire, new)
+        result.wire_pairs.append((wire, new))
         wires.add(new, view_key)
         if linked is not None and link is not None:
             linked.add(link)

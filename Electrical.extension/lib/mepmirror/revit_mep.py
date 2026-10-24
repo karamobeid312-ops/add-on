@@ -392,14 +392,19 @@ def mirror_tags(doc, tags, pairs, placement):
         if element is None:
             continue
         target = id_int(element.Id)
+        try:        # a wire is in one view: its tag goes there
+            view_id = element.OwnerViewId if element.ViewSpecific else None
+        except Exception:
+            view_id = None
         for tag in list(tags.by_element.get(key, ())):
             try:
-                view_key, type_key = id_int(tag.OwnerViewId), id_int(tag.GetTypeId())
+                view = view_id if view_id is not None else tag.OwnerViewId
+                view_key, type_key = id_int(view), id_int(tag.GetTypeId())
                 if tags.has(target, view_key, type_key):
                     continue
                 ref = Reference(element)
                 head = _moved_point(placement, tag.TagHeadPosition)
-                new_tag = IndependentTag.Create(doc, tag.GetTypeId(), tag.OwnerViewId, ref,
+                new_tag = IndependentTag.Create(doc, tag.GetTypeId(), view, ref,
                                                 tag.HasLeader, tag.TagOrientation, head)
                 new_tag.TagHeadPosition = head
                 if tag.HasLeader:

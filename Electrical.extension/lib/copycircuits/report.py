@@ -28,6 +28,7 @@ class LevelResult(object):
         self.wire_views = {}            # plan name -> wires drawn in it
         self.wire_errors = []           # what Revit said when it refused a wire
         self.unwired = []               # target element ids at the ends of wires not drawn
+        self.wire_pairs = []            # (source wire, wire drawn): their tags follow
         self.left = []                  # target keys of the circuits' family types left
                                         # with no circuit and no source (new on this floor)
         self.panels = []                # [plan.PanelMatch] of the source floor's panels

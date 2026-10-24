@@ -121,7 +121,7 @@ def pick_placement(doc, uidoc, mode, title):
     return placement
 
 
-def _electrical(doc, model, keys, sides, results, placement, tolerance, state, step):
+def _electrical(doc, model, keys, sides, results, placement, tolerance, state, step, tags):
     """Boards named for Tower 2 (B1 -> B2) on every floor, then Tower 1's
     circuits made again there (after all the boards, as a board may feed
     another floor)."""
@@ -136,7 +136,7 @@ def _electrical(doc, model, keys, sides, results, placement, tolerance, state, s
     for key, result in zip(keys, results):
         step(u"Circuits and wires, %s..." % result.floor, len(sides[key].tower1))
         electrical.make_circuits(doc, model, key, sides[key], result, placement, tolerance,
-                                 swap, by_name, state.get("wires", True))
+                                 swap, by_name, state.get("wires", True), tags)
 
 
 def _work(model, keys, sides, state):
@@ -173,7 +173,8 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
                                                   about, tolerance, join, tags))
         if model.domain == rules.ELECTRICAL:
-            _electrical(doc, model, keys, sides, results, placement, tolerance, state, step)
+            _electrical(doc, model, keys, sides, results, placement, tolerance, state, step,
+                        tags)
         step(u"Saving...", 0)
         group.Assimilate()
     except Exception:

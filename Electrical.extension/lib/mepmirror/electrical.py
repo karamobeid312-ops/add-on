@@ -19,7 +19,7 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 from __future__ import division
 
 from copycircuits import revit_copy as rc
-from mepmirror import plan
+from mepmirror import plan, revit_mep
 from mirrortower import revit_mirror
 
 BOARDS = "OST_ElectricalEquipment"
@@ -77,9 +77,10 @@ def _pair(doc, model, key):
 
 
 def make_circuits(doc, model, floor_key, side, result, placement, tolerance, swap, by_name,
-                  wires):
+                  wires, tags=None):
     """Tower 1's circuits on this floor made again on Tower 2's copies and
-    boards (and their wires drawn when `wires`): result.circuits."""
+    boards (and their wires drawn when `wires`, with their tags when
+    `tags`, a revit_mep.Tags): result.circuits."""
     level = model.levels.get(floor_key)
     if level is None or not side.tower1:
         return
@@ -103,3 +104,15 @@ def make_circuits(doc, model, floor_key, side, result, placement, tolerance, swa
     eside.named = set(side.named)
     result.circuits, _ = revit_mirror.circuit_floor(doc, eside, placement, tolerance, swap,
                                                     by_name, wires)
+    pairs = [(rc.id_int(old.Id), new) for old, new in result.circuits.wire_pairs]
+    if tags is None or not pairs:
+        return
+    t = revit_mirror._transaction(doc, "Mirror Tower: wire tags, %s" % result.floor)
+    t.Start()
+    try:
+        result.tags += revit_mep.mirror_tags(doc, tags, pairs, placement)
+        t.Commit()
+    except Exception:
+        if t.HasStarted() and not t.HasEnded():
+            t.RollBack()
+        raise
