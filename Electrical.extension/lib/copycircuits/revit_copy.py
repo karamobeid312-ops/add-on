@@ -690,7 +690,7 @@ def _home_view(info, wires, home, level):
 
 
 def copy_wires(wires, copies, targets, level, tolerance, result, source, circuited,
-               where=placing.SAME_SPOT, skip=()):
+               where=placing.SAME_SPOT, skip=(), tick=None):
     """Draw the source wires again on `level`, between the copies, put where
     the copy is (`where`: mirrored for the other tower...). They go in the
     level's plan where the wires pasted with the fixtures are, or else in
@@ -755,7 +755,9 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
         todo.append((wire, info, wanted, conns, points, there, key, link))
 
     chosen = {}
-    for wire, info, wanted, conns, points, there, key, link in todo:
+    for i, (wire, info, wanted, conns, points, there, key, link) in enumerate(todo):
+        if tick is not None and i % 10 == 0:
+            tick(i, len(todo))
         if info.key not in chosen:
             tally = votes.get(info.key)
             if tally:
@@ -1033,8 +1035,10 @@ def match_panels(doc, source, target, copies, level, where, tolerance, dz=0.0,
     return found, remote
 
 
-def _make(doc, source, target, jobs, result):
-    for job in jobs:
+def _make(doc, source, target, jobs, result, tick=None):
+    for i, job in enumerate(jobs):
+        if tick is not None and i % 5 == 0:
+            tick(i, len(jobs))
         src = source.systems[job.circuit.key]
         elements = [target.elements[k] for k in job.elements]
         try:

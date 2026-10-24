@@ -412,11 +412,13 @@ def _why(result, element, reason):
     result.why[key] = result.why.get(key, 0) + 1
 
 
-def _rehost(doc, keys, elements, placement, walls, level, result):
+def _rehost(doc, keys, elements, placement, walls, level, result, tick=None):
     """Place the wall elements again on Tower 2's walls, at their mirrored
-    spot. Returns {Tower 1 key: new element}."""
+    spot. tick(done, total) after each. Returns {Tower 1 key: new element}."""
     made = {}
-    for k in keys:
+    for i, k in enumerate(keys):
+        if tick is not None:
+            tick(i, len(keys))
         e = elements[k]
         try:
             t = e.GetTotalTransform()
@@ -777,7 +779,7 @@ def _onto_boards(doc, circuits, copies, target, source, result):
                                                rc.panel_name(board), _system_name(board))))
 
 
-def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
+def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on, report=None):
     """Pass 2 on one floor: Tower 1's circuits made on Tower 2's copies,
     and their wires drawn. Returns (copycircuits LevelResult, the source
     read: Tower 1's circuits)."""
@@ -850,7 +852,9 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
         _onto_boards(doc, circuits, copies, target, source, result)
         jobs, result.skipped = plan.plan(circuits, copies, circuited)
         clock = time.time()
-        rc._make(doc, source, target, jobs, result)
+        rc._make(doc, source, target, jobs, result, None if report is None else
+                 lambda i, n: report(0.4 * i / max(n, 1), u"%s: circuits %d / %d..." % (
+                     side.level.Name, i, n)))
         result.seconds = {"circuits": time.time() - clock}
         for made in result.made:
             if made.panel_error and made.job.panel is not None:
@@ -868,9 +872,14 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
             skip = set(k for k in side.pool if k not in set(copies.values()))
             clock = time.time()
             rc.copy_wires(wires, copies, target.elements, side.level, tolerance, result,
-                          source, set(k for k, _ in circuited), placement, skip)
+                          source, set(k for k, _ in circuited), placement, skip,
+                          None if report is None else lambda i, n: report(
+                              0.4 + 0.5 * i / max(n, 1), u"%s: wires %d / %d..." % (
+                                  side.level.Name, i, n)))
             result.seconds["wires"] = time.time() - clock
         clock = time.time()
+        if report is not None:
+            report(0.92, u"%s: Revit is saving the circuits..." % side.level.Name)
         t.Commit()
         result.seconds["saving circuits"] = time.time() - clock
     except Exception:

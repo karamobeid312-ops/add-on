@@ -125,7 +125,8 @@ def pick_placement(doc, uidoc, mode, title):
     return placement
 
 
-def _electrical(doc, model, keys, sides, results, placement, tolerance, state, step, tags):
+def _electrical(doc, model, keys, sides, results, placement, tolerance, state, step, tags,
+                inside=None):
     """Boards named for Tower 2 (B1 -> B2) on every floor, then Tower 1's
     circuits made again there (after all the boards, as a board may feed
     another floor)."""
@@ -143,7 +144,7 @@ def _electrical(doc, model, keys, sides, results, placement, tolerance, state, s
         step(u"Circuits and wires, %s..." % result.floor, len(sides[key].tower1))
         start = time.time()
         electrical.make_circuits(doc, model, key, sides[key], result, placement, tolerance,
-                                 swap, by_name, state.get("wires", True), tags)
+                                 swap, by_name, state.get("wires", True), tags, inside)
         if result.circuits is not None:
             result.seconds.update(getattr(result.circuits, "seconds", {}))
         _timed(result, "circuits, wires and their tags (all)", start)
@@ -172,6 +173,11 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
         done[1] = weight + 1
         if progress is not None:
             progress(done[0], total, text)
+
+    def inside(share, text):
+        """Part of the step running done (share 0 to 1)."""
+        if progress is not None:
+            progress(done[0] + share * done[1], total, text)
     tags = revit_mep.Tags(doc)
     group = TransactionGroup(doc, title)
     group.Start()
@@ -182,11 +188,11 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
                  len(sides[key].missing))
             start = time.time()
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
-                                                  about, tolerance, join, tags))
+                                                  about, tolerance, join, tags, inside))
             _timed(results[-1], "mirroring elements and tags", start)
         if model.domain == rules.ELECTRICAL:
             _electrical(doc, model, keys, sides, results, placement, tolerance, state, step,
-                        tags)
+                        tags, inside)
         step(u"Saving...", 0)
         group.Assimilate()
     except Exception:

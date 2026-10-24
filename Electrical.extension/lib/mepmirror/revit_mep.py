@@ -18,6 +18,8 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 """
 from __future__ import division
 
+import time
+
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, ConnectorType, Domain, ElementId,
     ElementTransformUtils, FamilyInstance, FilteredElementCollector, IndependentTag,
@@ -584,11 +586,37 @@ def _on_a_face(element):
     return hosted and facing is not None and abs(facing[2]) < 0.3
 
 
-def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True, tags=None):
+class _Clock(object):
+    """Times each part of a floor's run (result.seconds) and tells the
+    window how far it is: report(share of the floor done, text)."""
+
+    def __init__(self, result, report):
+        self.result = result
+        self.report = report
+        self.name = None
+        self.start = time.time()
+
+    def step(self, name, share, text=None):
+        self.stop()
+        self.name, self.start = name, time.time()
+        if self.report is not None:
+            self.report(share, text or name)
+
+    def stop(self):
+        if self.name is not None:
+            seconds = self.result.seconds
+            seconds[self.name] = seconds.get(self.name, 0.0) + time.time() - self.start
+        self.name = None
+
+
+def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True, tags=None,
+                 report=None):
     """Mirror the floor's missing Tower 1 elements into Tower 2. floor:
-    (level key, low, high). Returns a FloorResult."""
+    (level key, low, high). report(share, text): how far it is. Returns a
+    FloorResult."""
     key, _, _ = floor
     result = FloorResult(model.names.get(key, u""))
+    clock = _Clock(result, report)
     result.tower1 = len(side.tower1)
     result.already = len(side.copies)
     result.shared = len(side.shared)
@@ -612,17 +640,30 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
     walled = [t for t in side.missing if not t.run and revit_mirror.on_wall(elements[t.key])]
     walled_keys = set(t.key for t in walled)
     rest = [t for t in side.missing if t.key not in walled_keys]
+    # rough share of the floor's time: a wall item placed again costs about 3 mirrored ones
+    work = 3.0 * len(walled) + len(rest) + 10.0
+    wall_share = 3.0 * len(walled) / work
     del revit_mirror._ERRORS[:]
     tx = revit_mirror._transaction(doc, "Mirror Tower: %s" % result.floor)
     tx.Start()
     try:
         walls, made = None, {}          # Tower 1 key -> new element
         if walled:
+            clock.step(u"reading walls", 0.0, u"%s: reading Tower 2's walls..." % result.floor)
             walls = _walls(doc, walled, placement, floor, model.links)
+            clock.step(u"placing on walls", 0.02, u"%s: placing %d items on Tower 2's walls..."
+                       % (result.floor, len(walled)))
+
+            def tick(i, n):
+                if report is not None and (i % 10 == 0 or i == n):
+                    report(0.02 + wall_share * i / max(n, 1),
+                           u"%s: placing on Tower 2's walls %d / %d..." % (result.floor, i, n))
             made.update(revit_mirror._rehost(doc, [t.key for t in walled], elements, placement,
-                                             walls, level, result))
+                                             walls, level, result, tick))
             result.rehosted = len(made)
         if rest:
+            clock.step(u"mirroring", 0.02 + wall_share, u"%s: mirroring %d elements..." % (
+                result.floor, len(rest)))
             plane, move = revit_mirror._plane(placement, about)
             tags_of = {}
             if tags is not None:
@@ -648,6 +689,8 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
                     tags.add(k, tag)
             result.tags += len(copied_tags)
             doc.Regenerate()
+            clock.step(u"checking copies", 0.02 + wall_share + 0.8 * (1 - wall_share) * 0.8,
+                       u"%s: checking the copies landed in Tower 2..." % result.floor)
             things = {}
             for e in ours:
                 if isinstance(e, FamilyInstance) and e.SuperComponent is not None:
@@ -669,6 +712,8 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
             again = [t for t in rest if t.key not in found and _on_a_face(elements[t.key])
                      and not t.run]
             if again:
+                clock.step(u"placing on walls", 0.85, u"%s: placing %d more on Tower 2's "
+                           u"walls..." % (result.floor, len(again)))
                 if walls is None:
                     walls = _walls(doc, again, placement, floor, model.links)
                 placed = revit_mirror._rehost(doc, [t.key for t in again], elements, placement,
@@ -679,13 +724,17 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
         for k, e in made.items():
             rc.keep_workset(elements[k], e)     # the copy stays on Tower 1's workset
         if join and made:
+            clock.step(u"joining ends", 0.88, u"%s: joining open ends..." % result.floor)
             result.joined = join_open_ends(doc, [id_int(e.Id) for e in made.values()],
                                            side.pool + side.shared)
         if tags is not None:
+            clock.step(u"tags", 0.9, u"%s: tags..." % result.floor)
             pairs = [(k, e) for k, e in made.items()] + \
                 [(k, _get(doc, t)) for k, t in side.copies.items()]
             result.tags += mirror_tags(doc, tags, pairs, placement)
+        clock.step(u"saving the floor", 0.93, u"%s: Revit is saving the floor..." % result.floor)
         tx.Commit()
+        clock.stop()
     except Exception:
         if tx.HasStarted() and not tx.HasEnded():
             tx.RollBack()

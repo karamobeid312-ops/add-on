@@ -77,7 +77,7 @@ def _pair(doc, model, key):
 
 
 def make_circuits(doc, model, floor_key, side, result, placement, tolerance, swap, by_name,
-                  wires, tags=None):
+                  wires, tags=None, report=None):
     """Tower 1's circuits on this floor made again on Tower 2's copies and
     boards (and their wires drawn when `wires`, with their tags when
     `tags`, a revit_mep.Tags): result.circuits."""
@@ -103,7 +103,7 @@ def make_circuits(doc, model, floor_key, side, result, placement, tolerance, swa
     eside.copies = copies
     eside.named = set(side.named)
     result.circuits, _ = revit_mirror.circuit_floor(doc, eside, placement, tolerance, swap,
-                                                    by_name, wires)
+                                                    by_name, wires, report)
     pairs = [(rc.id_int(old.Id), new) for old, new in result.circuits.wire_pairs]
     if tags is None or not pairs:
         return
