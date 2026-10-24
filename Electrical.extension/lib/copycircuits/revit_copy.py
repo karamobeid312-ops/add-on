@@ -575,16 +575,37 @@ def _connected_as(wire, wanted):
     return True
 
 
-def _find_there(existing, view_keys, points, tolerance, claimed=()):
-    """(wire, view key) of a wire already at the spot in one of the views,
-    not claimed by another source wire."""
-    for key in view_keys:
-        for other in existing.get(key, ()):
-            if id_int(other.Id) in claimed:
-                continue
-            if other.IsValidObject and _same_spot(points, _vertices(other), tolerance):
-                return other, key
-    return None, None
+def _cell(point):
+    return int(point.X // 1.0), int(point.Y // 1.0)
+
+
+class _There(object):
+    """The wires already in the plans, by view and by the 1 ft cell of their
+    first vertex, their vertices read once: looking up each source wire's
+    spot is then quick on a floor with hundreds of wires."""
+
+    def __init__(self, existing):
+        self.cells = {}
+        for key, found in existing.items():
+            for wire in found:
+                points = _vertices(wire)
+                if points:
+                    cx, cy = _cell(points[0])
+                    self.cells.setdefault((key, cx, cy), []).append((wire, points))
+
+    def find(self, view_keys, points, tolerance, claimed=()):
+        """(wire, view key) of a wire already at the spot in one of the
+        views, not claimed by another source wire."""
+        cx, cy = _cell(points[0])
+        for key in view_keys:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for other, at in self.cells.get((key, cx + dx, cy + dy), ()):
+                        if id_int(other.Id) in claimed:
+                            continue
+                        if other.IsValidObject and _same_spot(points, at, tolerance):
+                            return other, key
+        return None, None
 
 
 def _trimmed(points, conns):
@@ -692,6 +713,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
         # else not connected to anything (a drafting wire, or one pasted for
         # the other tower), or of circuits not copied
     existing = wires.on_level(level, set(id_int(w.Id) for w, _, _ in ours))
+    there_now = _There(existing)
     home = _home(targets, set(copies.values()), level, wires)
     same_floor = home == wires.source_level
     linked = None                   # _link of the wires already there
@@ -722,7 +744,8 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             x, y = where.apply(p.X, p.Y)
             points.append(XYZ(x, y, p.Z + dz))
         same_kind = [k for k in existing if wires.infos_by_key[k].view_type == info.view_type]
-        there, key = _find_there(existing, same_kind, points, tolerance, claimed)
+        there, key = there_now.find(same_kind, points, tolerance, claimed) if points else \
+            (None, None)
         if there is not None:
             claimed.add(id_int(there.Id))
         if key is not None:

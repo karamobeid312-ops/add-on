@@ -443,6 +443,7 @@ class FloorResult(object):
         self.not_renamed = []       # board names to check by hand
         self.by_name = []           # (Tower 1 board, Tower 2 board found by name)
         self.circuits = None        # copycircuits LevelResult: circuits and wires made
+        self.seconds = {}           # step -> seconds it took
 
 
 def _id_list(ids):
@@ -452,45 +453,53 @@ def _id_list(ids):
     return found
 
 
-def _mirror(doc, elements, plane, result, tag_ids=()):
-    """Mirror copies of the elements, all at once (they stay connected);
-    one by one if Revit refuses the lot. Their tags (tag_ids) go in the
-    same Mirror when Revit takes them: the copies are then tagged with
-    Tower 1's leaders exactly. Returns the new ElementIds."""
-    if tag_ids:
-        ids = _id_list([e.Id for e in elements] + list(tag_ids))
-        try:
-            if ElementTransformUtils.CanMirrorElements(doc, ids):
-                made = ElementTransformUtils.MirrorElements(doc, ids, plane, True)
-                if made is not None:
-                    return list(made)
-        except Exception:
-            pass                # without the tags: they are made again afterwards
-    ids = _id_list([e.Id for e in elements])
+def _mirror(doc, elements, plane, result, tags_of=None):
+    """Mirror copies of the elements, all at once (they stay connected),
+    with their tags (tags_of: {element key: [tag ids]}) in the same Mirror,
+    so the copies are tagged with Tower 1's leaders exactly. When Revit
+    refuses the lot, it is mirrored in halves (see _halves). Returns the
+    new ElementIds."""
+    tags_of = tags_of or {}
+    groups = [(e, list(tags_of.get(id_int(e.Id), ()))) for e in elements]
+    return _halves(doc, groups, plane, result)
+
+
+def _try_mirror(doc, ids, plane):
+    """The new ids, or the error (None when Revit cannot mirror them)."""
     try:
+        ids = _id_list(ids)
         if ElementTransformUtils.CanMirrorElements(doc, ids):
             made = ElementTransformUtils.MirrorElements(doc, ids, plane, True)
             if made is not None:
                 return list(made)
     except Exception as error:
-        text = rc._message(error)
-        if text not in result.errors:
-            result.errors.append(text)
-    made = []
-    for e in elements:
-        try:
-            one = _id_list([e.Id])
-            if not ElementTransformUtils.CanMirrorElements(doc, one):
-                result.refused.append(e.Id)
-                continue
-            new = ElementTransformUtils.MirrorElements(doc, one, plane, True)
-            made.extend(list(new) if new is not None else [])
-        except Exception as error:
-            result.refused.append(e.Id)
-            text = rc._message(error)
+        return error
+    return None
+
+
+def _halves(doc, groups, plane, result):
+    """Mirror the (element, its tag ids) groups as one lot; when Revit
+    refuses it, in halves, and the halves of a half refused again, down to
+    the single elements (tried without their tags last) Revit will not
+    mirror. A few bad elements cost a few dozen Mirrors, not one each."""
+    got = _try_mirror(doc, [i for e, tags in groups for i in [e.Id] + tags], plane)
+    if isinstance(got, list):
+        return got
+    if len(groups) == 1:
+        e, tags = groups[0]
+        if tags:
+            got = _try_mirror(doc, [e.Id], plane)
+            if isinstance(got, list):
+                return got
+        result.refused.append(e.Id)
+        if got is not None:
+            text = rc._message(got)
             if text not in result.errors:
                 result.errors.append(text)
-    return made
+        return []
+    middle = len(groups) // 2
+    return _halves(doc, groups[:middle], plane, result) + \
+        _halves(doc, groups[middle:], plane, result)
 
 
 def _walls(doc, things, placement, floor, links=True):
@@ -615,11 +624,11 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
             result.rehosted = len(made)
         if rest:
             plane, move = revit_mirror._plane(placement, about)
-            tag_ids = []
+            tags_of = {}
             if tags is not None:
                 for t in rest:
-                    tag_ids.extend(tag.Id for tag in tags.by_element.get(t.key, ()))
-            new_ids = _mirror(doc, [elements[t.key] for t in rest], plane, result, tag_ids)
+                    tags_of[t.key] = [tag.Id for tag in tags.by_element.get(t.key, ())]
+            new_ids = _mirror(doc, [elements[t.key] for t in rest], plane, result, tags_of)
             # the copies of the tool's categories (not the insulation that comes along)
             cats = set(int(_bic(n)) for n in set(model.categories.values()))
             ours = [e for e in (doc.GetElement(i) for i in new_ids)

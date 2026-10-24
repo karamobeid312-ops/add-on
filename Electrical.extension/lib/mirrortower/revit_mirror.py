@@ -21,6 +21,7 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 from __future__ import division
 
 import math
+import time
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, CurveElement, ElementId, ElementTransformUtils,
@@ -848,7 +849,9 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
         doc.Regenerate()
         _onto_boards(doc, circuits, copies, target, source, result)
         jobs, result.skipped = plan.plan(circuits, copies, circuited)
+        clock = time.time()
         rc._make(doc, source, target, jobs, result)
+        result.seconds = {"circuits": time.time() - clock}
         for made in result.made:
             if made.panel_error and made.job.panel is not None:
                 c = made.job.circuit
@@ -863,9 +866,13 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
                     circuited.add((k, made.job.circuit.kind))
             wires = rc.Wires(doc, side.level)
             skip = set(k for k in side.pool if k not in set(copies.values()))
+            clock = time.time()
             rc.copy_wires(wires, copies, target.elements, side.level, tolerance, result,
                           source, set(k for k, _ in circuited), placement, skip)
+            result.seconds["wires"] = time.time() - clock
+        clock = time.time()
         t.Commit()
+        result.seconds["saving circuits"] = time.time() - clock
     except Exception:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()

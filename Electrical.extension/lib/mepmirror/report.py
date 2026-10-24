@@ -3,6 +3,8 @@
 from __future__ import division
 
 OK, WARN, BAD, NONE = "ok", "warn", "bad", ""
+TOP_STEPS = (u"mirroring elements and tags", u"board names",
+             u"circuits, wires and their tags (all)")
 
 
 def floor_row(name, side, picked_tower2):
@@ -145,6 +147,12 @@ def result_rows(result, label_of, key_of):
         item=u"; ".join(result.errors[:2]) if result.errors else None)
     if getattr(result, "circuits", None) is not None:
         rows.extend(circuit_rows(result.floor, result.circuits))
+    seconds = getattr(result, "seconds", None) or {}
+    if sum(seconds.values()) >= 1:          # in seconds; circuits / wires are parts of "all"
+        add(u"Time taken", NONE, [], item=u", ".join(
+            u"%s %d s" % (name, int(round(n))) for name, n in
+            sorted(seconds.items(), key=lambda p: -p[1])),
+            count=int(round(sum(n for name, n in seconds.items() if name in TOP_STEPS))) or 1)
     if not rows:
         rows.append(({"floor": result.floor, "what": u"Nothing to do", "count": u"",
                       "item": u""}, NONE, []))

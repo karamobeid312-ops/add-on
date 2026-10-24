@@ -304,3 +304,13 @@ def test_progress_text():
     assert progress_text(0.5, 20) == u"50 % · about 20 s left"
     assert progress_text(0.25, 60) == u"25 % · about 3 min left"
     assert progress_text(1.0, 60) == u"100 %"
+
+
+def test_time_row():
+    from mepmirror import report
+    r = _Result(seconds={u"mirroring elements and tags": 10.0, u"wires": 50.0,
+                         u"circuits, wires and their tags (all)": 70.0})
+    rows = report.result_rows(r, {}.get, lambda i: i)
+    row = [v for v, _, _ in rows if v["what"] == u"Time taken"][0]
+    assert row["count"] == u"80"
+    assert row["item"].startswith(u"circuits, wires and their tags (all) 70 s, wires 50 s")

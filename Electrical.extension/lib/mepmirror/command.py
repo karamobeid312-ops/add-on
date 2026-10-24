@@ -42,6 +42,10 @@ class _Config(object):
             pass
 
 
+def _timed(result, name, start):
+    result.seconds[name] = result.seconds.get(name, 0.0) + time.time() - start
+
+
 def _placement_text(placement):
     return u"%.9f|%d|%.9f|%.9f" % (placement.angle, 1 if placement.mirrored else 0,
                                    placement.tx, placement.ty)
@@ -129,14 +133,20 @@ def _electrical(doc, model, keys, sides, results, placement, tolerance, state, s
     by_name = revit_mirror.boards_by_name(doc)
     for key, result in zip(keys, results):
         step(u"Board names, %s..." % result.floor, 0)
+        start = time.time()
         electrical.name_boards(doc, model, sides[key], result, swap, by_name)
+        _timed(result, "board names", start)
     if not state.get("circuits", True):
         return
     by_name = revit_mirror.boards_by_name(doc)       # with the boards just made
     for key, result in zip(keys, results):
         step(u"Circuits and wires, %s..." % result.floor, len(sides[key].tower1))
+        start = time.time()
         electrical.make_circuits(doc, model, key, sides[key], result, placement, tolerance,
                                  swap, by_name, state.get("wires", True), tags)
+        if result.circuits is not None:
+            result.seconds.update(getattr(result.circuits, "seconds", {}))
+        _timed(result, "circuits, wires and their tags (all)", start)
 
 
 def _work(model, keys, sides, state):
@@ -170,8 +180,10 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
             step(u"Mirroring %s: %d elements..." % (model.names.get(key, u""),
                                                    len(sides[key].missing)),
                  len(sides[key].missing))
+            start = time.time()
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
                                                   about, tolerance, join, tags))
+            _timed(results[-1], "mirroring elements and tags", start)
         if model.domain == rules.ELECTRICAL:
             _electrical(doc, model, keys, sides, results, placement, tolerance, state, step,
                         tags)
@@ -220,12 +232,14 @@ def run(domain):
         return config.get(name, True) not in (False, u"False", u"false", 0, u"0")
 
     state = {
-        "box": config.get("box", None) or config.get("scope_box", None), "mode": mode, "placement": placement,
+        "box": config.get("box", None) or config.get("scope_box", None), "mode": mode,
+        "placement": placement,
         "placement_text": (u"last used: " + _describe(placement, mode)) if placement else u"",
         "unticked": unticked, "read_with": set(unticked), "tolerance_mm": tolerance_mm,
         "join": join and domain != rules.ELECTRICAL, "model": None,
         "swap": (config.get("swap_from", u"B1") or u"", config.get("swap_to", u"B2") or u""),
-        "circuits": flag("circuits"), "wires": flag("wires"), "ticked": None, "results": [], "new_ids": [],
+        "circuits": flag("circuits"), "wires": flag("wires"), "ticked": None, "results": [],
+        "new_ids": [],
     }
 
     def select(ids):
