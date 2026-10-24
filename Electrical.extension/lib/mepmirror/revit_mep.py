@@ -343,18 +343,66 @@ def _reference_of(tag):
         return None
 
 
+def _anchor(element):
+    """The point a tag of the element is kept beside: its location point,
+    its curve's middle, a wire's middle vertex, else its box's centre."""
+    try:
+        n = element.NumberOfVertices                  # a wire
+        p = element.GetVertex(n // 2) if n % 2 else None
+        if p is None:
+            a, b = element.GetVertex(n // 2 - 1), element.GetVertex(n // 2)
+            p = XYZ((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
+        return p
+    except Exception:
+        pass
+    location = element.Location
+    if isinstance(location, LocationPoint):
+        return location.Point
+    if isinstance(location, LocationCurve):
+        try:
+            return location.Curve.Evaluate(0.5, True)
+        except Exception:
+            pass
+    box = element.get_BoundingBox(None)
+    if box is None:
+        return None
+    return XYZ((box.Min.X + box.Max.X) / 2, (box.Min.Y + box.Max.Y) / 2,
+               (box.Min.Z + box.Max.Z) / 2)
+
+
+def _shift(source, element, placement):
+    """(dx, dy) from where the source's anchor mirrors to, to the copy's
+    anchor: a copy placed on a wall face, or a wire drawn a little apart,
+    keeps its tag beside it rather than at the bare mirrored spot."""
+    try:
+        a, b = _anchor(source), _anchor(element)
+        if a is None or b is None:
+            return 0.0, 0.0
+        x, y = placement.apply(a.X, a.Y)
+        dx, dy = b.X - x, b.Y - y
+        if (dx * dx + dy * dy) ** 0.5 > 30.0:     # ft: not the same element's copy
+            return 0.0, 0.0
+        return dx, dy
+    except Exception:
+        return 0.0, 0.0
+
+
+def _plus(p, shift):
+    return XYZ(p.X + shift[0], p.Y + shift[1], p.Z) if p is not None else None
+
+
 class _TagPlan(object):
     """What a Tower 1 tag's copy needs, all read before any tag is made:
     reading a tag's head or leader after the model changed makes Revit
     regenerate it, which done once per tag took minutes."""
 
-    def __init__(self, tag, element, view, placement):
+    def __init__(self, tag, element, view, placement, shift=(0.0, 0.0)):
         self.element = element
         self.view = view
         self.type_id = tag.GetTypeId()
         self.has_leader = tag.HasLeader
         self.orientation = tag.TagOrientation
-        self.head = _moved_point(placement, tag.TagHeadPosition)
+        self.head = _plus(_moved_point(placement, tag.TagHeadPosition), shift)
         self.condition = None
         self.end = None
         self.elbow = None
@@ -367,8 +415,8 @@ class _TagPlan(object):
         ref = _reference_of(tag)
         try:
             if self.condition == LeaderEndCondition.Free:
-                self.end = _moved_point(placement, tag.GetLeaderEnd(ref) if ref is not None
-                                        else tag.LeaderEnd)
+                self.end = _plus(_moved_point(placement, tag.GetLeaderEnd(ref)
+                                              if ref is not None else tag.LeaderEnd), shift)
         except Exception:
             self.end = None
         try:
@@ -379,7 +427,7 @@ class _TagPlan(object):
                 has = tag.HasElbow
                 elbow = tag.LeaderElbow if has else None
             if has:
-                self.elbow = _moved_point(placement, elbow)
+                self.elbow = _plus(_moved_point(placement, elbow), shift)
             elif self.end is not None:
                 # no elbow: Revit gives a new leader one of its own, so the
                 # copy's goes on the straight line from its end to its head
@@ -435,14 +483,17 @@ def mirror_tags(doc, tags, pairs, placement):
             view_id = element.OwnerViewId if element.ViewSpecific else None
         except Exception:
             view_id = None
+        shift = None
         for tag in tags.by_element.get(key, ()):
             try:
+                if shift is None:
+                    shift = _shift(_get(doc, key), element, placement)
                 view = view_id if view_id is not None else tag.OwnerViewId
                 spot = (target, id_int(view), id_int(tag.GetTypeId()))
                 if spot in wanted or tags.has(*spot):
                     continue
                 wanted.add(spot)
-                plans.append((target, _TagPlan(tag, element, view, placement)))
+                plans.append((target, _TagPlan(tag, element, view, placement, shift)))
             except Exception:
                 pass
     made = 0
