@@ -54,7 +54,8 @@ ACCENTS = {rules.ELECTRICAL: "#1A9A8A", rules.MECHANICAL: "#2F7FD8", rules.PLUMB
 INFO = {
     rules.ELECTRICAL: u"Boards, lights, switches, sockets and the other devices. Boards are "
                       u"renamed for Tower 2 with the text set on the right; then Tower 1's "
-                      u"circuits are made again on Tower 2's copies and boards.",
+                      u"circuits are made again on Tower 2's copies and boards. Cable trays "
+                      u"and conduits are mirrored with their fittings, joined to each other.",
     rules.MECHANICAL: u"Pipes are split by their system: chilled water, heating, condensate "
                       u"and refrigerant are mechanical; water and drainage go to Plumbing, "
                       u"fire to Firefighting. Equipment is mechanical unless all its pipes are "
@@ -236,7 +237,6 @@ class MirrorWindow(object):
         self.LinesCheck.IsChecked = bool(self.state.get("lines", True))
         if self.domain == rules.ELECTRICAL:
             from System.Windows import Visibility
-            self.JoinCheck.Visibility = Visibility.Collapsed
             self.ElectricalPanel.Visibility = Visibility.Visible
             swap = self.state.get("swap") or (u"", u"")
             self.SwapFromText.Text = swap[0]

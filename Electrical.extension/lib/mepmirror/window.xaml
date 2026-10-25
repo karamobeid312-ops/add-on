@@ -226,7 +226,7 @@
                 <CheckBox x:Name="LinesCheck" Margin="0,6,0,0"
                           Content="Mirror the detail and model lines in Tower 1 too (fire alarm loops...)"/>
                 <CheckBox x:Name="JoinCheck" Margin="0,12,0,0"
-                          Content="Join the copies' open ends to pipes and ducts at the same spot"/>
+                          Content="Join the copies' open ends to pipes, ducts, cable trays and conduits at the same spot"/>
                 <StackPanel x:Name="ElectricalPanel" Visibility="Collapsed">
                   <TextBlock Text="Board names: the text that changes from Tower 1 to Tower 2 (DB-B1-L4 -> DB-B2-L4: B1 -> B2). Empty: names kept."
                              Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>

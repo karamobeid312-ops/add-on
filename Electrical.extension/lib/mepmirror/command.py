@@ -250,7 +250,7 @@ def run(domain):
         "placement": placement,
         "placement_text": (u"last used: " + _describe(placement, mode)) if placement else u"",
         "unticked": unticked, "read_with": set(unticked), "tolerance_mm": tolerance_mm,
-        "join": join and domain != rules.ELECTRICAL, "model": None,
+        "join": join, "model": None,
         "swap": (config.get("swap_from", u"B1") or u"", config.get("swap_to", u"B2") or u""),
         "circuits": flag("circuits"), "wires": flag("wires"), "tags": flag("tags"),
         "lines": flag("lines"),
@@ -284,7 +284,7 @@ def run(domain):
         "after": lambda results: revit_mep.add_new(doc, state["model"], results),
         "mirror": lambda keys, sides, placement, about, tolerance, join, progress=None: _mirror(
             doc, title, state["model"], keys, sides, placement, about, tolerance,
-            join and domain != rules.ELECTRICAL, state, progress),
+            join, state, progress),
         "label_of": label_of,
         "key_of": lambda element_id: revit_mep.id_int(element_id),
         "select": select,

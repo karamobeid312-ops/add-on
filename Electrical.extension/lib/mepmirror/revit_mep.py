@@ -605,6 +605,11 @@ def _walls(doc, things, placement, floor, links=True):
                                   links)
 
 
+# connector domains whose free ends are joined: ducts, pipes, cable trays and conduits
+_JOINED = tuple(d for d in (getattr(Domain, n, None) for n in (
+    "DomainHvac", "DomainPiping", "DomainCableTrayConduit")) if d is not None)
+
+
 def _open_ends(doc, keys):
     """[(owner key, connector id, (x, y, z), domain)] of the elements' free
     duct and pipe ends."""
@@ -617,7 +622,7 @@ def _open_ends(doc, keys):
             try:
                 if c.ConnectorType != ConnectorType.End or c.IsConnected:
                     continue
-                if c.Domain not in (Domain.DomainHvac, Domain.DomainPiping):
+                if c.Domain not in _JOINED:
                     continue
                 o = c.Origin
                 ends.append((key, c.Id, (o.X, o.Y, o.Z), u"%s" % c.Domain))

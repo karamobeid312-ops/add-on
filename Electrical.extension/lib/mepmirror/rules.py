@@ -65,6 +65,10 @@ ELECTRICAL_CATEGORIES = (
     ("OST_SecurityDevices", u"Security devices"),
     ("OST_TelephoneDevices", u"Telephone devices"),
     ("OST_NurseCallDevices", u"Nurse call devices"),
+    ("OST_CableTray", u"Cable trays"),
+    ("OST_CableTrayFitting", u"Cable tray fittings"),
+    ("OST_Conduit", u"Conduits"),
+    ("OST_ConduitFitting", u"Conduit fittings"),
 )
 
 # categories each tool looks at (pipes, equipment and fixtures are then split)
