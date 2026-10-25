@@ -493,8 +493,9 @@ class StudioWindow(object):
         rev_failed = self.revit["add_revisions"](revs)[1] if revs else []
         self.reload(read_lod=False)
         for number, why in rev_failed:
-            for rid in [r for n, r in revs if n == number]:
-                self._note(u"rvt:%s:%s" % (number, rid), u"Not added: %s" % why, studio.BAD)
+            for r in self.rows["compare"]:
+                if r["key"].startswith(u"rvt:%s:" % number):
+                    self._note(r["key"], u"Not added: %s" % why, studio.BAD)
         failed = list(failed) + [(None, w) for _, w in rev_failed]
         for c, why in failed:
             if c is not None:

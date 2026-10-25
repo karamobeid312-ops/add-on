@@ -67,34 +67,38 @@ def compare_rows(result):
 
 
 def revision_rows(result, revisions, sheet_revs):
-    """Revit revisions (Sheet Issues/Revisions) the matched sheets lack: the
-    one whose number is the drawing's LOD Rev. is ticked to be added.
+    """Revit revisions (Sheet Issues/Revisions) the matched sheets lack. A
+    sheet at LOD Rev. 002 carries every Revit revision numbered up to 002
+    (001 and 002), so its title block lists the history; the missing ones
+    are ticked to be added.
 
     revisions: [(revision id, revision number text)] in sequence order
     sheet_revs: {sheet number: set(revision ids on the sheet)}
     """
     from lod.table import rev_number
-    by_number, label = {}, {}
+    numbered, label = [], {}
     for rid, number in revisions:
         label[rid] = number
         n = rev_number(number)
         if n is not None:
-            by_number.setdefault(n, rid)
+            numbered.append((n, rid))
+    have = set(n for n, _ in numbered)
     rows, absent = [], {}
     for d, sheet in result.matched:
         n = rev_number(d.rev)
         if n is None:
             continue
-        rid = by_number.get(n)
-        if rid is None:
+        if n not in have:
             absent.setdefault(d.rev, []).append(sheet.number)
             continue
         on = sheet_revs.get(sheet.number) or set()
-        if rid in on:
+        add = [rid for m, rid in numbered if m <= n and rid not in on]
+        if not add:
             continue
         now = u", ".join(sorted(label.get(r, u"?") for r in on)) or u"(none)"
-        rows.append(row(u"rvt:%s:%s" % (sheet.number, rid), sheet.number, u"Revit revision",
-                        now, d.rev, u"Will add revision %s" % label[rid], WARN,
+        rows.append(row(u"rvt:%s:%s" % (sheet.number, u",".join(u"%s" % r for r in add)),
+                        sheet.number, u"Revit revision", now, d.rev,
+                        u"Will add %s" % u", ".join(label[r] for r in add), WARN,
                         do=True, can=True))
     for rev, numbers in sorted(absent.items()):
         rows.append(row(u"norvt:%s" % rev, u"%d sheets" % len(numbers), u"Revit revision", u"",
@@ -107,8 +111,8 @@ def revision_pairs(keys):
     pairs = []
     for k in keys:
         if k.startswith(u"rvt:"):
-            _, number, rid = k.rsplit(u":", 2)
-            pairs.append((number, int(rid)))
+            _, number, rids = k.rsplit(u":", 2)
+            pairs.extend((number, int(r)) for r in rids.split(u","))
     return pairs
 
 

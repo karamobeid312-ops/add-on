@@ -417,12 +417,15 @@ def test_by_plan_never_mixes_floors_or_systems():
 def test_studio_revision_rows():
     table = read_rows(lod_rows())
     sheets = [Sheet(1, u"2202-108-VE-7100-01400", u"x"),     # LOD rev 002
-              Sheet(2, u"2202-108-VE-7100-01401", u"y"),     # LOD rev 002, has it
-              Sheet(3, u"2202-108-VE-7100-02400", u"z")]     # LOD rev 001, none in Revit
+              Sheet(2, u"2202-108-VE-7100-01401", u"y"),     # LOD rev 002, has 001 and 002
+              Sheet(3, u"2202-108-VE-7100-02400", u"z")]     # LOD rev 001
     result = compare(table, sheets, KEZAD, use_rev=False)
-    revs = [(50, u"002"), (51, u"3")]
-    rows = studio.revision_rows(result, revs, {u"2202-108-VE-7100-01401": set([50])})
-    ticked = [r for r in rows if r["do"]]
-    assert [r["key"] for r in ticked] == [u"rvt:2202-108-VE-7100-01400:50"]
-    assert any(r["key"] == u"norvt:001" and not r["can"] for r in rows)
-    assert studio.revision_pairs([ticked[0]["key"], u"chg:x:y"]) == [(u"2202-108-VE-7100-01400", 50)]
+    revs = [(49, u"001"), (50, u"002"), (51, u"3")]
+    rows = studio.revision_rows(result, revs, {u"2202-108-VE-7100-01401": set([49, 50])})
+    ticked = dict((r["number"], r["key"]) for r in rows if r["do"])
+    assert ticked == {u"2202-108-VE-7100-01400": u"rvt:2202-108-VE-7100-01400:49,50",
+                      u"2202-108-VE-7100-02400": u"rvt:2202-108-VE-7100-02400:49"}
+    assert studio.revision_pairs([ticked[u"2202-108-VE-7100-01400"], u"chg:x:y"]) == [
+        (u"2202-108-VE-7100-01400", 49), (u"2202-108-VE-7100-01400", 50)]
+    none = studio.revision_rows(result, [(50, u"002")], {})
+    assert any(r["key"] == u"norvt:001" and not r["can"] for r in none)
