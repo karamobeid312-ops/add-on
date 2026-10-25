@@ -28,7 +28,9 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "SetupButton", "
          "KeyTabText", "KeyButton", "KeyShowCombo", "KeyGrid",
          "ExportUpdate", "ExportNew", "ExportButton", "ExportGrid",
          "SetupPanel", "SetupDone", "PrefixText", "RevText", "AreaText", "RulesButton",
-         "RulesResetButton", "RulesInfo", "ParamsButton", "ParamsGrid")
+         "RulesResetButton", "RulesInfo", "ParamsButton", "ParamsGrid",
+         "TickSelectedButton", "UntickSelectedButton", "TickAllButton", "UntickAllButton")
+TAB_NAMES = ("create", "compare", "views", "keys", "export")
 COLUMNS = ("key", "number", "c1", "c2", "c3", "status", "state")
 SHOW = ((u"all", u"All sheets"), (u"todo", u"To do (ticked)"), (u"problem", u"Problems"),
         (u"done", u"Up to date"))
@@ -138,6 +140,10 @@ class StudioWindow(object):
         self.ParamsButton.Click += self.on_params
         for grid in self.grids.values():
             grid.PreviewKeyDown += self.on_key
+        self.TickSelectedButton.Click += lambda s, e: self._tick(True, selected=True)
+        self.UntickSelectedButton.Click += lambda s, e: self._tick(False, selected=True)
+        self.TickAllButton.Click += lambda s, e: self._tick(True, selected=False)
+        self.UntickAllButton.Click += lambda s, e: self._tick(False, selected=False)
 
     def _status(self, text, state):
         self.StatusText.Text = text
@@ -342,10 +348,45 @@ class StudioWindow(object):
     def _ticked(self, name, args):
         if args.Column.ColumnName != "do":
             return
+        value = bool(args.Row["do"])
         key = args.Row["key"]
         for r in self.rows.get(name, []):
             if r["key"] == key:
-                r["do"] = bool(args.Row["do"])
+                r["do"] = value
+        # a tick box clicked on one of several selected rows ticks them all
+        if not getattr(self, "_spreading", False):
+            rows = self._selected_rows(self.grids[name])
+            if len(rows) > 1 and any(r["key"] == key for r in rows):
+                self._set_rows(rows, value)
+        self._tab_counts()
+
+    @staticmethod
+    def _selected_rows(grid):
+        return [item.Row for item in grid.SelectedItems if hasattr(item, "Row")]
+
+    def _set_rows(self, rows, value):
+        self._spreading = True
+        try:
+            for r in rows:
+                if bool(r["can"]) and bool(r["do"]) != value:
+                    r["do"] = value
+        finally:
+            self._spreading = False
+
+    def _tick(self, value, selected):
+        """Tick or untick the selected rows, or every row shown, of this tab."""
+        name = TAB_NAMES[max(self.Steps.SelectedIndex, 0)]
+        table = self.tables.get(name)
+        if table is None:
+            return
+        if selected:
+            rows = self._selected_rows(self.grids[name])
+            if not rows:
+                self._status(u"Select rows first (click, then Shift or Ctrl + click).", "warn")
+                return
+        else:
+            rows = list(table.Rows)
+        self._set_rows(rows, value)
         self._tab_counts()
 
     def on_key(self, sender, args):
@@ -353,12 +394,10 @@ class StudioWindow(object):
         from System.Windows.Input import Key
         if args.Key != Key.Space:
             return
-        rows = [item.Row for item in sender.SelectedItems if hasattr(item, "Row")]
-        rows = [r for r in rows if bool(r["can"])]
+        rows = [r for r in self._selected_rows(sender) if bool(r["can"])]
         if rows:
-            value = not all(bool(r["do"]) for r in rows)
-            for r in rows:
-                r["do"] = value
+            self._set_rows(rows, not all(bool(r["do"]) for r in rows))
+            self._tab_counts()
             args.Handled = True
 
     def _tab_counts(self):

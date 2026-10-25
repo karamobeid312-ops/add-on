@@ -89,6 +89,16 @@
     <Border DockPanel.Dock="Bottom" Style="{StaticResource FooterBar}">
       <DockPanel LastChildFill="True">
         <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="Close" Margin="4,0,0,0"/>
+        <Button x:Name="TickSelectedButton" DockPanel.Dock="Left" Content="Tick selected"
+                Style="{StaticResource SmallButton}" Margin="0,0,6,0"
+                ToolTip="Select rows with Shift or Ctrl + click, then tick them all here (or press Space)"/>
+        <Button x:Name="UntickSelectedButton" DockPanel.Dock="Left" Content="Untick selected"
+                Style="{StaticResource SmallButton}" Margin="0,0,14,0"/>
+        <Button x:Name="TickAllButton" DockPanel.Dock="Left" Content="Tick all shown"
+                Style="{StaticResource SmallButton}" Margin="0,0,6,0"
+                ToolTip="Tick every row shown in this tab (after Search / Show)"/>
+        <Button x:Name="UntickAllButton" DockPanel.Dock="Left" Content="Untick all"
+                Style="{StaticResource SmallButton}" Margin="0,0,14,0"/>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
           <Ellipse x:Name="StatusDot" Width="10" Height="10" Margin="0,0,8,0"
                    Fill="{StaticResource NoneBrush}"/>
