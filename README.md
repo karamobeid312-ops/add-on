@@ -9,7 +9,7 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with five panels:
+Everything is on one **Electrical** ribbon tab, with six panels:
 
 | Panel | Buttons |
 | --- | --- |
@@ -18,6 +18,7 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
+| **LOD** | Create Sheets, Compare LOD, Sync LOD, Export LOD, Key Plans, LOD Settings: the drawing sheets kept in step with the List of Deliverables Excel file, and key plans switched from the sheet names, see [List of Deliverables](#list-of-deliverables) |
 
 ## What gets drawn
 
@@ -543,6 +544,93 @@ The **Model Check** panel of the **Electrical** tab:
 | Measured | Against both side faces of the wall, in 3D: the fixture's insertion point (face-based families have it on the face they are placed on) and the points of its 3D geometry. The fixture's side is the face its insertion point is nearest, or for wall-hosted families the face its body sticks out of most. A back box behind the face is fine as long as part of the fixture is in front of it, so flush fixtures pass. |
 | Not read | Curtain walls and walls whose faces Revit cannot give. |
 
+## List of Deliverables
+
+The **LOD** panel of the **Electrical** tab keeps the model's sheets in step
+with the List of Deliverables (LOD) Excel file: the drawing numbers, titles
+and revisions of the LOD become sheets, and the sheets can be compared
+against it or written back to it. The LOD is read with Excel (`.xlsx`,
+`.xlsm` or `.xls`, opened read-only and never changed); the last file used
+is offered again next time.
+
+- **Create Sheets** – a sheet for every LOD drawing the model does not have
+  yet. The list shows them all ticked: untick any to skip. Each sheet gets
+  the LOD number, its title as the sheet name (without the title prefix,
+  see settings), the revision and area parameters, and, if you say so, its
+  key plan. The title block is asked the first time.
+- **Compare LOD** – lists the drawings in the LOD and not in Revit, the
+  sheets in Revit and not in the LOD, and the sheets whose name, revision
+  or area differ. Nothing is changed.
+- **Sync LOD** – the same differences, all ticked, then written to the
+  sheets: names, revisions and areas follow the LOD. One undo reverts it.
+- **Export LOD** – a new `.xlsx` in the LOD layout. *Update the LOD from
+  Revit* keeps the old LOD's order, groups and stage ticks, takes each
+  drawing's name and revision from its sheet and marks the rows: *Revised*,
+  *Renamed*, *Not in Revit* (kept as it was) and the sheets the LOD does not
+  have, *New in Revit*, added at the end. *New LOD from the Revit sheets
+  only* lists the sheets by area. The LOD it was made from is never
+  overwritten.
+- **Key Plans** – switches the key plan of this sheet, the sheets selected
+  in the Project Browser, or all sheets, from their names (below).
+- **LOD Settings** – the LOD file, the title prefix, the revision and area
+  parameters, the title block, the key plan rules, and *Show the parameters
+  of this sheet* to find your title block's key plan parameter names.
+
+### Reading the LOD
+
+| LOD | How |
+| --- | --- |
+| Sheet | The worksheet named *Drawings*, otherwise the one with the most drawings. |
+| Columns | Found by their headings, wherever they are: *Document Reference Number*, *Description / Title*, *Rev.*, *Area/Building References*, and the stage columns after the title (*Concept Design*, *Detailed Design*, *Permitting Drawings*...). |
+| Drawings | Every row under the header with a document number (`2202-108-VE-7100-01400`); blank rows and section labels are skipped. |
+| Revision | Written as three digits: `2` → `002`. |
+| Repeated numbers | A Revit sheet number must be unique, so only the first drawing with a number is used; the repeats are listed. |
+
+### Settings
+
+| Setting | Default | Use |
+| --- | --- | --- |
+| Title prefix | empty | Text at the start of every LOD title that the sheet names leave out, e.g. `KEZAD Two Building - `: the LOD title `KEZAD Two Building - Main Building - Power Plan - Overall Ground Floor` becomes the sheet `Main Building - Power Plan - Overall Ground Floor`, and is put back on export. Empty: sheet names are the full titles. |
+| Revision parameter | `LOD Revision` | A **Text** parameter of the **Sheets** category (project or shared) holding `001`, `002`... Add it to the project and use it in the title block label. Empty: revisions are not used. |
+| Area parameter | empty | A Text parameter of the sheets for *Area/Building References*, e.g. to group sheets in the Project Browser. |
+| Title block | asked | The `Family : Type` of new sheets. |
+
+### Key plans
+
+A key plan is usually Yes/No parameters of the title block (or of a key plan
+family placed on the sheet) that shade the part of the site the sheet shows.
+Each rule names a parameter and when it is on, from whole words of the sheet
+name, ignoring case; a *text* rule fills a Text parameter instead. The
+default rules:
+
+| Parameter | On when the sheet name has |
+| --- | --- |
+| `KP Main Building` | Main Building |
+| `KP Podium` | Main Building, and not Tower 1 or Tower 2 |
+| `KP Tower 1` / `KP Tower 2` | Tower 1 / Tower 2 |
+| `KP Part 1` / `KP Part 2` | Part 1 / Part 2 |
+| `KP Parking Building`, `KP Substation Building`, `KP Service Building`, `KP Guard Room` | the building's name |
+| `KP Floor` (text) | `{floor}`: `Ground Floor`, `1st Floor`, `Typical Floor (3rd & 5th)`, `7th Floor`, `Roof`... |
+
+Your title block's parameters will have other names: open a sheet, use
+**LOD Settings → Show the parameters of this sheet**, then **LOD Settings →
+Key plan rules** opens the rules in Notepad (JSON), e.g.
+
+```json
+[
+  {"parameter": "Tower 1 Shade", "on_if_any": ["Tower 1"]},
+  {"parameter": "Podium Shade", "on_if_all": ["Main Building"], "off_if_any": ["Tower 1", "Tower 2"]},
+  {"parameter": "Key Plan Level", "text": "{floor}"}
+]
+```
+
+`on_if_any`: on if the name has any of the words; `on_if_all`: all of them;
+`off_if_any`: off if it has any of them. Text rules can use `{building}`,
+`{tower}`, `{floor}`, `{part}` and `{name}`. The rules are checked when you
+close Notepad. Parameters are set on the title block first, then other
+families on the sheet, then the sheet itself; any not found are listed with
+the sheets they were missing on.
+
 ## Install
 
 1. Install pyRevit.
@@ -614,6 +702,7 @@ Electrical.extension/
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
+    LOD.panel/            Create Sheets, Compare LOD, Sync LOD, Export LOD, Key Plans, LOD Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing
@@ -661,6 +750,15 @@ Electrical.extension/
     revit_check.py fixtures, their host wall (here or in a link), faces and geometry measured
     settings.py    per-user settings
     command.py     button entry points
+  lib/lod/
+    table.py       the LOD's drawings read from its cell values, titles and revisions (no Revit)
+    keyplan.py     floor, tower, part read from a sheet name; key plan rules (no Revit)
+    compare.py     LOD against the sheets: missing, extra, renamed, revised (no Revit)
+    export.py      the LOD written from the sheets as .xlsx (no Revit)
+    excel.py       reading the LOD workbook with Excel (COM)
+    revit_lod.py   sheets read, created and updated, key plan parameters set
+    settings.py    per-user settings
+    command.py     button entry points
 tools/             sample models, SVG and report previews, icon drawing
 tests/             pytest tests (no Revit needed)
 ```
@@ -672,5 +770,5 @@ pip install pytest
 python -m pytest tests
 ```
 
-Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims` and `lib/wallcheck` compatible with Python
+Keep code in `lib/sld`, `lib/firealarm`, `lib/vdrop`, `lib/dims`, `lib/wallcheck` and `lib/lod` compatible with Python
 2.7 (no f-strings, no type hints) so it runs in pyRevit's IronPython engine.
