@@ -1,0 +1,250 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Mirror Tower" Width="1100" Height="700" MinWidth="860" MinHeight="480"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" FontSize="12"
+        FontFamily="Segoe UI" Background="#FFF6F8FB" Foreground="#FF1D2733">
+  <!-- No event attributes and no x:Class: XamlReader cannot bind them, so
+       window_ui.py wires the events and puts the shared theme in place of
+       the THEME marker. -->
+  <Window.Resources>
+<!--THEME-->
+    <DataTemplate x:Key="StatusChip">
+      <Border x:Name="chip" Style="{StaticResource Chip}">
+        <TextBlock x:Name="txt" Text="{Binding status}" FontWeight="SemiBold"/>
+      </Border>
+      <DataTemplate.Triggers>
+        <DataTrigger Binding="{Binding state}" Value="ok">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource OkBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource OkBrush}"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding state}" Value="warn">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource WarnBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource WarnBrush}"/>
+        </DataTrigger>
+        <DataTrigger Binding="{Binding state}" Value="bad">
+          <Setter TargetName="chip" Property="Background" Value="{StaticResource BadBgBrush}"/>
+          <Setter TargetName="txt" Property="Foreground" Value="{StaticResource BadBrush}"/>
+        </DataTrigger>
+      </DataTemplate.Triggers>
+    </DataTemplate>
+    <DataTemplate x:Key="WriteBox">
+      <CheckBox HorizontalAlignment="Center" VerticalAlignment="Center"
+                IsChecked="{Binding write, UpdateSourceTrigger=PropertyChanged}"
+                IsEnabled="{Binding can}"/>
+    </DataTemplate>
+    <Style x:Key="StepNumber" TargetType="Border">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+      <Setter Property="CornerRadius" Value="9"/>
+      <Setter Property="Width" Value="18"/>
+      <Setter Property="Height" Value="18"/>
+      <Setter Property="Margin" Value="0,0,7,0"/>
+    </Style>
+    <Style x:Key="StepNumberText" TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#FFFFFFFF"/>
+      <Setter Property="FontSize" Value="10.5"/>
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="HorizontalAlignment" Value="Center"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style x:Key="BarLabel" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+      <Setter Property="Margin" Value="14,0,6,0"/>
+    </Style>
+    <Style x:Key="FieldLabel" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+      <Setter Property="Margin" Value="0,6,0,2"/>
+    </Style>
+  </Window.Resources>
+
+  <DockPanel>
+    <!-- header -->
+    <Border DockPanel.Dock="Top" Style="{StaticResource HeaderBand}">
+      <DockPanel>
+        <Border Style="{StaticResource Badge}">
+          <TextBlock x:Name="BadgeText" Text="MT" Style="{StaticResource BadgeText}"/>
+        </Border>
+        <TextBlock x:Name="ModelText" DockPanel.Dock="Right" Style="{StaticResource HeaderSub}"
+                   TextAlignment="Right" VerticalAlignment="Center"/>
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock x:Name="TitleText" Text="Mirror Tower" Style="{StaticResource HeaderTitle}"/>
+          <TextBlock x:Name="SubText" Style="{StaticResource HeaderSub}"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- footer: status and Close; each step has its own button -->
+    <Border DockPanel.Dock="Bottom" Style="{StaticResource FooterBar}">
+      <DockPanel LastChildFill="True">
+        <Button x:Name="CloseButton" DockPanel.Dock="Right" Content="Close" Margin="4,0,0,0"/>
+        <StackPanel x:Name="RunPanel" DockPanel.Dock="Right" Orientation="Horizontal"
+                    VerticalAlignment="Center" Margin="0,0,12,0" Visibility="Collapsed">
+          <TextBlock x:Name="RunText" VerticalAlignment="Center" Margin="0,0,8,0"
+                     Foreground="{StaticResource MutedBrush}"/>
+          <ProgressBar x:Name="RunBar" Width="240" Height="12" Minimum="0" Maximum="100"
+                       Foreground="{StaticResource AccentBrush}" Background="{StaticResource BarBrush}"
+                       BorderBrush="{StaticResource LineBrush}"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+          <Ellipse x:Name="StatusDot" Width="10" Height="10" Margin="0,0,8,0"
+                   Fill="{StaticResource NoneBrush}"/>
+          <TextBlock x:Name="StatusText" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedBrush}"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <!-- one bar: Tower 1, Tower 2, the setup -->
+    <Border DockPanel.Dock="Top" Background="{StaticResource CardBrush}"
+            BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="12,8">
+      <DockPanel>
+        <Button x:Name="SetupButton" DockPanel.Dock="Right" Content="Setup..." Margin="14,0,0,0"
+                Style="{StaticResource SmallButton}"
+                ToolTip="What to mirror, how Tower 2 is given, the tolerance"/>
+        <TextBlock DockPanel.Dock="Left" Text="Tower 1 scope box" Style="{StaticResource BarLabel}" Margin="0,0,6,0"/>
+        <ComboBox x:Name="BoxCombo" DockPanel.Dock="Left" Width="220"
+                  ToolTip="The scope box drawn around Tower 1"/>
+        <TextBlock DockPanel.Dock="Left" Text="Tower 2" Style="{StaticResource BarLabel}"/>
+        <Button x:Name="PickButton" DockPanel.Dock="Left" Content="Pick Tower 2..."
+                Style="{StaticResource SmallButton}" Margin="0,0,10,0"
+                ToolTip="Click 2 points of Tower 1 (two core corners), then the same 2 points in Tower 2"/>
+        <TextBlock x:Name="Tower2Text" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                   Foreground="{StaticResource MutedBrush}"/>
+      </DockPanel>
+    </Border>
+
+    <Grid>
+      <TabControl x:Name="Steps" Padding="10">
+        <!-- 1: the floors -->
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal">
+              <Border Style="{StaticResource StepNumber}">
+                <TextBlock Text="1" Style="{StaticResource StepNumberText}"/>
+              </Border>
+              <TextBlock Text="Floors" VerticalAlignment="Center"/>
+            </StackPanel>
+          </TabItem.Header>
+          <DockPanel>
+            <TextBlock x:Name="FloorsInfo" DockPanel.Dock="Top" Style="{StaticResource Muted}"
+                       TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+              <Button x:Name="TickAllButton" DockPanel.Dock="Left" Content="Tick all"
+                      Style="{StaticResource SmallButton}" Margin="0,0,6,0"/>
+              <Button x:Name="TickNoneButton" DockPanel.Dock="Left" Content="Untick all"
+                      Style="{StaticResource SmallButton}" Margin="0,0,12,0"/>
+              <Button x:Name="MirrorButton" DockPanel.Dock="Right" Content="Mirror ticked floors"
+                      Style="{StaticResource PrimaryButton}"
+                      ToolTip="Mirror the Tower 1 elements Tower 2 has not got yet, on the ticked floors (one undo)"/>
+              <TextBlock x:Name="MirrorInfo" Style="{StaticResource Muted}" VerticalAlignment="Center"
+                         TextWrapping="Wrap" Margin="0,0,12,0"/>
+            </DockPanel>
+            <DataGrid x:Name="FloorGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserDeleteRows="False" SelectionMode="Single" SelectionUnit="FullRow"
+                      GridLinesVisibility="Horizontal" CanUserReorderColumns="False"
+                      HeadersVisibility="Column" HorizontalScrollBarVisibility="Disabled">
+              <DataGrid.Columns>
+                <DataGridTemplateColumn Header="Do" Width="46" CellTemplate="{StaticResource WriteBox}"/>
+                <DataGridTextColumn Header="Floor" Binding="{Binding floor}" Width="2*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="In Tower 1" Binding="{Binding tower1}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Already in Tower 2" Binding="{Binding already}" Width="120" IsReadOnly="True"/>
+                <DataGridTextColumn Header="To mirror" Binding="{Binding todo}" Width="80" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Skipped" Binding="{Binding skipped}" Width="70" IsReadOnly="True"/>
+                <DataGridTemplateColumn Header="Status" Width="3*" IsReadOnly="True"
+                                        CellTemplate="{StaticResource StatusChip}"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </TabItem>
+
+        <!-- 2: what was done -->
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal">
+              <Border Style="{StaticResource StepNumber}">
+                <TextBlock Text="2" Style="{StaticResource StepNumberText}"/>
+              </Border>
+              <TextBlock x:Name="ResultsTabText" Text="Results" VerticalAlignment="Center"/>
+            </StackPanel>
+          </TabItem.Header>
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+              <Button x:Name="SelectRowButton" DockPanel.Dock="Left" Content="Select this row in Revit"
+                      Style="{StaticResource SmallButton}" Margin="0,0,6,0"
+                      ToolTip="Select the elements of the row picked above"/>
+              <Button x:Name="SelectNewButton" DockPanel.Dock="Left" Content="Select all new"
+                      Style="{StaticResource SmallButton}" Margin="0,0,12,0"/>
+              <TextBlock x:Name="ResultsInfo" Style="{StaticResource Muted}" VerticalAlignment="Center"
+                         TextWrapping="Wrap"/>
+            </DockPanel>
+            <DataGrid x:Name="ResultGrid" AutoGenerateColumns="False" CanUserAddRows="False"
+                      CanUserDeleteRows="False" IsReadOnly="True" SelectionMode="Single"
+                      SelectionUnit="FullRow" GridLinesVisibility="Horizontal"
+                      HeadersVisibility="Column" HorizontalScrollBarVisibility="Disabled">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Floor" Binding="{Binding floor}" Width="120"/>
+                <DataGridTemplateColumn Header="What happened" Width="2*" CellTemplate="{StaticResource StatusChip}"/>
+                <DataGridTextColumn Header="Count" Binding="{Binding count}" Width="56"/>
+                <DataGridTextColumn Header="Elements" Binding="{Binding item}" Width="3*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </DockPanel>
+        </TabItem>
+      </TabControl>
+
+      <!-- setup: rarely changed, over the steps -->
+      <Grid x:Name="SetupPanel" Visibility="Collapsed" Background="#99F6F8FB">
+        <Border Style="{StaticResource Card}" Margin="40,20" MaxWidth="900">
+          <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+              <Button x:Name="SetupDone" DockPanel.Dock="Right" Content="Done"
+                      Style="{StaticResource PrimaryButton}"/>
+              <TextBlock Text="Setup" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+            </DockPanel>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="20"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="What this tool mirrors" Style="{StaticResource FieldLabel}"/>
+                <TextBlock x:Name="CategoryInfo" DockPanel.Dock="Bottom" Style="{StaticResource Muted}"
+                           FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                <ListBox x:Name="CategoryList" BorderThickness="0" Background="Transparent"/>
+              </DockPanel>
+              <StackPanel Grid.Column="2">
+                <TextBlock Text="How Tower 2 is given" Style="{StaticResource FieldLabel}"/>
+                <ComboBox x:Name="ModeCombo"/>
+                <TextBlock Text="Tolerance (mm): a Tower 2 element this near the mirrored spot is the copy"
+                           Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                <TextBox x:Name="ToleranceText" Width="80" HorizontalAlignment="Left"
+                         VerticalContentAlignment="Center"/>
+                <CheckBox x:Name="TagsCheck" Margin="0,12,0,0"
+                          Content="Mirror the tags too (untick: only the elements, much faster)"/>
+                <CheckBox x:Name="LinesCheck" Margin="0,6,0,0"
+                          Content="Mirror the detail and model lines in Tower 1 too (fire alarm loops...)"/>
+                <CheckBox x:Name="JoinCheck" Margin="0,12,0,0"
+                          Content="Join the copies' open ends to pipes, ducts, cable trays and conduits at the same spot"/>
+                <StackPanel x:Name="ElectricalPanel" Visibility="Collapsed">
+                  <TextBlock Text="Board names: the text that changes from Tower 1 to Tower 2 (DB-B1-L4 -> DB-B2-L4: B1 -> B2). Empty: names kept."
+                             Style="{StaticResource FieldLabel}" TextWrapping="Wrap"/>
+                  <StackPanel Orientation="Horizontal">
+                    <TextBox x:Name="SwapFromText" Width="80" VerticalContentAlignment="Center"/>
+                    <TextBlock Text="  ->  " VerticalAlignment="Center"/>
+                    <TextBox x:Name="SwapToText" Width="80" VerticalContentAlignment="Center"/>
+                  </StackPanel>
+                  <CheckBox x:Name="CircuitsCheck" Margin="0,12,0,0"
+                            Content="Make Tower 1's circuits again on Tower 2's copies and boards"/>
+                  <CheckBox x:Name="WiresCheck" Margin="0,6,0,0"
+                            Content="Draw the circuits' wires too"/>
+                </StackPanel>
+              </StackPanel>
+            </Grid>
+          </DockPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </DockPanel>
+</Window>

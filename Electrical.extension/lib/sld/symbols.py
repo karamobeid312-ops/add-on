@@ -35,14 +35,61 @@ def vertical_length(text, size):
     return text_width(text, size) - size
 
 
-def db_box(d, x, y0, name):
-    """Final distribution board: tall box with its name inside."""
-    h = max(style.DB_BOX_HEIGHT, vertical_length(name, style.TEXT_LOAD) + 4.0)
+def _db_load_texts(loads):
+    cl, dl = loads or (None, None)
+    return ("CL:%.1f kW" % cl if cl is not None else None,
+            "DL:%.1f kW" % dl if dl is not None else None)
+
+
+def db_box_height(name, loads=None):
+    """Tall enough for the name inside and CL + DL beside it."""
+    beside = [line_length(t, style.TEXT_DB_LOAD) for t in _db_load_texts(loads) if t]
+    return max(style.DB_BOX_HEIGHT, vertical_length(name, style.TEXT_LOAD) + 4.0,
+               sum(beside) + 1.0 * len(beside) + 1.0)
+
+
+def db_box(d, x, y0, name, loads=None):
+    """Final distribution board: tall box with its name inside, and its
+    connected (CL) and demand (DL) loads reading up on its right."""
+    h = db_box_height(name, loads)
     w = style.DB_BOX_WIDTH
     d.rect(x - w / 2, y0, x + w / 2, y0 + h)
     d.text(x, y0 + h / 2, name, style.TEXT_LOAD, align=CENTER, valign=MIDDLE,
            rotation=VERTICAL)
+    cl, dl = _db_load_texts(loads)
+    tx = x + w / 2 + 0.4
+    if cl:
+        d.text(tx, y0 + 0.5, cl, style.TEXT_DB_LOAD, align=LEFT, valign=TOP,
+               rotation=VERTICAL)
+    if dl:
+        d.text(tx, y0 + h - 0.5, dl, style.TEXT_DB_LOAD, align=RIGHT, valign=TOP,
+               rotation=VERTICAL)
     return y0 + h
+
+
+def load_table_size(values):
+    """(width, height) of the load table for (label, value) rows."""
+    size, pad = style.TEXT_LOAD_TABLE, style.LOAD_TABLE_PAD
+    label_w = max(line_length(l, size) for l, _ in values) + 2 * pad
+    value_w = max(line_length(v, size) for _, v in values) + 2 * pad
+    return label_w + value_w, len(values) * style.LOAD_TABLE_ROW
+
+
+def load_table(d, right, bottom, values):
+    """Two-column table (label | value) with its bottom-right corner at
+    (right, bottom), e.g. CONNECTED LOAD | 61.30kW."""
+    size, pad, row = style.TEXT_LOAD_TABLE, style.LOAD_TABLE_PAD, style.LOAD_TABLE_ROW
+    width, height = load_table_size(values)
+    value_w = max(line_length(v, size) for _, v in values) + 2 * pad
+    left, split, top = right - width, right - value_w, bottom + height
+    d.rect(left, bottom, right, top)
+    d.line(split, bottom, split, top)
+    for i, (label, value) in enumerate(values):
+        y = top - (i + 1) * row
+        if i < len(values) - 1:
+            d.line(left, y, right, y)
+        d.text(left + pad, y + row / 2, label, size, align=LEFT, valign=MIDDLE)
+        d.text(right - pad, y + row / 2, value, size, align=RIGHT, valign=MIDDLE)
 
 
 def isolator(d, x, y0, name):
@@ -57,10 +104,11 @@ def isolator(d, x, y0, name):
     return y_text + vertical_length(name, style.TEXT_LOAD)
 
 
-def spare(d, x, y_end):
+def spare(d, x, y_end, label="SPARE"):
+    """SPARE (or SPACE) at the end of a way."""
     y_text = y_end + 0.8
-    vertical_text(d, x, y_text, "SPARE", style.TEXT_LOAD, center=True)
-    return y_text + vertical_length("SPARE", style.TEXT_LOAD)
+    vertical_text(d, x, y_text, label, style.TEXT_SPARE, center=True)
+    return y_text + vertical_length(label, style.TEXT_SPARE)
 
 
 def pfc(d, x, y0):
@@ -120,18 +168,44 @@ def sealing_end(d, x, y):
 
 
 def transformer(d, x, y_top, name, description):
-    """Two-winding transformer; returns the bottom y."""
+    """Two-winding transformer, name and description left of it (office
+    SLD), earthed on the right (R<1Ω); returns the bottom y."""
     r = style.TRANSFORMER_RADIUS
     c1 = y_top - r
     c2 = c1 - 1.4 * r
     d.circle(x, c1, r)
     d.circle(x, c2, r)
-    text_x = x - r - 1.5
-    d.text(text_x, y_top, name, style.TEXT_TRANSFORMER_NAME, align=RIGHT, valign=TOP)
-    if description:
-        d.text(text_x, y_top - style.TEXT_TRANSFORMER_NAME * 1.7, "\n".join(description),
-               style.TEXT_TRANSFORMER_INFO, align=RIGHT, valign=TOP)
+    info = list(description or [])
+    width = max([line_length(name, style.TEXT_TRANSFORMER_NAME)] +
+                [line_length(l, style.TEXT_TRANSFORMER_INFO) for l in info])
+    text_x = x - r - 1.5 - width
+    d.text(text_x, y_top, name, style.TEXT_TRANSFORMER_NAME, align=LEFT, valign=TOP)
+    if info:
+        d.text(text_x, y_top - style.TEXT_TRANSFORMER_NAME * 1.7, "\n".join(info),
+               style.TEXT_TRANSFORMER_INFO, align=LEFT, valign=TOP)
+    ex = x + r + 2.5
+    d.line(x + r, c2, ex, c2)
+    d.line(ex, c2, ex, c2 - r - 1.0)
+    earth(d, ex, c2 - r - 1.0)
+    d.text(ex + 0.5, c2 - r - 4.3, style.MAIN_EARTH_LABEL, style.TEXT_CABLE,
+           align=LEFT, valign=TOP)
     return c2 - r
+
+
+def utility_meter(d, x, y_top, label, ratio):
+    """Utility meter box on the incoming line ('ADDC METER', '1600A/5A' on
+    its right); returns the bottom y."""
+    lines = label.split()
+    if len(lines) > 2:
+        lines = [" ".join(lines[:-1]), lines[-1]]
+    size = style.TEXT_SMALL
+    w = max(line_length(l, size) for l in lines) + 1.6
+    h = size * style.LINE_SPACING * len(lines) + 1.2
+    d.rect(x - w / 2, y_top - h, x + w / 2, y_top)
+    d.text(x, y_top - h / 2, "\n".join(lines), size, align=CENTER, valign=MIDDLE)
+    if ratio:
+        d.text(x + w / 2 + 0.8, y_top - h / 2, ratio, size, align=LEFT, valign=MIDDLE)
+    return y_top - h
 
 
 def small_transformer(d, x, y0, name):
@@ -176,6 +250,21 @@ def dot(d, x, y):
     d.circle(x, y, 0.3)
 
 
+def breaker_label(d, x, y, lines, size):
+    """Breaker rating to the right of x, middle at y: '100AT' above a bar,
+    '100AF' and the type below it (the office style); other text as is."""
+    lines = [l for l in lines if l]
+    if not lines:
+        return
+    if len(lines) < 2 or not lines[0].upper().endswith("AT"):
+        d.text(x, y, "\n".join(lines), size, align=LEFT, valign=MIDDLE)
+        return
+    gap = 0.25 * size
+    d.text(x, y + gap, lines[0], size, align=LEFT, valign=BOTTOM)
+    d.text(x, y - gap, "\n".join(lines[1:]), size, align=LEFT, valign=TOP)
+    d.line(x, y, x + max(line_length(l, size) for l in lines[:2]), y)
+
+
 def main_incomer(d, xi, bus_y, bottom, right, device=None):
     """Main board incomer between busbar and box bottom: CT and ammeters,
     indicator lamps, withdrawable ACB, busbar fuse, SPD and earth."""
@@ -208,7 +297,8 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
     d.arc(xi, bus_y - 12.0, 1.0, HALF_PI, 3 * HALF_PI)
     y_lower = bus_y - 15.8
     chevrons(d, xi, y_lower, up=False)
-    d.text(xi + 2.5, y_lower + 0.4, device, small, align=LEFT, valign=MIDDLE)
+    # rating beside the ACB body, clear of the busbar fuse text below it
+    breaker_label(d, xi + 2.5, bus_y - 11.5, (device or "").split("\n"), small)
     # busbar mounted fuse feeding the indicator lamps
     y_fuse = bus_y - 21.0
     d.line(xi, y_lower, xi, y_fuse + 1.1)
@@ -246,3 +336,58 @@ def main_incomer(d, xi, bus_y, bottom, right, device=None):
 
 # The lamp group of the main incomer starts this far left of the incomer.
 MAIN_LAMPS_LEFT = 24.6
+
+
+# ---------------------------------------------------------------- bus bar riser
+
+def riser_bar(d, x, y0, y1, label):
+    """Tall bus bar riser centred on x, its label reading up inside."""
+    w = style.RISER_BAR_WIDTH
+    d.rect(x - w / 2, y0, x + w / 2, y1)
+    if label:
+        d.text(x, y0 + 3.0, label, style.TEXT_RISER, align=LEFT, valign=MIDDLE,
+               rotation=VERTICAL)
+
+
+def riser_label_length(label):
+    return text_width(label, style.TEXT_RISER) * style.FLOOR_LABEL_SLACK + 6.0 if label else 0.0
+
+
+def tap_unit(d, x_bar, y, rating):
+    """Tap-off unit on the right side of a bar (x_bar = bar's right edge),
+    centred on y, with its rating above. Returns the unit's right x."""
+    w, h = style.TAP_UNIT_W, style.TAP_UNIT_H
+    d.rect(x_bar, y - h / 2, x_bar + w, y + h / 2)
+    d.circle(x_bar + w / 2, y, 0.22)
+    if rating:
+        d.text(x_bar + 0.2, y + h / 2 + 0.6, rating, style.TEXT_TAP_INFO, align=LEFT,
+               valign=BOTTOM)
+    return x_bar + w
+
+
+def typical_box_lines(name, master, floor):
+    lines = [(name, style.TEXT_TAP), (style.TYPICAL_TEXT % master, style.TEXT_TAP_INFO)]
+    if floor:
+        lines.append(("@ %s" % floor.upper(), style.TEXT_TAP_INFO))
+    return lines
+
+
+def typical_box_size(lines):
+    pad = style.TAP_BOX_PAD
+    w = max(line_length(t, s) for t, s in lines) + 2 * pad
+    h = sum(s * style.LINE_SPACING for _, s in lines) + pad
+    return w, h
+
+
+def typical_box(d, left, y_mid, lines, width=None):
+    """'SMDB-T-6 / DB SAME AS SMDB-T-1 / @ 6TH FLOOR', right-aligned in a box
+    whose left side meets the tap-off line at y_mid."""
+    w, h = typical_box_size(lines)
+    w = max(w, width or 0.0)
+    top = y_mid + h / 2
+    d.rect(left, y_mid - h / 2, left + w, top)
+    y = top - style.TAP_BOX_PAD
+    for text, size in lines:
+        d.text(left + w - style.TAP_BOX_PAD, y, text, size, align=RIGHT, valign=TOP)
+        y -= size * style.LINE_SPACING
+    return left + w

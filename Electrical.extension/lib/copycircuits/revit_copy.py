@@ -243,7 +243,7 @@ def read_source(doc, level, only=None, circuits=None):
             panel=id_int(panel.Id) if panel is not None else None, panel_here=panel_here,
             slot=slot, panel_name=system.PanelName or "", number=system.CircuitNumber or "",
             group=plan.circuit_group(_kind(system), [_is_lighting(e) for e in on_floor]),
-            load_name=_load_name(system)))
+            load_name=_load_name(system), families=[_family_name(e) for e in on_floor]))
         source.systems[key] = system
         if panel is not None:
             source.panels[id_int(panel.Id)] = panel
@@ -257,6 +257,13 @@ def read_source(doc, level, only=None, circuits=None):
                     source.items.append(item)
     source.by_height = len(odd)
     return source
+
+
+def _family_name(element):
+    try:
+        return element.Symbol.Family.Name
+    except Exception:
+        return ""
 
 
 def _load_name(system):
@@ -275,6 +282,23 @@ def shown_in(doc, view):
                    FilteredElementCollector(doc, view.Id).OfClass(FamilyInstance))
     except Exception:
         return None
+
+
+def plans_of(doc, level):
+    """[(name, view)] of the plans of the level and of the levels at its
+    height (the other tower's), by name."""
+    found = []
+    for v in FilteredElementCollector(doc).OfClass(ViewPlan):
+        try:
+            if v.IsTemplate or v.GenLevel is None:
+                continue
+            if abs(v.GenLevel.Elevation - level.Elevation) > Z_TOLERANCE:
+                continue
+            found.append((v.Name, v))
+        except Exception:
+            pass
+    found.sort(key=lambda nv: nv[0].lower())
+    return found
 
 
 # ---------------------------------------------------------------- target
@@ -333,7 +357,10 @@ def read_target(doc, level, type_keys, family_keys, exclude=()):
 
 FIRST = ("RBS_ELEC_CIRCUIT_WIRE_TYPE_PARAM", "RBS_ELEC_CIRCUIT_RATING_PARAM",
          "RBS_ELEC_CIRCUIT_FRAME_PARAM")
-ID_PARAMS = ("RBS_ELEC_CIRCUIT_WIRE_TYPE_PARAM",)
+# element-id values copied too: the wire type, and a board's circuit naming
+# scheme (R6 / Y3 by phase, or 6 / 3 by number), else Tower 2's board numbers
+# its circuits its own way
+ID_PARAMS = ("RBS_ELEC_CIRCUIT_WIRE_TYPE_PARAM", "RBS_ELEC_CIRCUIT_NAMING")
 SKIP = ("ALL_MODEL_MARK",)
 
 
@@ -395,6 +422,24 @@ def copy_parameters(src, dst):
         except Exception:
             other = None
         _set_like(p, other, bip in ids_ok)
+    keep_workset(src, dst)
+
+
+_WORKSET = getattr(BuiltInParameter, "ELEM_PARTITION_PARAM", None)
+
+
+def keep_workset(src, dst):
+    """dst put on src's workset (in a workshared model). A view's elements
+    (wires, tags) are on their view's workset: left as they are."""
+    try:
+        if not dst.Document.IsWorkshared:
+            return
+        a, b = src.get_Parameter(_WORKSET), dst.get_Parameter(_WORKSET)
+        if a is None or b is None or b.IsReadOnly or a.AsInteger() == b.AsInteger():
+            return
+        b.Set(a.AsInteger())
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------- wires
@@ -533,16 +578,62 @@ def _connected_as(wire, wanted):
     return True
 
 
-def _find_there(existing, view_keys, points, tolerance, claimed=()):
-    """(wire, view key) of a wire already at the spot in one of the views,
-    not claimed by another source wire."""
-    for key in view_keys:
-        for other in existing.get(key, ()):
-            if id_int(other.Id) in claimed:
-                continue
-            if other.IsValidObject and _same_spot(points, _vertices(other), tolerance):
-                return other, key
-    return None, None
+def _cell(point):
+    return int(point.X // 1.0), int(point.Y // 1.0)
+
+
+class _There(object):
+    """The wires already in the plans, by view and by the 1 ft cell of their
+    first vertex, their vertices read once: looking up each source wire's
+    spot is then quick on a floor with hundreds of wires."""
+
+    def __init__(self, existing):
+        self.cells = {}
+        for key, found in existing.items():
+            for wire in found:
+                points = _vertices(wire)
+                if points:
+                    cx, cy = _cell(points[0])
+                    self.cells.setdefault((key, cx, cy), []).append((wire, points))
+
+    def find(self, view_keys, points, tolerance, claimed=()):
+        """(wire, view key) of a wire already at the spot in one of the
+        views, not claimed by another source wire."""
+        cx, cy = _cell(points[0])
+        for key in view_keys:
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for other, at in self.cells.get((key, cx + dx, cy + dy), ()):
+                        if id_int(other.Id) in claimed:
+                            continue
+                        if other.IsValidObject and _same_spot(points, at, tolerance):
+                            return other, key
+        return None, None
+
+
+def _trimmed(points, conns):
+    """The points without the ends on a connector: Revit adds the connector's
+    origin as that end vertex itself, so passing it too adds a vertex. The
+    points as they are when nothing would be left between the ends."""
+    start = 1 if conns[0] is not None else 0
+    end = len(points) - 1 if conns[1] is not None else len(points)
+    inner = list(points[start:end])
+    return inner if inner else list(points)
+
+
+def _no_doubles(wire, tolerance):
+    """Remove vertices Revit added next to another one (at a connector)."""
+    try:
+        i = 1
+        while i < wire.NumberOfVertices:
+            a, b = wire.GetVertex(i - 1), wire.GetVertex(i)
+            if wire.NumberOfVertices > 2 and \
+                    ((a.X - b.X) ** 2 + (a.Y - b.Y) ** 2) ** 0.5 <= tolerance:
+                wire.RemoveVertex(i if i < wire.NumberOfVertices - 1 else i - 1)
+            else:
+                i += 1
+    except Exception:
+        pass
 
 
 def _snapped(points, conns):
@@ -602,7 +693,7 @@ def _home_view(info, wires, home, level):
 
 
 def copy_wires(wires, copies, targets, level, tolerance, result, source, circuited,
-               where=placing.SAME_SPOT, skip=()):
+               where=placing.SAME_SPOT, skip=(), tick=None):
     """Draw the source wires again on `level`, between the copies, put where
     the copy is (`where`: mirrored for the other tower...). They go in the
     level's plan where the wires pasted with the fixtures are, or else in
@@ -625,6 +716,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
         # else not connected to anything (a drafting wire, or one pasted for
         # the other tower), or of circuits not copied
     existing = wires.on_level(level, set(id_int(w.Id) for w, _, _ in ours))
+    there_now = _There(existing)
     home = _home(targets, set(copies.values()), level, wires)
     same_floor = home == wires.source_level
     linked = None                   # _link of the wires already there
@@ -655,7 +747,8 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             x, y = where.apply(p.X, p.Y)
             points.append(XYZ(x, y, p.Z + dz))
         same_kind = [k for k in existing if wires.infos_by_key[k].view_type == info.view_type]
-        there, key = _find_there(existing, same_kind, points, tolerance, claimed)
+        there, key = there_now.find(same_kind, points, tolerance, claimed) if points else \
+            (None, None)
         if there is not None:
             claimed.add(id_int(there.Id))
         if key is not None:
@@ -665,7 +758,9 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
         todo.append((wire, info, wanted, conns, points, there, key, link))
 
     chosen = {}
-    for wire, info, wanted, conns, points, there, key, link in todo:
+    for i, (wire, info, wanted, conns, points, there, key, link) in enumerate(todo):
+        if tick is not None and i % 10 == 0:
+            tick(i, len(todo))
         if info.key not in chosen:
             tally = votes.get(info.key)
             if tally:
@@ -701,7 +796,7 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
             result.wires["removed"] += 1
         view = wires.views[view_key]
         new, error = None, None
-        for attempt in (points, _snapped(points, conns)):
+        for attempt in (_trimmed(points, conns), points, _snapped(points, conns)):
             try:
                 new = Wire.Create(wires.doc, wire.GetTypeId(), view.Id, wire.WiringType,
                                   List[XYZ](attempt), conns[0], conns[1])
@@ -714,7 +809,9 @@ def copy_wires(wires, copies, targets, level, tolerance, result, source, circuit
                 result.wire_errors.append(error)
             _unwired(result, targets, wanted)
             continue
+        _no_doubles(new, tolerance)
         copy_parameters(wire, new)
+        result.wire_pairs.append((wire, new))
         wires.add(new, view_key)
         if linked is not None and link is not None:
             linked.add(link)
@@ -941,8 +1038,10 @@ def match_panels(doc, source, target, copies, level, where, tolerance, dz=0.0,
     return found, remote
 
 
-def _make(doc, source, target, jobs, result):
-    for job in jobs:
+def _make(doc, source, target, jobs, result, tick=None):
+    for i, job in enumerate(jobs):
+        if tick is not None and i % 5 == 0:
+            tick(i, len(jobs))
         src = source.systems[job.circuit.key]
         elements = [target.elements[k] for k in job.elements]
         try:

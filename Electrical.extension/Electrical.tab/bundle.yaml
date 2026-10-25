@@ -1,7 +1,9 @@
 layout:
-  - SLD
+  - Power
+  - Mechanical
+  - Plumbing
+  - Fire Fighting
   - Fire Alarm
-  - Voltage Drop
   - Dimensions
   - Model Check
   - Circuits

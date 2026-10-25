@@ -21,6 +21,7 @@ Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 from __future__ import division
 
 import math
+import time
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, CurveElement, ElementId, ElementTransformUtils,
@@ -299,17 +300,19 @@ class _WallFace(object):
 
 
 class WallIndex(object):
-    """Vertical faces of walls and columns (this model and links) in an
-    area of a floor, on a plan grid. Read once per floor."""
+    """Vertical faces of walls and columns (this model and, with `links`,
+    its links) in an area of a floor, on a plan grid. Read once per floor."""
 
-    def __init__(self, doc, extent, z_low, z_high):
+    def __init__(self, doc, extent, z_low, z_high, links=True):
         self.cells = {}
         self.faces = 0
         options = Options()
         options.ComputeReferences = True
         x0, y0, x1, y1 = extent
-        sources = [(None, doc, Transform.Identity)] + \
-            [(link, link_doc, link.GetTotalTransform()) for link, link_doc in linked_models(doc)]
+        sources = [(None, doc, Transform.Identity)]
+        if links:
+            sources += [(link, link_doc, link.GetTotalTransform())
+                        for link, link_doc in linked_models(doc)]
         for link, source_doc, transform in sources:
             for name in WALL_CATEGORIES:
                 bic = getattr(BuiltInCategory, name, None)
@@ -409,10 +412,21 @@ def _why(result, element, reason):
     result.why[key] = result.why.get(key, 0) + 1
 
 
-def _rehost(doc, keys, elements, placement, walls, level, result):
+def _error(result, element, error):
+    result.refused.append(element.Id)
+    text = rc._message(error)
+    if text not in result.errors:
+        result.errors.append(text)
+
+
+def _rehost(doc, keys, elements, placement, walls, level, result, tick=None):
     """Place the wall elements again on Tower 2's walls, at their mirrored
-    spot. Returns {Tower 1 key: new element}."""
-    made = {}
+    spot. tick(done, total) as it goes. Returns {Tower 1 key: new element}.
+
+    Everything is read first (transforms, spots, faces), then the copies
+    are made: reading an element's position after a change makes Revit
+    regenerate the model, which done once per element took minutes."""
+    spots = []
     for k in keys:
         e = elements[k]
         try:
@@ -431,24 +445,35 @@ def _rehost(doc, keys, elements, placement, walls, level, result):
                 _why(result, e, u"no wall face at its Tower 2 spot")
                 continue
             symbol = e.Symbol
-            if not symbol.IsActive:
-                symbol.Activate()
-            if e.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased:
-                new = doc.Create.NewFamilyInstance(face.ref, on, XYZ(hx, hy, t.BasisX.Z), symbol)
-            elif face.link is None and isinstance(face.element, Wall):
-                new = doc.Create.NewFamilyInstance(on, symbol, face.element, level,
-                                                   StructuralType.NonStructural)
-            else:
+            based = symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased
+            if not based and not (face.link is None and isinstance(face.element, Wall)):
                 result.no_wall.append(e.Id)
                 _why(result, e, u"wall-hosted family, and Tower 2's wall is in a link")
                 continue
-            rc.copy_parameters(e, new)
-            made[k] = new
+            spots.append((k, e, symbol, based, face, on, XYZ(hx, hy, t.BasisX.Z)))
         except Exception as error:
-            result.refused.append(e.Id)
-            text = rc._message(error)
-            if text not in result.errors:
-                result.errors.append(text)
+            _error(result, e, error)
+    made = {}
+    for i, (k, e, symbol, based, face, on, direction) in enumerate(spots):
+        if tick is not None:
+            tick(i, len(spots))
+        try:
+            if not symbol.IsActive:
+                symbol.Activate()
+            if based:
+                made[k] = doc.Create.NewFamilyInstance(face.ref, on, direction, symbol)
+            else:
+                made[k] = doc.Create.NewFamilyInstance(on, symbol, face.element, level,
+                                                       StructuralType.NonStructural)
+        except Exception as error:
+            _error(result, e, error)
+    for k, new in made.items():
+        try:
+            rc.copy_parameters(elements[k], new)
+        except Exception:
+            pass
+    if tick is not None:
+        tick(len(spots), len(spots))
     return made
 
 
@@ -774,7 +799,7 @@ def _onto_boards(doc, circuits, copies, target, source, result):
                                                rc.panel_name(board), _system_name(board))))
 
 
-def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
+def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on, report=None):
     """Pass 2 on one floor: Tower 1's circuits made on Tower 2's copies,
     and their wires drawn. Returns (copycircuits LevelResult, the source
     read: Tower 1's circuits)."""
@@ -846,7 +871,11 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
         doc.Regenerate()
         _onto_boards(doc, circuits, copies, target, source, result)
         jobs, result.skipped = plan.plan(circuits, copies, circuited)
-        rc._make(doc, source, target, jobs, result)
+        clock = time.time()
+        rc._make(doc, source, target, jobs, result, None if report is None else
+                 lambda i, n: report(0.4 * i / max(n, 1), u"%s: circuits %d / %d..." % (
+                     side.level.Name, i, n)))
+        result.seconds = {"circuits": time.time() - clock}
         for made in result.made:
             if made.panel_error and made.job.panel is not None:
                 c = made.job.circuit
@@ -861,9 +890,18 @@ def circuit_floor(doc, side, placement, tolerance, swap, by_name, wires_on):
                     circuited.add((k, made.job.circuit.kind))
             wires = rc.Wires(doc, side.level)
             skip = set(k for k in side.pool if k not in set(copies.values()))
+            clock = time.time()
             rc.copy_wires(wires, copies, target.elements, side.level, tolerance, result,
-                          source, set(k for k, _ in circuited), placement, skip)
+                          source, set(k for k, _ in circuited), placement, skip,
+                          None if report is None else lambda i, n: report(
+                              0.4 + 0.5 * i / max(n, 1), u"%s: wires %d / %d..." % (
+                                  side.level.Name, i, n)))
+            result.seconds["wires"] = time.time() - clock
+        clock = time.time()
+        if report is not None:
+            report(0.92, u"%s: Revit is saving the circuits..." % side.level.Name)
         t.Commit()
+        result.seconds["saving circuits"] = time.time() - clock
     except Exception:
         if t.HasStarted() and not t.HasEnded():
             t.RollBack()
