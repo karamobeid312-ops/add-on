@@ -424,16 +424,16 @@ def test_studio_revision_rows():
             (48, u"2  LDN SUBMISSION  (29/09/2026)"),
             (50, u"3  Issued for Approval / DD  (25.10.26)")]
     rev_map = studio.default_rev_map(revs)
-    assert rev_map == {1: 49, 2: 50}                 # the 'Issued for' ones, in order
+    assert rev_map == {1: 50, 2: 49}                 # newest 'Issued for' first: DD, then CD
     assert studio.lod_revs(table) == [1, 2]
     rows = studio.revision_rows(result, rev_map, {u"2202-108-VE-7100-01401": set([49, 50])},
                                 dict(revs))
     ticked = dict((r["number"], r["key"]) for r in rows if r["do"])
-    assert ticked == {u"2202-108-VE-7100-01400": u"rvt:2202-108-VE-7100-01400:49,50",
-                      u"2202-108-VE-7100-02400": u"rvt:2202-108-VE-7100-02400:49"}
+    assert ticked == {u"2202-108-VE-7100-01400": u"rvt:2202-108-VE-7100-01400:50,49",
+                      u"2202-108-VE-7100-02400": u"rvt:2202-108-VE-7100-02400:50"}
     assert studio.revision_pairs([ticked[u"2202-108-VE-7100-01400"], u"chg:x:y"]) == [
-        (u"2202-108-VE-7100-01400", 49), (u"2202-108-VE-7100-01400", 50)]
-    unset = studio.revision_rows(result, {1: 49}, {}, dict(revs))
+        (u"2202-108-VE-7100-01400", 50), (u"2202-108-VE-7100-01400", 49)]
+    unset = studio.revision_rows(result, {1: 50}, {}, dict(revs))
     assert any(r["key"] == u"norvt:2" and not r["can"] for r in unset)
 
 

@@ -294,7 +294,7 @@ class StudioWindow(object):
     def _saved_maps(self):
         import json
         try:
-            return json.loads(self.values.get("rev_map") or u"{}")
+            return json.loads(self.values.get("rev_issues") or u"{}")
         except ValueError:
             return {}
 
@@ -323,7 +323,9 @@ class StudioWindow(object):
             box.Orientation = Orientation.Horizontal
             box.Margin = Thickness(0, 2, 14, 2)
             label = TextBlock()
-            label.Text = u"%03d =" % n
+            label.Text = (u"Newest issue (every sheet) =" if n == 1 else
+                          u"Issue before (Rev. %03d and up) =" % n if n == 2 else
+                          u"%d issues back (Rev. %03d and up) =" % (n - 1, n))
             label.Margin = Thickness(0, 0, 6, 0)
             label.VerticalAlignment = VerticalAlignment.Center
             combo = ComboBox()
@@ -345,7 +347,7 @@ class StudioWindow(object):
         key = self.revit.get("model_key") or u""
         mine = maps.setdefault(key, {})
         mine[u"%d" % int(sender.Tag)] = rid
-        self.values["rev_map"] = json.dumps(maps)
+        self.values["rev_issues"] = json.dumps(maps)
         self.revit["save_settings"](self.values)
         self._picking = True
         try:

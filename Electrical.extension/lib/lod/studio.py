@@ -67,13 +67,14 @@ def compare_rows(result):
 
 
 def default_rev_map(revisions):
-    """{LOD rev number: revision id}: with Per Sheet numbering a sheet's
-    revision 002 is the second revision on it, so LOD Rev. 1, 2... take the
-    revisions 'Issued for ...' in sequence order (all of them when none says
-    issued)."""
+    """{issues back: revision id}, 1 = the newest issue. A sheet at LOD Rev.
+    001 is issued for the first time now, so it takes the newest issue only;
+    at 002 it was issued once before too, so it takes the newest two (DD and
+    CD), and so on (user, 2026-10-25). The issues are the revisions 'Issued
+    for ...' (all of them when none says issued), newest = last in sequence."""
     issued = [rid for rid, label in revisions if u"issued" in label.lower()]
     ids = issued or [rid for rid, _ in revisions]
-    return dict((i + 1, rid) for i, rid in enumerate(ids))
+    return dict((i + 1, rid) for i, rid in enumerate(reversed(ids)))
 
 
 def lod_revs(table):
@@ -86,10 +87,11 @@ def lod_revs(table):
 
 def revision_rows(result, rev_map, sheet_revs, labels):
     """Revit revisions (Sheet Issues/Revisions) the matched sheets lack. A
-    sheet at LOD Rev. 002 carries the revisions picked for 001 and 002, so
-    its title block lists the history; the missing ones are ticked.
+    sheet at LOD Rev. n carries the n newest issues (Rev. 001: the newest
+    only; 002: the newest and the one before), so its title block lists its
+    history; the missing ones are ticked.
 
-    rev_map: {LOD rev number: revision id}
+    rev_map: {issues back (1 = newest): revision id}
     sheet_revs: {sheet number: set(revision ids on the sheet)}
     labels: {revision id: text shown}
     """
@@ -116,7 +118,7 @@ def revision_rows(result, rev_map, sheet_revs, labels):
                         do=True, can=True))
     for m, numbers in sorted(absent.items()):
         rows.append(row(u"norvt:%d" % m, u"%d sheets" % len(numbers), u"Revit revision", u"",
-                        rev_text(m), u"Pick the revision for %s above" % rev_text(m), BAD))
+                        u"%s and up" % rev_text(m), u"Pick issue %d back above" % m, BAD))
     return rows
 
 

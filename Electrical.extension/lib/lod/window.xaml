@@ -212,9 +212,9 @@
             </UniformGrid>
             <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="0,0,0,8" Padding="10,6">
               <WrapPanel x:Name="RevMapPanel" VerticalAlignment="Center">
-                <TextBlock Text="Revit revision for each LOD Rev." FontWeight="SemiBold"
+                <TextBlock Text="Issues (Sheet Issues/Revisions)" FontWeight="SemiBold"
                            VerticalAlignment="Center" Margin="0,0,12,0"
-                           ToolTip="Sheet Issues/Revisions numbered Per Sheet: pick which revision is 001, 002... A sheet at 002 gets both."/>
+                           ToolTip="A sheet at LOD Rev. 001 gets the newest issue only; at 002 the newest and the one before; and so on."/>
               </WrapPanel>
             </Border>
             <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
