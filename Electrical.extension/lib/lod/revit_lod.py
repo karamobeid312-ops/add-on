@@ -436,3 +436,64 @@ def add_revisions(doc, pairs):
             t.RollBack()
         raise
     return added, failed
+
+
+# ------------------------------------------------------------ scope boxes
+
+def scope_boxes(doc):
+    """[(scope box id int, name)]."""
+    return [(id_int(b.Id), b.Name) for b in
+            FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_VolumeOfInterest)
+            .WhereElementIsNotElementType()]
+
+
+def plan_views(doc):
+    """[(view id int, name, scope box id int or None)] of the plan views."""
+    from Autodesk.Revit.DB import BuiltInParameter, View, ViewType
+    kinds = set([ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.EngineeringPlan,
+                 ViewType.AreaPlan])
+    found = []
+    for v in FilteredElementCollector(doc).OfClass(View):
+        if v.IsTemplate or v.ViewType not in kinds:
+            continue
+        p = v.get_Parameter(BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP)
+        now = None
+        if p is not None:
+            eid = p.AsElementId()
+            if eid is not None and id_int(eid) > 0:
+                now = id_int(eid)
+        found.append((id_int(v.Id), v.Name, now))
+    return found
+
+
+def set_scope_boxes(doc, pairs):
+    """pairs: [(view id int, scope box id int)]. Returns (done, [(view id, why)])."""
+    from Autodesk.Revit.DB import BuiltInParameter
+    boxes = dict((id_int(b.Id), b.Id) for b in
+                 FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_VolumeOfInterest)
+                 .WhereElementIsNotElementType())
+    views = by_ids(doc, [v for v, _ in pairs])
+    done, failed = 0, []
+    t = Transaction(doc, "Set Scope Boxes from View Names")
+    t.Start()
+    try:
+        for vid, bid in pairs:
+            view = views.get(vid)
+            if view is None or bid not in boxes:
+                failed.append((vid, u"view or scope box not found"))
+                continue
+            p = view.get_Parameter(BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP)
+            if p is None or p.IsReadOnly:
+                failed.append((vid, u"scope box locked (view template?)"))
+                continue
+            try:
+                p.Set(boxes[bid])
+                done += 1
+            except Exception as error:
+                failed.append((vid, u"%s" % error))
+        t.Commit()
+    except Exception:
+        if t.HasStarted() and not t.HasEnded():
+            t.RollBack()
+        raise
+    return done, failed

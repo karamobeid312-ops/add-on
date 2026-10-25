@@ -211,6 +211,59 @@ def _differs(now, wanted):
     return (u"%s" % (now or u"")) != (u"%s" % wanted)
 
 
+# ------------------------------------------------------------ 5 Scope boxes
+
+# the scope box a plan view takes from its name (user, 2026-10-25), first
+# rule that fits wins
+SCOPE_RULES = (
+    (r"\btower 1\b", u"Building 1"),
+    (r"\btower 2\b", u"Building 2"),
+    (r"\bpart 1\b", u"Parts GF & 1st 01"),
+    (r"\bpart 2\b", u"Parts GF & 1st 02"),
+    (r"\boverall\b", u"Overall GF & 1st"),
+)
+
+
+def scope_box_for(view_name):
+    """Name of the scope box the view's name asks for, or None."""
+    import re
+    k = placeviews.key(view_name)
+    for pattern, box in SCOPE_RULES:
+        if re.search(pattern, k):
+            return box
+    return None
+
+
+def scope_rows(views, boxes):
+    """One row per plan view whose name asks for a scope box.
+
+    views: [(view id, name, scope box id now or None)]
+    boxes: [(scope box id, name)]
+    c1 view, c2 scope box now, c3 scope box wanted; key 'view id:box id'.
+    """
+    by_key, names = {}, {}
+    for bid, name in boxes:
+        names[bid] = name
+        by_key.setdefault(placeviews.key(name), bid)
+    rows = []
+    for vid, name, now in views:
+        want = scope_box_for(name)
+        if want is None:
+            continue
+        now_name = names.get(now, u"") if now else u""
+        bid = by_key.get(placeviews.key(want))
+        if bid is None:
+            rows.append(row(u"%s:" % vid, u"", name, now_name, want,
+                            u"No scope box named %s" % want, BAD))
+        elif bid == now:
+            rows.append(row(u"%s:%s" % (vid, bid), u"", name, now_name, names[bid],
+                            u"Up to date", OK, can=True))
+        else:
+            rows.append(row(u"%s:%s" % (vid, bid), u"", name, now_name or u"(none)", names[bid],
+                            u"Will change", WARN, do=True, can=True))
+    return rows
+
+
 def picked(rows):
     return [r["key"] for r in rows if r["do"] and r["can"]]
 

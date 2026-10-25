@@ -26,11 +26,12 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "SetupButton", "
          "SyncButton", "CompareGrid",
          "ViewsTabText", "PlaceButton", "ViewsShowCombo", "ViewsGrid",
          "KeyTabText", "KeyButton", "KeyShowCombo", "KeyGrid",
+         "ScopeTabText", "ScopeButton", "ScopeShowCombo", "ScopeGrid",
          "ExportUpdate", "ExportNew", "ExportButton", "ExportGrid",
          "SetupPanel", "SetupDone", "PrefixText", "RevText", "AreaText", "RulesButton",
          "RulesResetButton", "RulesInfo", "ParamsButton", "ParamsGrid",
          "TickSelectedButton", "UntickSelectedButton", "TickAllButton", "UntickAllButton")
-TAB_NAMES = ("create", "compare", "views", "keys", "export")
+TAB_NAMES = ("create", "compare", "views", "keys", "scope", "export")
 COLUMNS = ("key", "number", "c1", "c2", "c3", "status", "state")
 SHOW = ((u"all", u"All sheets"), (u"todo", u"To do (ticked)"), (u"problem", u"Problems"),
         (u"done", u"Up to date"))
@@ -86,16 +87,17 @@ class StudioWindow(object):
         self.table = None
         self.result = None
         self.sheets, self.sheet_list, self.views = [], [], []
-        self.rows = {"create": [], "compare": [], "views": [], "keys": [], "export": []}
+        self.rows = {"create": [], "compare": [], "views": [], "keys": [], "scope": [], "export": []}
         self.notes = {}                 # row key -> (status, state) after an action
         self.win = ui.load_window(window_xaml(), ACCENT)
         for name in NAMES:
             setattr(self, name, self.win.FindName(name))
         self.ModelText.Text = model_text
         self.grids = {"create": self.CreateGrid, "compare": self.CompareGrid,
-                      "views": self.ViewsGrid, "keys": self.KeyGrid, "export": self.ExportGrid}
+                      "views": self.ViewsGrid, "keys": self.KeyGrid, "scope": self.ScopeGrid,
+                      "export": self.ExportGrid}
         self.tables = {}
-        for combo in (self.ViewsShowCombo, self.KeyShowCombo):
+        for combo in (self.ViewsShowCombo, self.KeyShowCombo, self.ScopeShowCombo):
             for _, text in SHOW:
                 combo.Items.Add(text)
             combo.SelectedIndex = 0
@@ -126,6 +128,8 @@ class StudioWindow(object):
         self.SearchText.TextChanged += lambda s, e: self._fill_all()
         self.ViewsShowCombo.SelectionChanged += lambda s, e: self._fill("views")
         self.KeyShowCombo.SelectionChanged += lambda s, e: self._fill("keys")
+        self.ScopeShowCombo.SelectionChanged += lambda s, e: self._fill("scope")
+        self.ScopeButton.Click += self.on_scope
         self.ExportUpdate.Checked += lambda s, e: self._fill_export()
         self.ExportNew.Checked += lambda s, e: self._fill_export()
         self.CreateButton.Click += self.on_create
@@ -252,6 +256,7 @@ class StudioWindow(object):
         self._fill_lod()
         self._fill_views()
         self._fill_keys()
+        self._fill_scope()
         self._fill_export()
 
     def _fill_lod(self):
@@ -305,6 +310,11 @@ class StudioWindow(object):
             self.rows["keys"] = studio.keyplan_rows(self.sheet_list, rules, now)
         self._fill("keys")
 
+    def _fill_scope(self):
+        self.rows["scope"] = studio.scope_rows(self.revit["plan_views"](),
+                                               self.revit["scope_boxes"]())
+        self._fill("scope")
+
     def _fill_export(self):
         from_lod = bool(self.ExportUpdate.IsChecked) and self.table is not None
         counts = export.summary(self.sheets, self.table if from_lod else None,
@@ -327,6 +337,8 @@ class StudioWindow(object):
             show = SHOW[max(self.ViewsShowCombo.SelectedIndex, 0)][0]
         elif name == "keys":
             show = SHOW[max(self.KeyShowCombo.SelectedIndex, 0)][0]
+        elif name == "scope":
+            show = SHOW[max(self.ScopeShowCombo.SelectedIndex, 0)][0]
         shown = [r for r in rows if matches(r, search) and (show is None or show_filter(r, show))]
         self._show(name, self.grids[name], shown)
         self._tab_counts()
@@ -413,6 +425,7 @@ class StudioWindow(object):
         self.CompareTabText.Text = u"Compare + sync (%d)" % todo("compare")
         self.ViewsTabText.Text = u"Place views (%d)" % todo("views")
         self.KeyTabText.Text = u"Key plans (%d)" % todo("keys")
+        self.ScopeTabText.Text = u"Scope boxes (%d)" % todo("scope")
 
     def _note(self, key, status, state):
         self.notes[u"%s" % key] = (status, state)
@@ -545,6 +558,26 @@ class StudioWindow(object):
         self._status(u"Key plans set on %d sheets%s." % (
             done, u"; %d sheets miss parameters (red rows)" % len(grouped) if grouped else u""),
             "warn" if grouped else "ok")
+
+    def on_scope(self, sender, args):
+        pairs = []
+        for key in studio.picked(self.rows["scope"]):
+            vid, bid = key.split(u":")
+            pairs.append((int(vid), int(bid)))
+        if not pairs:
+            self._alert(u"Tick the views to set the scope box of.")
+            return
+        self._status(u"Setting %d scope boxes..." % len(pairs), "")
+        done, failed = self.revit["set_scope_boxes"](pairs)
+        self._fill_scope()
+        for vid, why in failed:
+            for r in self.rows["scope"]:
+                if r["key"].startswith(u"%s:" % vid):
+                    self._note(r["key"], u"Not set: %s" % why, studio.BAD)
+        self._fill("scope")
+        self._status(u"Scope box set on %d views%s." % (
+            done, u", %d failed (red rows)" % len(failed) if failed else u""),
+            "bad" if failed else "ok")
 
     def on_export(self, sender, args):
         from_lod = bool(self.ExportUpdate.IsChecked)

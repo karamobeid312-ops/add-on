@@ -429,3 +429,30 @@ def test_studio_revision_rows():
         (u"2202-108-VE-7100-01400", 49), (u"2202-108-VE-7100-01400", 50)]
     none = studio.revision_rows(result, [(50, u"002")], {})
     assert any(r["key"] == u"norvt:001" and not r["can"] for r in none)
+
+
+@pytest.mark.parametrize("view, box", [
+    (u"KEZAD Two Building Floor Plans Power System - Tower 1 - 3rd-5th floor Plan", u"Building 1"),
+    (u"KEZAD Two Building - Main Building Tower 2 - Emergency Lighting Plan - Roof Floor", u"Building 2"),
+    (u"KEZAD Two Building Floor Plans Power System - Ground floor Plan - Part 1", u"Parts GF & 1st 01"),
+    (u"KEZAD Two Building - Main Building - Emergency Lighting Plan - Ground Floor - Part 2",
+     u"Parts GF & 1st 02"),
+    (u"KEZAD Two Building Floor Plans Power System - Ground floor Plan-Overall", u"Overall GF & 1st"),
+    (u"KEZAD Two Building Floor Plans Power System - Ground floor Plan", None),
+])
+def test_scope_box_from_view_name(view, box):
+    assert studio.scope_box_for(view) == box
+
+
+def test_scope_rows():
+    boxes = [(7, u"Building 1"), (8, u"Parts GF & 1st 01"), (9, u"Overall GF & 1st")]
+    views = [(1, u"X - Tower 1 - 1st Floor Plan", None),
+             (2, u"X - Ground floor Plan - Part 1", 8),
+             (3, u"X - Tower 2 - 1st Floor Plan", None),
+             (4, u"X - Ground floor Plan", None)]
+    rows = dict((r["c1"], r) for r in studio.scope_rows(views, boxes))
+    assert rows[u"X - Tower 1 - 1st Floor Plan"]["do"]
+    assert rows[u"X - Tower 1 - 1st Floor Plan"]["key"] == u"1:7"
+    assert rows[u"X - Ground floor Plan - Part 1"]["state"] == studio.OK
+    assert rows[u"X - Tower 2 - 1st Floor Plan"]["state"] == studio.BAD
+    assert u"X - Ground floor Plan" not in rows
