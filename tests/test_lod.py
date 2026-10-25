@@ -379,6 +379,36 @@ def test_ordinals_and_close_views():
 
 def test_studio_view_rows_offer_close_view_unticked():
     sheets = [(1, u"A1", u"Main Building Tower 1 - Lighting Plan - 2nd Floor")]
-    views = [(10, u"Main Building Tower 1 - Lighting Layout - 2nd Floor", set(), False)]
+    views = [(10, u"Main Building Tower 1 - Lighting Plan Zone A - 2nd Floor", set(), False)]
     r = studio.view_rows(sheets, views, {})[0]
     assert r["can"] and not r["do"] and r["key"] == u"1:10" and r["status"].startswith(u"Close")
+
+
+POWER_VIEWS = [
+    (20, u"KEZAD Two Building Floor Plans Power System - Ground floor Plan-Overall", set(), False),
+    (21, u"KEZAD Two Building Floor Plans Power System - Ground floor Plan - Part 1", set(), False),
+    (22, u"KEZAD Two Building Floor Plans Power System - Tower 1 - 3rd-5th floor Plan", set(), False),
+    (23, u"KEZAD Two Building Floor Plans Power For Mechanical System - Tower 1 - 3rd-5th floor Plan",
+     set(), False),
+    (24, u"KEZAD Two Building - Main Building Tower 1 - Emergency Lighting Plan - 2nd Floor",
+     set(), False),
+]
+
+
+@pytest.mark.parametrize("sheet, view", [
+    (u"KEZAD Two Building - Main Building - Power Plan - Overall Ground Floor", 20),
+    (u"KEZAD Two Building - Main Building - Power Plan - Ground Floor - Part 1", 21),
+    (u"KEZAD Two Building - Main Building Tower 1 - Power Plan - Typical Floor 01 (3rd & 5th)", 22),
+    (u"KEZAD Two Building - Main Building Tower 1 - Power for Mechanical Plan - Typical Floor 01 "
+     u"(3rd & 5th)", 23),
+    (u"KEZAD Two Building - Main Building Tower 1 - Emergency Lighting Plan - Second Floor", 24),
+])
+def test_views_worded_differently_match_by_plan(sheet, view):
+    r = studio.view_rows([(1, u"S", sheet)], POWER_VIEWS, {})[0]
+    assert r["key"] == u"1:%d" % view and r["do"]
+
+
+def test_by_plan_never_mixes_floors_or_systems():
+    sheet = u"KEZAD Two Building - Main Building Tower 1 - Lighting Plan - Typical Floor 01 (3rd & 5th)"
+    r = studio.view_rows([(1, u"S", sheet)], POWER_VIEWS, {})[0]
+    assert not r["do"]

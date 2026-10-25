@@ -87,6 +87,9 @@ def view_rows(sheets, views, sheet_numbers, prefix=u""):
     legend = dict((v[0], v[3]) for v in views)
     found = placeviews.match([(i, n) for i, _, n in sheets],
                              [(v[0], v[1], v[2]) for v in views], prefix)
+    unmatched = [(i, n) for i, _, n in sheets if i not in found]
+    by_plan = placeviews.match_by_plan(unmatched, [(v[0], v[1], v[2]) for v in views])
+    found.update(by_plan)
     free = [(v[0], v[1]) for v in views if not v[2] or v[3]]
     rows = []
     for sid, number, name in sheets:
@@ -111,6 +114,8 @@ def view_rows(sheets, views, sheet_numbers, prefix=u""):
                             u"On sheet %s" % others, WARN))
         else:
             extra = u" (%d views match)" % len(ids) if len(ids) > 1 else u""
+            if sid in by_plan:
+                extra = u" (same plan + floor)" + extra
             rows.append(row(key, number, name, names[vid], u"", u"To place" + extra, WARN,
                             do=True, can=True))
     return rows
