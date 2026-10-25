@@ -20,6 +20,10 @@ A rule with "otherwise" is on only when no other on/off rule is on:
 
     {"parameter": "No keyplan", "otherwise": true}
 
+A rule with "always" is on on every sheet:
+
+    {"parameter": "North Sign", "always": true}
+
 Words match whole words, ignoring case, so 'Part 1' does not match 'Part 12'.
 
 Plain Python (no Revit), so it is tested outside Revit.
@@ -37,8 +41,8 @@ GROUND = ["Ground Floor", "GF"]
 FIRST = ["First Floor", "1st Floor", "FF"]
 
 # The KEZAD title block: one Yes/No parameter per key plan picture. Exactly one
-# picture is on for a sheet; 'No keyplan' is on when none of the others is.
-# 'North Sign' has no rule, so it is left as it is.
+# picture is on for a sheet; 'No keyplan' and 'North Sign' are on on every
+# sheet (user, 2026-10-25).
 DEFAULT_RULES = [
     {"parameter": "Building 1", "on_if_any": ["Tower 1"]},
     {"parameter": "Building 2", "on_if_any": ["Tower 2"]},
@@ -68,7 +72,8 @@ DEFAULT_RULES = [
     {"parameter": "Section 03", "on_if_any": ["Section 03", "Section 3"]},
     {"parameter": "Section 04", "on_if_any": ["Section 04", "Section 4"]},
     {"parameter": "Section 05", "on_if_any": ["Section 05", "Section 5"]},
-    {"parameter": "No keyplan", "otherwise": True},
+    {"parameter": "No keyplan", "always": True},
+    {"parameter": "North Sign", "always": True},
 ]
 
 # The first default rules (KP Tower 1, KP Podium...): saved copies of them are
@@ -140,13 +145,14 @@ def check_rules(rules):
         if not (u"%s" % rule.get("parameter", "")).strip():
             raise RuleError("%s has no \"parameter\"." % where)
         keys = set(rule) - {"parameter"}
-        unknown = keys - {"on_if_any", "on_if_all", "off_if_any", "text", "otherwise"}
+        unknown = keys - {"on_if_any", "on_if_all", "off_if_any", "text", "otherwise",
+                         "always"}
         if unknown:
             raise RuleError("%s (%s): unknown key %s." % (where, rule["parameter"],
                                                           ", ".join(sorted(unknown))))
         if not keys:
             raise RuleError("%s (%s): give \"on_if_any\", \"on_if_all\", \"text\" or "
-                            "\"otherwise\"."
+                            "\"otherwise\" or \"always\"."
                             % (where, rule["parameter"]))
         for key in ("on_if_any", "on_if_all", "off_if_any"):
             if key in rule and not (isinstance(rule[key], list)
@@ -156,9 +162,10 @@ def check_rules(rules):
         if "text" in rule and ({"on_if_any", "on_if_all", "off_if_any"} & keys):
             raise RuleError("%s (%s): a \"text\" rule cannot also have on/off words."
                             % (where, rule["parameter"]))
-        if "otherwise" in rule and len(keys) > 1:
-            raise RuleError("%s (%s): an \"otherwise\" rule cannot have other keys."
-                            % (where, rule["parameter"]))
+        for only in ("otherwise", "always"):
+            if only in rule and len(keys) > 1:
+                raise RuleError("%s (%s): an \"%s\" rule cannot have other keys."
+                                % (where, rule["parameter"], only))
     return rules
 
 
@@ -183,12 +190,15 @@ def dump_rules(rules):
 def values(name, rules):
     """[(parameter, value)] for a sheet name: True/False for on/off rules,
     text for text rules, in the order of the rules. An "otherwise" rule is on
-    when no on/off rule is."""
+    when no on/off rule is; an "always" rule is always on."""
     info = describe(name)
     found = []
     for rule in rules:
         if "otherwise" in rule:
             found.append((rule["parameter"], None))
+            continue
+        if "always" in rule:
+            found.append((rule["parameter"], "always"))
             continue
         if "text" in rule:
             try:
@@ -206,4 +216,5 @@ def values(name, rules):
             on = not any(_has(info["name"], w) for w in rule["off_if_any"])
         found.append((rule["parameter"], on))
     any_on = any(v is True for _, v in found)
-    return [(p, (not any_on) if v is None else v) for p, v in found]
+    return [(p, (not any_on) if v is None else (True if v == "always" else v))
+            for p, v in found]

@@ -627,9 +627,9 @@ key plan picture; exactly one is turned on per sheet:
 | `Guard Room 1` / `Guard Room 2` | Guard Room 1 / Guard Room 2 |
 | `Site Overall` | Site, Setting Out or External, and no building |
 | `Section AA`, `Section BB`, `Wall Section`, `Section 01`...`Section 05` | that section's name |
-| `No keyplan` | none of the above |
+| `No keyplan`, `North Sign` | always on, on every sheet |
 
-`North Sign` has no rule and is left as it is. Rules saved from the first
+Rules saved from the first
 version (`KP Tower 1`, `KP Podium`...) are read as these defaults.
 
 Your title block's parameters will have other names: open a sheet, use
@@ -646,7 +646,7 @@ Key plan rules** opens the rules in Notepad (JSON), e.g.
 
 `on_if_any`: on if the name has any of the words; `on_if_all`: all of them;
 `off_if_any`: off if it has any of them; `"otherwise": true`: on only when
-no other rule is. Text rules can use `{building}`,
+no other rule is; `"always": true`: on on every sheet. Text rules can use `{building}`,
 `{tower}`, `{floor}`, `{part}` and `{name}`. The rules are checked when you
 close Notepad. Parameters are set on the title block first, then other
 families on the sheet, then the sheet itself; any not found are listed with

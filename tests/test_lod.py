@@ -136,10 +136,11 @@ def on(name, rules=None):
     (u"Service Building - Power Plan - Ground Floor", u"Service Building"),
     (u"Substation Building - Power Plan - Ground Floor", u"Substation"),
     (u"Site - External Lighting Plan", u"Site Overall"),
-    (u"Cover Sheet", u"No keyplan"),
+    (u"Cover Sheet", None),
 ])
 def test_default_rules_one_picture_on(name, expected):
-    assert on(name) == [expected]
+    always = [u"No keyplan", u"North Sign"]
+    assert on(name) == sorted(always + ([expected] if expected else []))
 
 
 def test_otherwise_rule():
@@ -149,6 +150,12 @@ def test_otherwise_rule():
     assert dict(keyplan.values(u"y", rules)) == {u"A": False, u"None": True}
     with pytest.raises(keyplan.RuleError):
         keyplan.parse_rules(u'[{"parameter": "N", "otherwise": true, "on_if_any": ["x"]}]')
+
+
+def test_always_rule():
+    rules = keyplan.parse_rules(u'[{"parameter": "A", "on_if_any": ["x"]},'
+                                u' {"parameter": "N", "always": true}]')
+    assert dict(keyplan.values(u"y", rules)) == {u"A": False, u"N": True}
 
 
 def test_saved_old_defaults_read_as_new_defaults():
@@ -340,11 +347,11 @@ def test_studio_keyplan_rows():
               (2, u"S2", u"Main Building Tower 1 - Power Plan - 2nd Floor"),
               (3, u"S3", u"Cover")]
     names = [r["parameter"] for r in keyplan.DEFAULT_RULES]
-    now = {1: dict((n, n == u"Building 2") for n in names),     # already right
+    now = {1: dict((n, n in (u"Building 2", u"No keyplan", u"North Sign")) for n in names),
            2: dict((n, n == u"Site Overall") for n in names)}   # needs changing
     rows = dict((r["number"], r) for r in studio.keyplan_rows(sheets, keyplan.DEFAULT_RULES, now))
     assert rows[u"S1"]["state"] == studio.OK and not rows[u"S1"]["do"]
-    assert rows[u"S2"]["do"] and rows[u"S2"]["c2"] == u"Building 1"
+    assert rows[u"S2"]["do"] and rows[u"S2"]["c2"] == u"Building 1, No keyplan, North Sign"
     assert rows[u"S3"]["state"] == studio.BAD
 
 
