@@ -386,17 +386,19 @@ def by_ids(doc, ids):
 # ------------------------------------------------------------ Revit revisions
 
 def revisions(doc):
-    """[(revision id int, revision number text)] in sequence order."""
+    """[(revision id int, label)] in sequence order; label is
+    'sequence  description  (date)' as in Sheet Issues/Revisions."""
     from Autodesk.Revit.DB import Revision
     found = []
     for rid in Revision.GetAllRevisionIds(doc):
         r = doc.GetElement(rid)
-        number = u""
-        try:
-            number = r.RevisionNumber or u""
-        except Exception:
-            pass
-        found.append((id_int(rid), number))
+        parts = []
+        for attr in ("SequenceNumber", "Description", "RevisionDate"):
+            try:
+                parts.append(u"%s" % (getattr(r, attr) or u""))
+            except Exception:
+                parts.append(u"")
+        found.append((id_int(rid), u"%s  %s  (%s)" % tuple(parts)))
     return found
 
 

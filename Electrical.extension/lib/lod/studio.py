@@ -66,43 +66,57 @@ def compare_rows(result):
     return rows
 
 
-def revision_rows(result, revisions, sheet_revs):
-    """Revit revisions (Sheet Issues/Revisions) the matched sheets lack. A
-    sheet at LOD Rev. 002 carries every Revit revision numbered up to 002
-    (001 and 002), so its title block lists the history; the missing ones
-    are ticked to be added.
+def default_rev_map(revisions):
+    """{LOD rev number: revision id}: with Per Sheet numbering a sheet's
+    revision 002 is the second revision on it, so LOD Rev. 1, 2... take the
+    revisions 'Issued for ...' in sequence order (all of them when none says
+    issued)."""
+    issued = [rid for rid, label in revisions if u"issued" in label.lower()]
+    ids = issued or [rid for rid, _ in revisions]
+    return dict((i + 1, rid) for i, rid in enumerate(ids))
 
-    revisions: [(revision id, revision number text)] in sequence order
-    sheet_revs: {sheet number: set(revision ids on the sheet)}
-    """
+
+def lod_revs(table):
+    """The LOD revision numbers in use, 1 up to the highest."""
     from lod.table import rev_number
-    numbered, label = [], {}
-    for rid, number in revisions:
-        label[rid] = number
-        n = rev_number(number)
-        if n is not None:
-            numbered.append((n, rid))
-    have = set(n for n, _ in numbered)
+    found = [rev_number(d.rev) for d in table.drawings]
+    top = max([n for n in found if n is not None] or [0])
+    return list(range(1, top + 1))
+
+
+def revision_rows(result, rev_map, sheet_revs, labels):
+    """Revit revisions (Sheet Issues/Revisions) the matched sheets lack. A
+    sheet at LOD Rev. 002 carries the revisions picked for 001 and 002, so
+    its title block lists the history; the missing ones are ticked.
+
+    rev_map: {LOD rev number: revision id}
+    sheet_revs: {sheet number: set(revision ids on the sheet)}
+    labels: {revision id: text shown}
+    """
+    from lod.table import rev_number, rev_text
     rows, absent = [], {}
     for d, sheet in result.matched:
         n = rev_number(d.rev)
-        if n is None:
+        if not n:
             continue
-        if n not in have:
-            absent.setdefault(d.rev, []).append(sheet.number)
+        unset = [m for m in range(1, n + 1) if rev_map.get(m) is None]
+        if unset:
+            for m in unset:
+                absent.setdefault(m, []).append(sheet.number)
             continue
         on = sheet_revs.get(sheet.number) or set()
-        add = [rid for m, rid in numbered if m <= n and rid not in on]
+        add = [rev_map[m] for m in range(1, n + 1) if rev_map[m] not in on]
         if not add:
             continue
-        now = u", ".join(sorted(label.get(r, u"?") for r in on)) or u"(none)"
+        now = u"%d revision%s" % (len(on), u"" if len(on) == 1 else u"s")
         rows.append(row(u"rvt:%s:%s" % (sheet.number, u",".join(u"%s" % r for r in add)),
                         sheet.number, u"Revit revision", now, d.rev,
-                        u"Will add %s" % u", ".join(label[r] for r in add), WARN,
+                        u"Will add %s" % u", ".join(labels.get(r, u"?").split(u"  (")[0]
+                                                   for r in add), WARN,
                         do=True, can=True))
-    for rev, numbers in sorted(absent.items()):
-        rows.append(row(u"norvt:%s" % rev, u"%d sheets" % len(numbers), u"Revit revision", u"",
-                        rev, u"Make revision %s in Revit first" % rev, BAD))
+    for m, numbers in sorted(absent.items()):
+        rows.append(row(u"norvt:%d" % m, u"%d sheets" % len(numbers), u"Revit revision", u"",
+                        rev_text(m), u"Pick the revision for %s above" % rev_text(m), BAD))
     return rows
 
 

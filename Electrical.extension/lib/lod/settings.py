@@ -10,6 +10,7 @@ DEFAULTS = {
     "area_param": "",           # sheet parameter for 'Area/Building References' ('' = none)
     "title_block": "",          # 'Family : Type' of the title block for new sheets
     "keyplan_rules": "",        # JSON list of key plan rules ('' = the default rules)
+    "rev_map": "",              # JSON {model: {LOD rev number: Revit revision id}}
 }
 
 

@@ -702,6 +702,7 @@ def studio():
         "edit_rules": _studio_edit_rules,
         "save_file": lambda name: forms.save_file(file_ext="xlsx", default_name=name),
         "project": project,
+        "model_key": doc.PathName or doc.Title,
     }
     model = u"%s\n%s" % (doc.Title, project) if project else doc.Title
     StudioWindow(callbacks, model).show()

@@ -26,7 +26,7 @@ NAMES = ("ModelText", "StatusDot", "StatusText", "CloseButton", "SetupButton", "
          "SyncButton", "CompareGrid",
          "ViewsTabText", "PlaceButton", "ViewsShowCombo", "ViewsGrid",
          "KeyTabText", "KeyButton", "KeyShowCombo", "KeyGrid",
-         "ScopeTabText", "ScopeButton", "ScopeShowCombo", "ScopeGrid",
+         "RevMapPanel", "ScopeTabText", "ScopeButton", "ScopeShowCombo", "ScopeGrid",
          "ExportUpdate", "ExportNew", "ExportButton", "ExportGrid",
          "SetupPanel", "SetupDone", "PrefixText", "RevText", "AreaText", "RulesButton",
          "RulesResetButton", "RulesInfo", "ParamsButton", "ParamsGrid",
@@ -276,8 +276,9 @@ class StudioWindow(object):
             rows = studio.compare_rows(self.result)
             if revs:            # Revit revisions in use: no need for a revision parameter
                 rows = [r for r in rows if not r["key"].startswith(u"norev:")]
-                rows = studio.revision_rows(self.result, revs,
-                                            self.revit["sheet_revisions"]()) + rows
+                rev_map = self._rev_map(revs)
+                rows = studio.revision_rows(self.result, rev_map, self.revit["sheet_revisions"](),
+                                            dict(revs)) + rows
             self.rows["compare"] = rows
             counts = studio.compare_counts(self.result, self.table)
             self.KpiDrawings.Text = u"%d" % counts["drawings"]
@@ -287,6 +288,70 @@ class StudioWindow(object):
             self.KpiExtra.Text = u"%d" % counts["extra"]
         self._fill("create")
         self._fill("compare")
+
+    # ------------------------------------------------------------ revisions
+
+    def _saved_maps(self):
+        import json
+        try:
+            return json.loads(self.values.get("rev_map") or u"{}")
+        except ValueError:
+            return {}
+
+    def _rev_map(self, revs):
+        """{LOD rev number: revision id}: saved for this model, else guessed;
+        the combo boxes above the Compare grid show it."""
+        ids = set(rid for rid, _ in revs)
+        saved = self._saved_maps().get(self.revit.get("model_key") or u"", {})
+        rev_map = studio.default_rev_map(revs)
+        for n, rid in saved.items():
+            if rid is None or rid in ids:
+                rev_map[int(n)] = rid
+        if not getattr(self, "_picking", False):
+            self._fill_rev_combos(revs, rev_map)
+        return rev_map
+
+    def _fill_rev_combos(self, revs, rev_map):
+        from System.Windows import Thickness, VerticalAlignment
+        from System.Windows.Controls import ComboBox, StackPanel, TextBlock, Orientation
+        panel = self.RevMapPanel
+        while panel.Children.Count > 1:
+            panel.Children.RemoveAt(1)
+        self._rev_choices = [(None, u"(none)")] + list(revs)
+        for n in studio.lod_revs(self.table):
+            box = StackPanel()
+            box.Orientation = Orientation.Horizontal
+            box.Margin = Thickness(0, 2, 14, 2)
+            label = TextBlock()
+            label.Text = u"%03d =" % n
+            label.Margin = Thickness(0, 0, 6, 0)
+            label.VerticalAlignment = VerticalAlignment.Center
+            combo = ComboBox()
+            combo.Width = 260
+            for _, text in self._rev_choices:
+                combo.Items.Add(text)
+            ids = [rid for rid, _ in self._rev_choices]
+            combo.SelectedIndex = ids.index(rev_map.get(n)) if rev_map.get(n) in ids else 0
+            combo.Tag = n
+            combo.SelectionChanged += self.on_rev_pick
+            box.Children.Add(label)
+            box.Children.Add(combo)
+            panel.Children.Add(box)
+
+    def on_rev_pick(self, sender, args):
+        import json
+        rid = self._rev_choices[max(sender.SelectedIndex, 0)][0]
+        maps = self._saved_maps()
+        key = self.revit.get("model_key") or u""
+        mine = maps.setdefault(key, {})
+        mine[u"%d" % int(sender.Tag)] = rid
+        self.values["rev_map"] = json.dumps(maps)
+        self.revit["save_settings"](self.values)
+        self._picking = True
+        try:
+            self._fill_lod()
+        finally:
+            self._picking = False
 
     def _fill_views(self):
         numbers = dict((i, n) for i, n, _ in self.sheet_list)
