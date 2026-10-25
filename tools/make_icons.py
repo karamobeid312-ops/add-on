@@ -314,6 +314,74 @@ def check_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def sheet(c, ink, x0=4, y0=3, x1=24, y1=25):
+    """A drawing sheet with its title block strip and key plan box."""
+    c.fill([rect(x0, y0, x1, y1)], WHITE)
+    stroke(c, rect(x0, y0, x1, y1), 1.3, ink, closed=True)
+    stroke(c, [(x1 - 5.5, y0), (x1 - 5.5, y1)], 1.0, ink)            # title block strip
+    c.fill([rect(x1 - 4.4, y0 + 1.2, x1 - 1.2, y0 + 4.4)], LIGHT)     # key plan
+
+
+def create_sheets(c, ink):
+    sheet(c, ink, 2, 2, 20, 22)
+    for y in (8, 12, 16):
+        stroke(c, [(5, y), (11.5, y)], 1.1, GRAY)
+    badge(c, GREEN)
+    stroke(c, [(24, 20), (24, 28)], 2.2, WHITE)                       # +
+    stroke(c, [(20, 24), (28, 24)], 2.2, WHITE)
+
+
+def lod_list(c, ink, x0=3, y0=2.5, x1=21, y1=29.5):
+    """The LOD: a table of drawings."""
+    c.fill([rect(x0, y0, x1, y1)], WHITE)
+    stroke(c, rect(x0, y0, x1, y1), 1.3, ink, closed=True)
+    c.fill([rect(x0 + 0.7, y0 + 0.7, x1 - 0.7, y0 + 4.5)], GREEN)
+    for y in range(int(y0 + 8), int(y1 - 1), 4):
+        stroke(c, [(x0 + 2.5, y), (x0 + 4.5, y)], 1.1, ink)
+        stroke(c, [(x0 + 6.5, y), (x1 - 2.5, y)], 1.1, GRAY)
+
+
+def compare_lod(c, ink):
+    lod_list(c, ink, 2, 2, 15, 26)
+    sheet(c, ink, 13, 9, 30, 30)
+    stroke(c, [(19, 18.5), (23.5, 18.5)], 1.6, RED)                   # ≠
+    stroke(c, [(19, 22), (23.5, 22)], 1.6, RED)
+    stroke(c, [(20, 24.5), (22.5, 16)], 1.3, RED)
+
+
+def sync_lod(c, ink):
+    lod_list(c, ink, 2, 2, 14, 24)
+    sheet(c, ink, 17, 9, 30, 30)
+    stroke(c, [(7, 27), (7, 29.5), (12, 29.5)], 1.6, BLUE)            # LOD -> sheet
+    stroke(c, [(10, 27.3), (12.6, 29.5), (10, 31.7)], 1.6, BLUE)
+    stroke(c, [(15, 5), (21, 5), (21, 7.5)], 1.6, BLUE)
+    stroke(c, [(18.8, 5.5), (21, 8), (23.2, 5.5)], 1.6, BLUE)
+
+
+def export_lod(c, ink):
+    lod_list(c, ink, 2, 2.5, 20, 29.5)
+    c.fill([rounded(16.5, 17, 30.5, 31, 2.5)], GREEN)
+    stroke(c, [(23.5, 19.8), (23.5, 27.2)], 2.0, WHITE)
+    stroke(c, [(20.3, 24.2), (23.5, 27.4), (26.7, 24.2)], 2.0, WHITE)
+
+
+def key_plans(c, ink):
+    c.fill([rect(3, 3, 29, 29)], WHITE)
+    stroke(c, rect(3, 3, 29, 29), 1.3, ink, closed=True)
+    c.fill([rect(6, 6, 13, 26)], BLUE)                                # tower 1, shaded
+    stroke(c, rect(16, 6, 26, 15), 1.2, ink, closed=True)             # tower 2
+    stroke(c, rect(16, 18, 26, 26), 1.2, ink, closed=True)            # parking
+    stroke(c, [(9.5, 6), (9.5, 26)], 1.0, WHITE)                      # part 1 | part 2
+
+
+def lod_settings(c, ink):
+    def glyph(c):
+        c.fill([rect(19.5, 19.5, 28.5, 28.5)], WHITE)
+        for y in (22, 24.5, 27):
+            stroke(c, [(21, y), (27, y)], 0.9, GREEN)
+    settings_gear(c, ink, GREEN, glyph)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -331,6 +399,12 @@ ICONS = [
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
     (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
     (TAB + "Model Check.panel/Settings.pushbutton", check_settings),
+    (TAB + "LOD.panel/Create Sheets.pushbutton", create_sheets),
+    (TAB + "LOD.panel/Compare LOD.pushbutton", compare_lod),
+    (TAB + "LOD.panel/Sync LOD.pushbutton", sync_lod),
+    (TAB + "LOD.panel/Export LOD.pushbutton", export_lod),
+    (TAB + "LOD.panel/Key Plans.pushbutton", key_plans),
+    (TAB + "LOD.panel/Settings.pushbutton", lod_settings),
 ]
 
 
