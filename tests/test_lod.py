@@ -412,3 +412,17 @@ def test_by_plan_never_mixes_floors_or_systems():
     sheet = u"KEZAD Two Building - Main Building Tower 1 - Lighting Plan - Typical Floor 01 (3rd & 5th)"
     r = studio.view_rows([(1, u"S", sheet)], POWER_VIEWS, {})[0]
     assert not r["do"]
+
+
+def test_studio_revision_rows():
+    table = read_rows(lod_rows())
+    sheets = [Sheet(1, u"2202-108-VE-7100-01400", u"x"),     # LOD rev 002
+              Sheet(2, u"2202-108-VE-7100-01401", u"y"),     # LOD rev 002, has it
+              Sheet(3, u"2202-108-VE-7100-02400", u"z")]     # LOD rev 001, none in Revit
+    result = compare(table, sheets, KEZAD, use_rev=False)
+    revs = [(50, u"002"), (51, u"3")]
+    rows = studio.revision_rows(result, revs, {u"2202-108-VE-7100-01401": set([50])})
+    ticked = [r for r in rows if r["do"]]
+    assert [r["key"] for r in ticked] == [u"rvt:2202-108-VE-7100-01400:50"]
+    assert any(r["key"] == u"norvt:001" and not r["can"] for r in rows)
+    assert studio.revision_pairs([ticked[0]["key"], u"chg:x:y"]) == [(u"2202-108-VE-7100-01400", 50)]

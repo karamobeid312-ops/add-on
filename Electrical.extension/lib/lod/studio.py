@@ -66,6 +66,52 @@ def compare_rows(result):
     return rows
 
 
+def revision_rows(result, revisions, sheet_revs):
+    """Revit revisions (Sheet Issues/Revisions) the matched sheets lack: the
+    one whose number is the drawing's LOD Rev. is ticked to be added.
+
+    revisions: [(revision id, revision number text)] in sequence order
+    sheet_revs: {sheet number: set(revision ids on the sheet)}
+    """
+    from lod.table import rev_number
+    by_number, label = {}, {}
+    for rid, number in revisions:
+        label[rid] = number
+        n = rev_number(number)
+        if n is not None:
+            by_number.setdefault(n, rid)
+    rows, absent = [], {}
+    for d, sheet in result.matched:
+        n = rev_number(d.rev)
+        if n is None:
+            continue
+        rid = by_number.get(n)
+        if rid is None:
+            absent.setdefault(d.rev, []).append(sheet.number)
+            continue
+        on = sheet_revs.get(sheet.number) or set()
+        if rid in on:
+            continue
+        now = u", ".join(sorted(label.get(r, u"?") for r in on)) or u"(none)"
+        rows.append(row(u"rvt:%s:%s" % (sheet.number, rid), sheet.number, u"Revit revision",
+                        now, d.rev, u"Will add revision %s" % label[rid], WARN,
+                        do=True, can=True))
+    for rev, numbers in sorted(absent.items()):
+        rows.append(row(u"norvt:%s" % rev, u"%d sheets" % len(numbers), u"Revit revision", u"",
+                        rev, u"Make revision %s in Revit first" % rev, BAD))
+    return rows
+
+
+def revision_pairs(keys):
+    """[(sheet number, revision id)] of the ticked 'Revit revision' rows."""
+    pairs = []
+    for k in keys:
+        if k.startswith(u"rvt:"):
+            _, number, rid = k.rsplit(u":", 2)
+            pairs.append((number, int(rid)))
+    return pairs
+
+
 def compare_counts(result, table):
     return {"drawings": len(table.by_number()), "matched": len(result.matched),
             "missing": len(result.missing), "extra": len(result.extra),

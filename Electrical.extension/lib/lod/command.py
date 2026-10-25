@@ -691,6 +691,9 @@ def studio():
         "apply": lambda changes: revit_lod.apply_changes(
             doc, changes, settings.load()["rev_param"], settings.load()["area_param"]),
         "place": lambda pairs: _studio_place(doc, pairs),
+        "revisions": lambda: revit_lod.revisions(doc),
+        "sheet_revisions": lambda: revit_lod.sheet_revisions(doc),
+        "add_revisions": lambda pairs: revit_lod.add_revisions(doc, pairs),
         "keyplans": lambda ids, fn: _studio_keyplans(doc, ids, fn),
         "sheet_parameters": lambda: _studio_sheet_parameters(doc),
         "edit_rules": _studio_edit_rules,

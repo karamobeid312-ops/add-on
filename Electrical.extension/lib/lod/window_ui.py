@@ -267,11 +267,17 @@ class StudioWindow(object):
                                   use_rev=bool(self.values.get("rev_param")),
                                   use_area=bool(self.values.get("area_param")))
             self.rows["create"] = studio.create_rows(self.table, self.sheets, prefix)
-            self.rows["compare"] = studio.compare_rows(self.result)
+            revs = self.revit["revisions"]()
+            rows = studio.compare_rows(self.result)
+            if revs:            # Revit revisions in use: no need for a revision parameter
+                rows = [r for r in rows if not r["key"].startswith(u"norev:")]
+                rows = studio.revision_rows(self.result, revs,
+                                            self.revit["sheet_revisions"]()) + rows
+            self.rows["compare"] = rows
             counts = studio.compare_counts(self.result, self.table)
             self.KpiDrawings.Text = u"%d" % counts["drawings"]
             self.KpiMatched.Text = u"%d" % counts["matched"]
-            self.KpiChanges.Text = u"%d" % counts["changes"]
+            self.KpiChanges.Text = u"%d" % sum(1 for r in rows if r["can"] and r["do"])
             self.KpiMissing.Text = u"%d" % counts["missing"]
             self.KpiExtra.Text = u"%d" % counts["extra"]
         self._fill("create")
@@ -451,12 +457,23 @@ class StudioWindow(object):
                     pairs.append((int(sid), int(vid)))
             if pairs:
                 placed = len(self.revit["place"](pairs)[0])
+        revised = 0
+        if made:
+            self.sheets = self.revit["sheets"]()
+            self._fill_lod()
+            new = set(n for n, _ in made)
+            pairs = [p for p in studio.revision_pairs(studio.picked(self.rows["compare"]))
+                     if p[0] in new]
+            if pairs:
+                revised = self.revit["add_revisions"](pairs)[0]
         self.reload(read_lod=False)
         for number, why in failed:
             self._note(number, u"Not created: %s" % why, studio.BAD)
         text = u"%d sheets created" % len(made)
         if self.CreateViews.IsChecked:
             text += u", %d views placed" % placed
+        if revised:
+            text += u", %d revisions added" % revised
         if failed:
             text += u", %d failed (red rows)" % len(failed)
         if notes:
@@ -467,17 +484,24 @@ class StudioWindow(object):
     def on_sync(self, sender, args):
         keys = studio.picked(self.rows["compare"])
         changes = studio.tidy_changes(self.result, keys) if self.result else []
-        if not changes:
+        revs = studio.revision_pairs(keys)
+        if not changes and not revs:
             self._alert(u"Tick the differences to write to the sheets.")
             return
-        self._status(u"Writing %d changes..." % len(changes), "")
-        failed = self.revit["apply"](changes)
+        self._status(u"Writing %d changes..." % (len(changes) + len(revs)), "")
+        failed = self.revit["apply"](changes) if changes else []
+        rev_failed = self.revit["add_revisions"](revs)[1] if revs else []
         self.reload(read_lod=False)
+        for number, why in rev_failed:
+            for rid in [r for n, r in revs if n == number]:
+                self._note(u"rvt:%s:%s" % (number, rid), u"Not added: %s" % why, studio.BAD)
+        failed = list(failed) + [(None, w) for _, w in rev_failed]
         for c, why in failed:
-            self._note(studio.change_key(c), u"Not changed: %s" % why, studio.BAD)
+            if c is not None:
+                self._note(studio.change_key(c), u"Not changed: %s" % why, studio.BAD)
         self._fill("compare")
         self._status(u"%d changes written%s." % (
-            len(changes) - len(failed), u", %d failed (red rows)" % len(failed) if failed else u""),
+            len(changes) + len(revs) - len(failed), u", %d failed (red rows)" % len(failed) if failed else u""),
             "bad" if failed else "ok")
 
     def on_place(self, sender, args):

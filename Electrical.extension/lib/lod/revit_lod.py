@@ -381,3 +381,58 @@ def by_ids(doc, ids):
     from Autodesk.Revit.DB import View
     return dict((id_int(v.Id), v) for v in FilteredElementCollector(doc).OfClass(View)
                 if id_int(v.Id) in wanted)
+
+
+# ------------------------------------------------------------ Revit revisions
+
+def revisions(doc):
+    """[(revision id int, revision number text)] in sequence order."""
+    from Autodesk.Revit.DB import Revision
+    found = []
+    for rid in Revision.GetAllRevisionIds(doc):
+        r = doc.GetElement(rid)
+        number = u""
+        try:
+            number = r.RevisionNumber or u""
+        except Exception:
+            pass
+        found.append((id_int(rid), number))
+    return found
+
+
+def sheet_revisions(doc):
+    """{sheet number: set(revision id ints on it)}."""
+    return dict((s.SheetNumber, set(id_int(i) for i in s.GetAllRevisionIds()))
+                for s in all_sheets(doc))
+
+
+def add_revisions(doc, pairs):
+    """Put revisions on sheets: pairs [(sheet number, revision id int)].
+    Returns (added, [(sheet number, why)])."""
+    from System.Collections.Generic import List
+    by_number = dict((s.SheetNumber, s) for s in all_sheets(doc))
+    from Autodesk.Revit.DB import Revision
+    ids = dict((id_int(i), i) for i in Revision.GetAllRevisionIds(doc))
+    added, failed = 0, []
+    t = Transaction(doc, "Add Revisions from LOD")
+    t.Start()
+    try:
+        for number, rid in pairs:
+            sheet = by_number.get(number)
+            if sheet is None or rid not in ids:
+                failed.append((number, u"sheet or revision not found"))
+                continue
+            try:
+                extra = List[ElementId](sheet.GetAdditionalRevisionIds())
+                if ids[rid] not in extra:
+                    extra.Add(ids[rid])
+                    sheet.SetAdditionalRevisionIds(extra)
+                added += 1
+            except Exception as error:
+                failed.append((number, u"%s" % error))
+        t.Commit()
+    except Exception:
+        if t.HasStarted() and not t.HasEnded():
+            t.RollBack()
+        raise
+    return added, failed
