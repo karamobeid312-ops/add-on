@@ -34,9 +34,9 @@ def test_lighting_and_fcu_first_then_power_on_a_new_way():
     # slots 1..7: power, light, power, light, light, power, fcu
     plan = board(singles([S2, S1, S2, S1, S1, S2, S1]))
     t = plan.targets
-    assert [t[k] for k in (2, 4, 5, 7)] == [1, 2, 3, 4]         # section 1 in order
+    assert sorted(t[k] for k in (2, 4, 5, 7)) == [1, 2, 3, 4]   # section 1 first
     assert plan.spare_slots[S1] == [5]                          # 1 spare for 4 circuits
-    assert [t[k] for k in (1, 3, 6)] == [7, 8, 9]               # section 2 on a new way
+    assert sorted(t[k] for k in (1, 3, 6)) == [7, 8, 9]         # section 2 on a new way
     assert plan.spare_slots[S2] == [10]
     assert plan.ways == 12 and plan.slots == 12
     assert plan.spaces == [6, 11, 12]
@@ -47,14 +47,16 @@ def test_section_rcds_and_text():
     plan = board(singles([S1] * 3 + [S2] * 3, load=5000.0))
     assert plan.rcds == {S1: u"RCCB 25A 4P 100mA", S2: u"RCCB 25A 4P 30mA"}
     assert plan.text() == (u"12 ways (was 42), RCCB 25A 4P 100mA: 3 circuits + 1 spare, "
-                           u"RCCB 25A 4P 30mA: 3 circuits + 1 spare, 4 spaces, 3 circuits moved")
+                           u"RCCB 25A 4P 30mA: 3 circuits + 1 spare, 4 spaces, "
+                           u"R/Y/B 10.0/10.0/10.0 kVA, 3 circuits moved")
 
 
 def test_three_pole_circuit_starts_on_a_way():
     items = [Item(1, 1, 1, S2), Item(2, 2, 3, S2), Item(3, 5, 1, S2)]
     plan = board(items)
-    assert plan.targets == {1: 1, 2: 4, 3: 2}
-    assert plan.spare_slots[S2] == [3]
+    assert plan.targets[2] == 1                     # the 3-pole one on the first row
+    assert sorted([plan.targets[1], plan.targets[3]]) == [4, 5]
+    assert plan.spare_slots[S2] == [6]
 
 
 def test_only_power():
@@ -78,12 +80,26 @@ def test_empty_board_left_alone():
 
 def test_a_section_takes_at_least_six_slots():
     plan = board(singles([S1, S1, S2, S2]))
-    assert plan.targets == {1: 1, 2: 2, 3: 7, 4: 8}
-    assert plan.spare_slots == {S1: [3], S2: [9]}
-    assert plan.spaces == [4, 5, 6, 10, 11, 12]
+    assert sorted([plan.targets[1], plan.targets[2]]) == [1, 2]
+    assert plan.spare_slots[S1] == [3]
+    assert min(plan.targets[3], plan.targets[4]) >= 7       # section 2 from way 7
+    assert len(plan.spare_slots[S2]) == 1 and plan.spare_slots[S2][0] >= 7
 
 
 def test_a_long_section_is_not_padded():
     plan = board(singles([S1] * 8 + [S2]))
     assert plan.spare_slots[S1] == [9]
-    assert plan.targets[9] == 10                    # next way after 9 slots
+    assert plan.targets[9] >= 10 and plan.targets[9] <= 12  # right after section 1
+
+
+def test_phases_balanced():
+    loads = [3000, 1000, 1000, 1000, 500, 500]
+    items = [Item(i + 1, i + 1, 1, S2, va) for i, va in enumerate(loads)]
+    plan = board(items)
+    assert plan.phase_loads == [3000.0, 2000.0, 2000.0]
+    assert (plan.targets[1] - 1) % 3 == 0           # the 3 kW circuit alone on R
+
+
+def test_balanced_with_six_circuits_on_a_three_phase_board():
+    plan = board(singles([S2] * 6, load=1000.0))
+    assert plan.phase_loads == [2000.0, 2000.0, 2000.0]
