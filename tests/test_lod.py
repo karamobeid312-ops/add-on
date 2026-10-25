@@ -258,3 +258,34 @@ def test_export_workbook(tmp_path):
     assert u"Not in Revit" in xml and u"New in Revit" in xml
     assert export.summary(model_sheets(), read_rows(lod_rows()), KEZAD) == {
         u"": 2, export.NOT_IN_REVIT: 2, export.REVISED: 1, export.RENAMED: 1, export.NEW: 1}
+
+
+# ------------------------------------------------------------ place views
+
+from lod import placeviews  # noqa: E402
+
+VIEW_PART1 = u"KEZAD Two Building Lighting System Setting Out Plan - Part 01"
+
+
+def test_view_key_ignores_dashes_case_and_zeros():
+    assert placeviews.key(VIEW_PART1) == placeviews.key(
+        u"KEZAD Two Building - Lighting System Setting Out Plan - Part 1")
+    assert placeviews.key(u"Part 10") != placeviews.key(u"Part 1")
+
+
+def test_match_views_to_sheets():
+    sheets = [(1, u"KEZAD Two Building - Lighting System Setting Out Plan - Part 1"),
+              (2, u"Lighting System Setting Out Plan"),      # prefix left out of the name
+              (3, u"Power System Setting Out Plan - Part 4"),
+              (4, u"Cover Sheet")]
+    views = [(10, VIEW_PART1, set()),
+             (11, u"KEZAD Two Building Lighting System Setting Out Plan", set()),
+             (12, u"KEZAD Two Building Power System Setting Out Plan - Part 04", set([9])),
+             (13, u"KEZAD Two Building Power System Setting Out Plan - Part 04", set())]
+    found = placeviews.match(sheets, views, KEZAD)
+    assert found == {1: [10], 2: [11], 3: [13, 12]}
+
+
+def test_match_view_already_on_this_sheet_before_other_sheets():
+    views = [(10, u"Plan A", set([7])), (11, u"Plan A", set([1]))]
+    assert placeviews.match([(1, u"Plan A")], views) == {1: [11, 10]}

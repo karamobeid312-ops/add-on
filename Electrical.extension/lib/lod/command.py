@@ -405,6 +405,99 @@ def keyplans():
 
 # ------------------------------------------------------------ Settings
 
+# ------------------------------------------------------------ Place Views
+
+class _PairItem(forms.TemplateListItem):
+    @property
+    def name(self):
+        sheet, view = self.item
+        return u"%s  %s   <-   %s" % (sheet.SheetNumber, sheet.Name, view.Name)
+
+
+def place_views():
+    """Put on each sheet the view named after its LOD title."""
+    from lod import placeviews
+    doc, uidoc = _doc(), revit.uidoc
+    if doc is None:
+        return
+    values = settings.load()
+    options = [ALL]
+    if revit_lod.selected_sheets(doc, uidoc):
+        options.insert(0, SELECTED)
+    from Autodesk.Revit.DB import ViewSheet
+    if isinstance(doc.ActiveView, ViewSheet):
+        options.insert(0, ACTIVE)
+    choice = forms.CommandSwitchWindow.show(options, message="Place the views on:")
+    if not choice:
+        return
+    if choice == ACTIVE:
+        targets = [doc.ActiveView]
+    elif choice == SELECTED:
+        targets = revit_lod.selected_sheets(doc, uidoc)
+    else:
+        targets = revit_lod.all_sheets(doc)
+
+    views = revit_lod.view_list(doc)
+    view_by_id = revit_lod.views_by_id(doc)
+    on_sheets = dict((i, on) for i, _, on in views)
+    sheet_by_id = dict((revit_lod.id_int(s.Id), s) for s in revit_lod.all_sheets(doc))
+    found = placeviews.match([(revit_lod.id_int(s.Id), s.Name) for s in targets],
+                             views, values.get("title_prefix", u""))
+
+    todo, already, elsewhere, missing = [], [], [], []
+    for s in targets:
+        sid = revit_lod.id_int(s.Id)
+        ids = found.get(sid)
+        if not ids:
+            missing.append(s)
+            continue
+        best = view_by_id[ids[0]]
+        on = on_sheets.get(ids[0]) or set()
+        if sid in on:
+            already.append((s, best))
+        elif on and u"%s" % best.ViewType != u"Legend":
+            others = [sheet_by_id[o] for o in on if o in sheet_by_id]
+            elsewhere.append((s, best, u", ".join(o.SheetNumber for o in others)))
+        else:
+            todo.append((s, best))
+
+    placed, failed = [], []
+    if todo:
+        picked = forms.SelectFromList.show(
+            [_PairItem(p, checked=True) for p in todo], multiselect=True,
+            title="Place these views on their sheets", button_name="Place views",
+            width=900, height=600)
+        if not picked:
+            return
+        placed, failed = revit_lod.place_views(doc, picked)
+
+    output = _out("Place Views")
+    output.print_md("# Views placed on the sheets by name")
+    output.print_md(u"**%d** view%s placed." % (len(placed), "" if len(placed) == 1 else "s"))
+    if placed:
+        output.print_table(table_data=[[s.SheetNumber, s.Name, v.Name, output.linkify(s.Id)]
+                                       for s, v in placed],
+                           columns=["Number", "Sheet", "View", ""])
+    if failed:
+        output.print_md("## Not placed")
+        output.print_table(table_data=[[s.SheetNumber, v.Name, w] for s, v, w in failed],
+                           columns=["Number", "View", "Why"])
+    if elsewhere:
+        output.print_md("## View already on another sheet")
+        output.print_md("*Revit puts a plan on one sheet only. Remove it from the other "
+                        "sheet, or duplicate the view, then run Place Views again.*")
+        output.print_table(table_data=[[s.SheetNumber, s.Name, v.Name, o]
+                                       for s, v, o in elsewhere],
+                           columns=["Number", "Sheet", "View", "Is on sheet"])
+    if missing:
+        output.print_md(u"## No view named like the sheet (%d)" % len(missing))
+        output.print_table(table_data=[[s.SheetNumber, s.Name] for s in missing[:300]],
+                           columns=["Number", "Sheet"])
+    if already:
+        output.print_md(u"*%d sheet%s already had %s view.*" % (
+            len(already), "" if len(already) == 1 else "s", "its" if len(already) == 1 else "their"))
+
+
 def _edit_rules(values):
     """Edit the key plan rules in Notepad; saved when they are valid."""
     path = script.get_universal_data_file("LOD_keyplan_rules", "json")

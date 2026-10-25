@@ -256,3 +256,83 @@ def selected_sheets(doc, uidoc):
 def all_sheets(doc):
     return [s for s in FilteredElementCollector(doc).OfClass(ViewSheet)
             if not s.IsTemplate and not s.IsPlaceholder]
+
+
+# ------------------------------------------------------------ views
+
+def _placeable_views(doc):
+    """[(view, name)] of the views that can go on a sheet: plans, ceiling
+    plans, sections, elevations, 3D, drafting views and legends."""
+    from Autodesk.Revit.DB import View, ViewType
+    kinds = set([ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.EngineeringPlan,
+                 ViewType.AreaPlan, ViewType.Section, ViewType.Elevation,
+                 ViewType.Detail, ViewType.ThreeD, ViewType.DraftingView,
+                 ViewType.Legend])
+    found = []
+    for v in FilteredElementCollector(doc).OfClass(View):
+        if v.IsTemplate or v.ViewType not in kinds:
+            continue
+        found.append((v, v.Name))
+    return found
+
+
+def views_on_sheets(doc):
+    """{view id int: set(sheet id ints)} of the views placed on sheets."""
+    from Autodesk.Revit.DB import Viewport
+    on = {}
+    for vp in FilteredElementCollector(doc).OfClass(Viewport):
+        on.setdefault(id_int(vp.ViewId), set()).add(id_int(vp.SheetId))
+    return on
+
+
+def view_list(doc):
+    """[(view id int, name, set(sheet id ints it is on))]."""
+    on = views_on_sheets(doc)
+    return [(id_int(v.Id), name, on.get(id_int(v.Id), set()))
+            for v, name in _placeable_views(doc)]
+
+
+def views_by_id(doc):
+    """{view id int: view} of the views that can go on a sheet."""
+    return dict((id_int(v.Id), v) for v, _ in _placeable_views(doc))
+
+
+def _sheet_centre(doc, sheet):
+    """Middle of the drawing area: the title block's box, else the sheet's."""
+    from Autodesk.Revit.DB import XYZ
+    for e in holders(doc, sheet):
+        if e.Category is not None and id_int(e.Category.Id) == id_int(
+                ElementId(BuiltInCategory.OST_TitleBlocks)):
+            box = e.get_BoundingBox(sheet)
+            if box is not None:
+                return (box.Min + box.Max) / 2.0
+    out = sheet.Outline
+    return XYZ((out.Min.U + out.Max.U) / 2.0, (out.Min.V + out.Max.V) / 2.0, 0)
+
+
+def place_views(doc, pairs):
+    """Put each view on its sheet, in the middle of the title block.
+
+    pairs: [(sheet, view)]. Returns ([(sheet, view)] placed,
+    [(sheet, view, why not)]).
+    """
+    from Autodesk.Revit.DB import Viewport
+    placed, failed = [], []
+    t = Transaction(doc, "Place Views on Sheets")
+    t.Start()
+    try:
+        for sheet, view in pairs:
+            try:
+                if not Viewport.CanAddViewToSheet(doc, sheet.Id, view.Id):
+                    failed.append((sheet, view, "Revit cannot add it (already on a sheet?)"))
+                    continue
+                Viewport.Create(doc, sheet.Id, view.Id, _sheet_centre(doc, sheet))
+                placed.append((sheet, view))
+            except Exception as error:
+                failed.append((sheet, view, u"%s" % error))
+        t.Commit()
+    except Exception:
+        if t.HasStarted() and not t.HasEnded():
+            t.RollBack()
+        raise
+    return placed, failed

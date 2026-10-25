@@ -18,7 +18,7 @@ Everything is on one **Electrical** ribbon tab, with six panels:
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
-| **LOD** | Create Sheets, Compare LOD, Sync LOD, Export LOD, Key Plans, LOD Settings: the drawing sheets kept in step with the List of Deliverables Excel file, and key plans switched from the sheet names, see [List of Deliverables](#list-of-deliverables) |
+| **LOD** | Create Sheets, Compare LOD, Sync LOD, Export LOD, Place Views, Key Plans, LOD Settings: the drawing sheets kept in step with the List of Deliverables Excel file, and key plans switched from the sheet names, see [List of Deliverables](#list-of-deliverables) |
 
 ## What gets drawn
 
@@ -570,6 +570,13 @@ is offered again next time.
   have, *New in Revit*, added at the end. *New LOD from the Revit sheets
   only* lists the sheets by area. The LOD it was made from is never
   overwritten.
+- **Place Views** – puts on each sheet (this sheet, the selected ones or
+  all) the view named after its LOD title, in the middle of the title block.
+  Names match ignoring case, dashes and leading zeros, with or without the
+  title prefix: the view *KEZAD Two Building Lighting System Setting Out
+  Plan - Part 01* goes on the sheet *KEZAD Two Building - Lighting System
+  Setting Out Plan - Part 1*. You confirm the list first; views already on
+  another sheet and sheets with no matching view are listed.
 - **Key Plans** – switches the key plan of this sheet, the sheets selected
   in the Project Browser, or all sheets, from their names (below).
 - **LOD Settings** – the LOD file, the title prefix, the revision and area
@@ -711,7 +718,7 @@ Electrical.extension/
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
-    LOD.panel/            Create Sheets, Compare LOD, Sync LOD, Export LOD, Key Plans, LOD Settings
+    LOD.panel/            Create Sheets, Compare LOD, Sync LOD, Export LOD, Place Views, Key Plans, LOD Settings
   lib/sld/
     model.py       boards, ways, UPS, transformer from equipment + circuits
     layout.py      floors, placement, riser routing

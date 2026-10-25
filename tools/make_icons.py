@@ -374,6 +374,15 @@ def key_plans(c, ink):
     stroke(c, [(9.5, 6), (9.5, 26)], 1.0, WHITE)                      # part 1 | part 2
 
 
+def place_views(c, ink):
+    sheet(c, ink, 2, 3, 30, 29)
+    c.fill([rect(5, 6, 22, 26)], LIGHT)                               # the view
+    stroke(c, rect(5, 6, 22, 26), 1.2, BLUE, closed=True)
+    for x in (10, 16):
+        stroke(c, [(x, 8), (x, 24)], 1.0, BLUE)
+    stroke(c, [(7, 16), (20, 16)], 1.0, BLUE)
+
+
 def lod_settings(c, ink):
     def glyph(c):
         c.fill([rect(19.5, 19.5, 28.5, 28.5)], WHITE)
@@ -403,6 +412,7 @@ ICONS = [
     (TAB + "LOD.panel/Compare LOD.pushbutton", compare_lod),
     (TAB + "LOD.panel/Sync LOD.pushbutton", sync_lod),
     (TAB + "LOD.panel/Export LOD.pushbutton", export_lod),
+    (TAB + "LOD.panel/Place Views.pushbutton", place_views),
     (TAB + "LOD.panel/Key Plans.pushbutton", key_plans),
     (TAB + "LOD.panel/Settings.pushbutton", lod_settings),
 ]
