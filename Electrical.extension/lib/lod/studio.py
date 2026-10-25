@@ -87,12 +87,18 @@ def view_rows(sheets, views, sheet_numbers, prefix=u""):
     legend = dict((v[0], v[3]) for v in views)
     found = placeviews.match([(i, n) for i, _, n in sheets],
                              [(v[0], v[1], v[2]) for v in views], prefix)
+    free = [(v[0], v[1]) for v in views if not v[2] or v[3]]
     rows = []
     for sid, number, name in sheets:
         ids = found.get(sid)
         if not ids:
-            rows.append(row(u"%s:" % sid, number, name, u"", u"",
-                            u"No view named like the sheet", BAD))
+            near = placeviews.closest(name, free, prefix)
+            if near is None:
+                rows.append(row(u"%s:" % sid, number, name, u"", u"", u"No matching view", BAD))
+            else:
+                rows.append(row(u"%s:%s" % (sid, near[0]), number, name, names[near[0]], u"",
+                                u"Close name (%d%%): tick to use" % round(near[1] * 100), WARN,
+                                can=True))
             continue
         vid = ids[0]
         where = on.get(vid) or set()
@@ -102,7 +108,7 @@ def view_rows(sheets, views, sheet_numbers, prefix=u""):
         elif where and not legend.get(vid):
             others = u", ".join(sorted(sheet_numbers.get(o, u"?") for o in where))
             rows.append(row(key, number, name, names[vid], u"",
-                            u"On sheet %s (a view goes on one sheet only)" % others, WARN))
+                            u"On sheet %s" % others, WARN))
         else:
             extra = u" (%d views match)" % len(ids) if len(ids) > 1 else u""
             rows.append(row(key, number, name, names[vid], u"", u"To place" + extra, WARN,

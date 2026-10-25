@@ -18,10 +18,40 @@ _WORDS = re.compile(r"[^0-9a-z&]+")
 _ZEROS = re.compile(r"\b0+(\d)")
 
 
+_ORDINALS = ((u"first", u"1st"), (u"second", u"2nd"), (u"third", u"3rd"), (u"fourth", u"4th"),
+             (u"fifth", u"5th"), (u"sixth", u"6th"), (u"seventh", u"7th"), (u"eighth", u"8th"),
+             (u"ninth", u"9th"), (u"tenth", u"10th"))
+_DIGITS = re.compile(r"\d+")
+
+
 def key(name):
-    """Name reduced for matching."""
-    low = _WORDS.sub(u" ", text(name).lower())
-    return _ZEROS.sub(r"\1", low).strip()
+    """Name reduced for matching: 'First Floor' = '1st Floor', 'Part 01' = 'Part 1'."""
+    low = u" %s " % _WORDS.sub(u" ", text(name).lower())
+    for word, short in _ORDINALS:
+        low = low.replace(u" %s " % word, u" %s " % short)
+    return u" ".join(_ZEROS.sub(r"\1", low).split())
+
+
+def closest(sheet_name, views, prefix=u"", least=0.6):
+    """(view id, score) of the view whose name shares the most words with
+    the sheet's, with the same numbers in it (Part 1 never matches Part 2);
+    None below `least` (0..1).
+
+    views: [(view id, view name)]
+    """
+    best = None
+    for k in sheet_keys(sheet_name, prefix):
+        words = set(k.split())
+        numbers = set(_DIGITS.findall(k))
+        for view_id, name in views:
+            vk = key(name)
+            if set(_DIGITS.findall(vk)) != numbers:
+                continue
+            other = set(vk.split())
+            score = len(words & other) / float(len(words | other) or 1)
+            if score >= least and (best is None or score > best[1]):
+                best = (view_id, score)
+    return best
 
 
 def sheet_keys(sheet_name, prefix=u""):

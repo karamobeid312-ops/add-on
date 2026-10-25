@@ -365,3 +365,20 @@ def test_studio_window_names_are_in_the_xaml():
     listed = _re.search(r"NAMES = \(([^)]*)\)", source, _re.S).group(1)
     for name in _re.findall(r'"(\w+)"', listed):
         assert name in names, name
+
+
+def test_ordinals_and_close_views():
+    assert placeviews.key(u"Overall First Floor") == placeviews.key(u"Overall 1st Floor")
+    views = [(1, u"Main Building Tower 1 - Lighting Plan - Floor 2 - Part 2"),
+             (2, u"KEZAD Two Building Main Building Tower 1 Lighting 2nd Floor Plan")]
+    near = placeviews.closest(u"KEZAD Two Building - Main Building Tower 1 - Lighting Plan - 2nd Floor",
+                              views)
+    assert near[0] == 2
+    assert placeviews.closest(u"Cover Sheet", views) is None
+
+
+def test_studio_view_rows_offer_close_view_unticked():
+    sheets = [(1, u"A1", u"Main Building Tower 1 - Lighting Plan - 2nd Floor")]
+    views = [(10, u"Main Building Tower 1 - Lighting Layout - 2nd Floor", set(), False)]
+    r = studio.view_rows(sheets, views, {})[0]
+    assert r["can"] and not r["do"] and r["key"] == u"1:10" and r["status"].startswith(u"Close")

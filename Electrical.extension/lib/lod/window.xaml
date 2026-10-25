@@ -246,7 +246,7 @@
                 <DataGridTextColumn Header="Number" Binding="{Binding number}" Width="190" IsReadOnly="True"/>
                 <DataGridTextColumn Header="Sheet" Binding="{Binding c1}" Width="3*" IsReadOnly="True"/>
                 <DataGridTextColumn Header="View" Binding="{Binding c2}" Width="3*" IsReadOnly="True"/>
-                <DataGridTemplateColumn Header="Status" Width="2*" IsReadOnly="True"
+                <DataGridTemplateColumn Header="Status" Width="200" IsReadOnly="True"
                                         CellTemplate="{StaticResource StatusChip}"/>
               </DataGrid.Columns>
             </DataGrid>
