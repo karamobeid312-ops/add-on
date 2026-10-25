@@ -433,6 +433,12 @@ def test_studio_revision_rows():
                       u"2202-108-VE-7100-02400": u"rvt:2202-108-VE-7100-02400:50"}
     assert studio.revision_pairs([ticked[u"2202-108-VE-7100-01400"], u"chg:x:y"]) == [
         (u"2202-108-VE-7100-01400", 50), (u"2202-108-VE-7100-01400", 49)]
+    # a Rev. 001 sheet that already has CD: add DD, take CD off
+    fix = studio.revision_rows(result, rev_map, {u"2202-108-VE-7100-02400": set([49])}, dict(revs))
+    row02400 = [r for r in fix if r["number"] == u"2202-108-VE-7100-02400"][0]
+    assert row02400["key"] == u"rvt:2202-108-VE-7100-02400:50,-49"
+    assert studio.revision_pairs([row02400["key"]]) == [(u"2202-108-VE-7100-02400", 50),
+                                                         (u"2202-108-VE-7100-02400", -49)]
     unset = studio.revision_rows(result, {1: 50}, {}, dict(revs))
     assert any(r["key"] == u"norvt:2" and not r["can"] for r in unset)
 

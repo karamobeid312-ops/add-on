@@ -107,15 +107,23 @@ def revision_rows(result, rev_map, sheet_revs, labels):
                 absent.setdefault(m, []).append(sheet.number)
             continue
         on = sheet_revs.get(sheet.number) or set()
+        wanted = set(rev_map[m] for m in range(1, n + 1))
         add = [rev_map[m] for m in range(1, n + 1) if rev_map[m] not in on]
-        if not add:
+        # issues the sheet should not have (e.g. CD on a sheet first issued at DD)
+        drop = [rid for m, rid in sorted(rev_map.items())
+                if rid is not None and rid in on and rid not in wanted]
+        if not add and not drop:
             continue
-        now = u"%d revision%s" % (len(on), u"" if len(on) == 1 else u"s")
-        rows.append(row(u"rvt:%s:%s" % (sheet.number, u",".join(u"%s" % r for r in add)),
+        now = u", ".join(labels.get(r, u"?").split(u"  (")[0] for r in sorted(on)) or u"(none)"
+        said = []
+        if add:
+            said.append(u"add " + u", ".join(labels.get(r, u"?").split(u"  (")[0] for r in add))
+        if drop:
+            said.append(u"remove " + u", ".join(labels.get(r, u"?").split(u"  (")[0] for r in drop))
+        rows.append(row(u"rvt:%s:%s" % (sheet.number, u",".join([u"%s" % r for r in add] +
+                                                                 [u"-%s" % r for r in drop])),
                         sheet.number, u"Revit revision", now, d.rev,
-                        u"Will add %s" % u", ".join(labels.get(r, u"?").split(u"  (")[0]
-                                                   for r in add), WARN,
-                        do=True, can=True))
+                        u"Will " + u"; ".join(said), WARN, do=True, can=True))
     for m, numbers in sorted(absent.items()):
         rows.append(row(u"norvt:%d" % m, u"%d sheets" % len(numbers), u"Revit revision", u"",
                         u"%s and up" % rev_text(m), u"Pick issue %d back above" % m, BAD))
@@ -123,7 +131,8 @@ def revision_rows(result, rev_map, sheet_revs, labels):
 
 
 def revision_pairs(keys):
-    """[(sheet number, revision id)] of the ticked 'Revit revision' rows."""
+    """[(sheet number, revision id)] of the ticked 'Revit revision' rows; a
+    negative id is a revision to take off the sheet."""
     pairs = []
     for k in keys:
         if k.startswith(u"rvt:"):

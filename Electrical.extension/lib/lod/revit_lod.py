@@ -409,8 +409,9 @@ def sheet_revisions(doc):
 
 
 def add_revisions(doc, pairs):
-    """Put revisions on sheets: pairs [(sheet number, revision id int)].
-    Returns (added, [(sheet number, why)])."""
+    """Put revisions on sheets, or take them off: pairs [(sheet number,
+    revision id int)], a negative id taken off. Returns (done, [(sheet
+    number, why)])."""
     from System.Collections.Generic import List
     by_number = dict((s.SheetNumber, s) for s in all_sheets(doc))
     from Autodesk.Revit.DB import Revision
@@ -419,16 +420,25 @@ def add_revisions(doc, pairs):
     t = Transaction(doc, "Add Revisions from LOD")
     t.Start()
     try:
-        for number, rid in pairs:
+        for number, signed in pairs:
             sheet = by_number.get(number)
+            rid = abs(signed)
             if sheet is None or rid not in ids:
                 failed.append((number, u"sheet or revision not found"))
                 continue
             try:
                 extra = List[ElementId](sheet.GetAdditionalRevisionIds())
-                if ids[rid] not in extra:
+                if signed > 0 and ids[rid] not in extra:
                     extra.Add(ids[rid])
                     sheet.SetAdditionalRevisionIds(extra)
+                elif signed < 0:
+                    if ids[rid] in extra:
+                        extra.Remove(ids[rid])
+                        sheet.SetAdditionalRevisionIds(extra)
+                    if ids[rid] in sheet.GetAllRevisionIds():
+                        failed.append((number, u"a revision cloud on the sheet keeps %s"
+                                       % doc.GetElement(ids[rid]).Description))
+                        continue
                 added += 1
             except Exception as error:
                 failed.append((number, u"%s" % error))
