@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 import os
 import zipfile
 
@@ -123,16 +124,37 @@ def on(name, rules=None):
     return sorted(p for p, v in keyplan.values(name, rules) if v is True)
 
 
-def test_default_rules():
-    assert on(u"Main Building - Power Plan - Ground Floor - Part 1") == [
-        u"KP Main Building", u"KP Part 1", u"KP Podium"]
-    assert on(u"Main Building Tower 2 - Power Plan - 8th Floor Plan") == [
-        u"KP Main Building", u"KP Tower 2"]
-    assert on(u"Parking Building - CCTV Plan - Overall First Floor") == [u"KP Parking Building"]
-    assert on(u"Cover Sheet") == []
-    text = dict(keyplan.values(u"Main Building Tower 1 - Power Plan - Roof Floor",
-                               keyplan.DEFAULT_RULES))
-    assert text[u"KP Floor"] == u"Roof"
+@pytest.mark.parametrize("name, expected", [
+    (u"Main Building Tower 2 - Containment Plan - Typical Floor 02 (4th & 6th)", u"Building 2"),
+    (u"Main Building Tower 1 - Power Plan - Roof Floor", u"Building 1"),
+    (u"Main Building - Power Plan - Overall Ground Floor", u"Ground Overall"),
+    (u"Main Building - Power Plan - Overall First Floor", u"First Overall"),
+    (u"Main Building - Power Plan - Ground Floor - Part 1", u"GF & FF Part 01"),
+    (u"Main Building - Lighting Plan - First Floor - Part 2", u"GF & FF Part 02"),
+    (u"Parking Building - CCTV Plan - Overall First Floor", u"Parking Overall"),
+    (u"Parking Building - Lighting Plan - First Floor - Part 2", u"Parking Part 02"),
+    (u"Service Building - Power Plan - Ground Floor", u"Service Building"),
+    (u"Substation Building - Power Plan - Ground Floor", u"Substation"),
+    (u"Site - External Lighting Plan", u"Site Overall"),
+    (u"Cover Sheet", u"No keyplan"),
+])
+def test_default_rules_one_picture_on(name, expected):
+    assert on(name) == [expected]
+
+
+def test_otherwise_rule():
+    rules = keyplan.parse_rules(u'[{"parameter": "A", "on_if_any": ["x"]},'
+                                u' {"parameter": "None", "otherwise": true}]')
+    assert dict(keyplan.values(u"x", rules)) == {u"A": True, u"None": False}
+    assert dict(keyplan.values(u"y", rules)) == {u"A": False, u"None": True}
+    with pytest.raises(keyplan.RuleError):
+        keyplan.parse_rules(u'[{"parameter": "N", "otherwise": true, "on_if_any": ["x"]}]')
+
+
+def test_saved_old_defaults_read_as_new_defaults():
+    old = json.dumps([{"parameter": p, "on_if_any": ["x"]}
+                      for p in keyplan._OLD_DEFAULT_PARAMETERS])
+    assert keyplan.parse_rules(old) == keyplan.DEFAULT_RULES
 
 
 def test_whole_words_only():

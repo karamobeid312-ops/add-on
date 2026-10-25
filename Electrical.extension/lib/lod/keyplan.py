@@ -16,6 +16,10 @@ A rule with "text" sets a Text parameter instead, with {building}, {tower},
 
     {"parameter": "KP Floor", "text": "{floor}"}
 
+A rule with "otherwise" is on only when no other on/off rule is on:
+
+    {"parameter": "No keyplan", "otherwise": true}
+
 Words match whole words, ignoring case, so 'Part 1' does not match 'Part 12'.
 
 Plain Python (no Revit), so it is tested outside Revit.
@@ -26,18 +30,53 @@ import re
 BUILDINGS = ("Main Building", "Parking Building", "Substation Building", "Service Building",
              "Guard Room Building")
 
+TOWERS = ["Tower 1", "Tower 2"]
+PART_1 = ["Part 1", "Part 01"]
+PART_2 = ["Part 2", "Part 02"]
+GROUND = ["Ground Floor", "GF"]
+FIRST = ["First Floor", "1st Floor", "FF"]
+
+# The KEZAD title block: one Yes/No parameter per key plan picture. Exactly one
+# picture is on for a sheet; 'No keyplan' is on when none of the others is.
+# 'North Sign' has no rule, so it is left as it is.
 DEFAULT_RULES = [
-    {"parameter": "KP Main Building", "on_if_any": ["Main Building"]},
-    {"parameter": "KP Podium", "on_if_all": ["Main Building"], "off_if_any": ["Tower 1", "Tower 2"]},
-    {"parameter": "KP Tower 1", "on_if_any": ["Tower 1"]},
-    {"parameter": "KP Tower 2", "on_if_any": ["Tower 2"]},
-    {"parameter": "KP Part 1", "on_if_any": ["Part 1"]},
-    {"parameter": "KP Part 2", "on_if_any": ["Part 2"]},
-    {"parameter": "KP Parking Building", "on_if_any": ["Parking Building"]},
-    {"parameter": "KP Substation Building", "on_if_any": ["Substation Building"]},
-    {"parameter": "KP Service Building", "on_if_any": ["Service Building"]},
-    {"parameter": "KP Guard Room", "on_if_any": ["Guard Room"]},
-    {"parameter": "KP Floor", "text": "{floor}"},
+    {"parameter": "Building 1", "on_if_any": ["Tower 1"]},
+    {"parameter": "Building 2", "on_if_any": ["Tower 2"]},
+    {"parameter": "Ground Overall", "on_if_any": GROUND, "on_if_all": ["Main Building"],
+     "off_if_any": TOWERS + PART_1 + PART_2 + FIRST},
+    {"parameter": "First Overall", "on_if_any": FIRST, "on_if_all": ["Main Building"],
+     "off_if_any": TOWERS + PART_1 + PART_2 + GROUND},
+    {"parameter": "GF & FF Part 01", "on_if_any": PART_1, "on_if_all": ["Main Building"],
+     "off_if_any": TOWERS},
+    {"parameter": "GF & FF Part 02", "on_if_any": PART_2, "on_if_all": ["Main Building"],
+     "off_if_any": TOWERS},
+    {"parameter": "Parking Overall", "on_if_any": ["Parking Building", "Parking"],
+     "off_if_any": PART_1 + PART_2},
+    {"parameter": "Parking Part 01", "on_if_any": PART_1, "on_if_all": ["Parking"]},
+    {"parameter": "Parking Part 02", "on_if_any": PART_2, "on_if_all": ["Parking"]},
+    {"parameter": "Service Building", "on_if_any": ["Service Building"]},
+    {"parameter": "Substation", "on_if_any": ["Substation"]},
+    {"parameter": "Guard Room 1", "on_if_any": ["Guard Room 1", "Guard Room 01"]},
+    {"parameter": "Guard Room 2", "on_if_any": ["Guard Room 2", "Guard Room 02"]},
+    {"parameter": "Site Overall", "on_if_any": ["Site", "Setting Out", "External", "Overall Site"],
+     "off_if_any": ["Main Building", "Parking", "Service Building", "Substation", "Guard Room"]},
+    {"parameter": "Section AA", "on_if_any": ["Section AA", "Section A-A"]},
+    {"parameter": "Section BB", "on_if_any": ["Section BB", "Section B-B"]},
+    {"parameter": "Wall Section", "on_if_any": ["Wall Section"]},
+    {"parameter": "Section 01", "on_if_any": ["Section 01", "Section 1"]},
+    {"parameter": "Section 02", "on_if_any": ["Section 02", "Section 2"]},
+    {"parameter": "Section 03", "on_if_any": ["Section 03", "Section 3"]},
+    {"parameter": "Section 04", "on_if_any": ["Section 04", "Section 4"]},
+    {"parameter": "Section 05", "on_if_any": ["Section 05", "Section 5"]},
+    {"parameter": "No keyplan", "otherwise": True},
+]
+
+# The first default rules (KP Tower 1, KP Podium...): saved copies of them are
+# read as the new defaults, since no title block has these names.
+_OLD_DEFAULT_PARAMETERS = [
+    "KP Main Building", "KP Podium", "KP Tower 1", "KP Tower 2", "KP Part 1", "KP Part 2",
+    "KP Parking Building", "KP Substation Building", "KP Service Building", "KP Guard Room",
+    "KP Floor",
 ]
 
 _FLOORS = (
@@ -101,12 +140,13 @@ def check_rules(rules):
         if not (u"%s" % rule.get("parameter", "")).strip():
             raise RuleError("%s has no \"parameter\"." % where)
         keys = set(rule) - {"parameter"}
-        unknown = keys - {"on_if_any", "on_if_all", "off_if_any", "text"}
+        unknown = keys - {"on_if_any", "on_if_all", "off_if_any", "text", "otherwise"}
         if unknown:
             raise RuleError("%s (%s): unknown key %s." % (where, rule["parameter"],
                                                           ", ".join(sorted(unknown))))
         if not keys:
-            raise RuleError("%s (%s): give \"on_if_any\", \"on_if_all\" or \"text\"."
+            raise RuleError("%s (%s): give \"on_if_any\", \"on_if_all\", \"text\" or "
+                            "\"otherwise\"."
                             % (where, rule["parameter"]))
         for key in ("on_if_any", "on_if_all", "off_if_any"):
             if key in rule and not (isinstance(rule[key], list)
@@ -115,6 +155,9 @@ def check_rules(rules):
                                 % (where, rule["parameter"], key))
         if "text" in rule and ({"on_if_any", "on_if_all", "off_if_any"} & keys):
             raise RuleError("%s (%s): a \"text\" rule cannot also have on/off words."
+                            % (where, rule["parameter"]))
+        if "otherwise" in rule and len(keys) > 1:
+            raise RuleError("%s (%s): an \"otherwise\" rule cannot have other keys."
                             % (where, rule["parameter"]))
     return rules
 
@@ -127,7 +170,10 @@ def parse_rules(raw):
         rules = json.loads(raw)
     except ValueError as error:
         raise RuleError("The key plan rules are not valid JSON: %s" % error)
-    return check_rules(rules)
+    rules = check_rules(rules)
+    if [r.get("parameter") for r in rules] == _OLD_DEFAULT_PARAMETERS:
+        return [dict(r) for r in DEFAULT_RULES]
+    return rules
 
 
 def dump_rules(rules):
@@ -136,10 +182,14 @@ def dump_rules(rules):
 
 def values(name, rules):
     """[(parameter, value)] for a sheet name: True/False for on/off rules,
-    text for text rules, in the order of the rules."""
+    text for text rules, in the order of the rules. An "otherwise" rule is on
+    when no on/off rule is."""
     info = describe(name)
     found = []
     for rule in rules:
+        if "otherwise" in rule:
+            found.append((rule["parameter"], None))
+            continue
         if "text" in rule:
             try:
                 value = (u"%s" % rule["text"]).format(**info)
@@ -155,4 +205,5 @@ def values(name, rules):
         if on and "off_if_any" in rule:
             on = not any(_has(info["name"], w) for w in rule["off_if_any"])
         found.append((rule["parameter"], on))
-    return found
+    any_on = any(v is True for _, v in found)
+    return [(p, (not any_on) if v is None else v) for p, v in found]

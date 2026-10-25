@@ -601,16 +601,24 @@ A key plan is usually Yes/No parameters of the title block (or of a key plan
 family placed on the sheet) that shade the part of the site the sheet shows.
 Each rule names a parameter and when it is on, from whole words of the sheet
 name, ignoring case; a *text* rule fills a Text parameter instead. The
-default rules:
+default rules match the KEZAD title block, which has one Yes/No parameter per
+key plan picture; exactly one is turned on per sheet:
 
 | Parameter | On when the sheet name has |
 | --- | --- |
-| `KP Main Building` | Main Building |
-| `KP Podium` | Main Building, and not Tower 1 or Tower 2 |
-| `KP Tower 1` / `KP Tower 2` | Tower 1 / Tower 2 |
-| `KP Part 1` / `KP Part 2` | Part 1 / Part 2 |
-| `KP Parking Building`, `KP Substation Building`, `KP Service Building`, `KP Guard Room` | the building's name |
-| `KP Floor` (text) | `{floor}`: `Ground Floor`, `1st Floor`, `Typical Floor (3rd & 5th)`, `7th Floor`, `Roof`... |
+| `Building 1` / `Building 2` | Tower 1 / Tower 2 |
+| `Ground Overall` / `First Overall` | Main Building and Ground Floor / First Floor, no tower or part |
+| `GF & FF Part 01` / `GF & FF Part 02` | Main Building and Part 1 / Part 2, no tower |
+| `Parking Overall` | Parking, no part |
+| `Parking Part 01` / `Parking Part 02` | Parking and Part 1 / Part 2 |
+| `Service Building`, `Substation` | the building's name |
+| `Guard Room 1` / `Guard Room 2` | Guard Room 1 / Guard Room 2 |
+| `Site Overall` | Site, Setting Out or External, and no building |
+| `Section AA`, `Section BB`, `Wall Section`, `Section 01`...`Section 05` | that section's name |
+| `No keyplan` | none of the above |
+
+`North Sign` has no rule and is left as it is. Rules saved from the first
+version (`KP Tower 1`, `KP Podium`...) are read as these defaults.
 
 Your title block's parameters will have other names: open a sheet, use
 **LOD Settings → Show the parameters of this sheet**, then **LOD Settings →
@@ -625,7 +633,8 @@ Key plan rules** opens the rules in Notepad (JSON), e.g.
 ```
 
 `on_if_any`: on if the name has any of the words; `on_if_all`: all of them;
-`off_if_any`: off if it has any of them. Text rules can use `{building}`,
+`off_if_any`: off if it has any of them; `"otherwise": true`: on only when
+no other rule is. Text rules can use `{building}`,
 `{tower}`, `{floor}`, `{part}` and `{name}`. The rules are checked when you
 close Notepad. Parameters are set on the title block first, then other
 families on the sheet, then the sheet itself; any not found are listed with
