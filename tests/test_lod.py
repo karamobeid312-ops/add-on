@@ -289,3 +289,72 @@ def test_match_views_to_sheets():
 def test_match_view_already_on_this_sheet_before_other_sheets():
     views = [(10, u"Plan A", set([7])), (11, u"Plan A", set([1]))]
     assert placeviews.match([(1, u"Plan A")], views) == {1: [11, 10]}
+
+
+# ------------------------------------------------------------ LOD Studio
+
+import re as _re  # noqa: E402
+
+from lod import studio  # noqa: E402
+
+LIB = os.path.join(os.path.dirname(__file__), "..", "Electrical.extension", "lib")
+
+
+def test_studio_create_rows_tick_new_drawings_only():
+    table = read_rows(lod_rows())
+    sheets = [Sheet(1, u"2202-108-VE-7100-01400", u"x")]
+    rows = studio.create_rows(table, sheets, KEZAD)
+    numbers = [r["number"] for r in rows if r["do"]]
+    assert u"2202-108-VE-7100-01400" not in numbers
+    assert len(numbers) == len(set(numbers))
+    assert any(r["state"] == studio.WARN and not r["can"] for r in rows)   # repeated number
+
+
+def test_studio_compare_rows_tick_changes_only():
+    table = read_rows(lod_rows())
+    sheets = [Sheet(1, u"2202-108-VE-7100-01400", u"Old name", rev=u"001"),
+              Sheet(2, u"9999", u"Extra sheet", rev=u"")]
+    result = compare(table, sheets, KEZAD)
+    rows = studio.compare_rows(result)
+    ticked = [r for r in rows if r["do"]]
+    assert set(r["c1"] for r in ticked) == {Change.NAME, Change.REV}
+    assert any(r["c1"] == u"Not in the LOD" and not r["can"] for r in rows)
+    assert studio.tidy_changes(result, studio.picked(rows)) == result.changes
+
+
+def test_studio_view_rows():
+    sheets = [(1, u"A1", u"KEZAD Two Building - Lighting System Setting Out Plan - Part 1"),
+              (2, u"A2", u"Power Plan"), (3, u"A3", u"Legend Sheet"), (4, u"A4", u"Cover")]
+    views = [(10, VIEW_PART1, set(), False), (11, u"Power Plan", set([9]), False),
+             (12, u"Legend Sheet", set([8]), True)]
+    rows = studio.view_rows(sheets, views, {9: u"B9"})
+    by = dict((r["number"], r) for r in rows)
+    assert by[u"A1"]["do"] and by[u"A1"]["key"] == u"1:10"
+    assert not by[u"A2"]["can"] and u"B9" in by[u"A2"]["status"]
+    assert by[u"A3"]["do"]                      # a legend goes on many sheets
+    assert by[u"A4"]["state"] == studio.BAD
+
+
+def test_studio_keyplan_rows():
+    sheets = [(1, u"S1", u"Main Building Tower 2 - Power Plan - 2nd Floor"),
+              (2, u"S2", u"Main Building Tower 1 - Power Plan - 2nd Floor"),
+              (3, u"S3", u"Cover")]
+    names = [r["parameter"] for r in keyplan.DEFAULT_RULES]
+    now = {1: dict((n, n == u"Building 2") for n in names),     # already right
+           2: dict((n, n == u"Site Overall") for n in names)}   # needs changing
+    rows = dict((r["number"], r) for r in studio.keyplan_rows(sheets, keyplan.DEFAULT_RULES, now))
+    assert rows[u"S1"]["state"] == studio.OK and not rows[u"S1"]["do"]
+    assert rows[u"S2"]["do"] and rows[u"S2"]["c2"] == u"Building 1"
+    assert rows[u"S3"]["state"] == studio.BAD
+
+
+def test_studio_window_names_are_in_the_xaml():
+    with open(os.path.join(LIB, "lod", "window.xaml"), "rb") as f:
+        xaml = f.read().decode("utf-8")
+    import xml.dom.minidom
+    xml.dom.minidom.parseString(xaml.replace(u"<!--THEME-->", u"").encode("utf-8"))
+    names = set(_re.findall(r'x:Name="(\w+)"', xaml))
+    source = open(os.path.join(LIB, "lod", "window_ui.py")).read()
+    listed = _re.search(r"NAMES = \(([^)]*)\)", source, _re.S).group(1)
+    for name in _re.findall(r'"(\w+)"', listed):
+        assert name in names, name

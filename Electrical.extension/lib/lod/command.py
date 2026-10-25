@@ -602,3 +602,100 @@ def edit_settings():
             continue
         values[key] = text if key == "title_prefix" else text.strip()
         settings.save(values)
+
+
+# ------------------------------------------------------------ LOD Studio
+
+def _studio_read_lod(path):
+    try:
+        sheets = excel.read_sheets(path)
+    except excel.ExcelMissing as error:
+        return None, u"%s. The LOD is read with Excel." % error
+    except Exception as error:
+        return None, u"Could not read %s:\n%s" % (os.path.basename(path), error)
+    try:
+        return pick_sheet(sheets), None
+    except NoTable as error:
+        return None, u"%s" % error
+
+
+def _studio_pick_lod(current):
+    return forms.pick_file(files_filter="Excel workbooks (*.xlsx;*.xlsm;*.xls)|*.xlsx;*.xlsm;*.xls",
+                           init_dir=os.path.dirname(current) if current else "",
+                           title="Pick the List of Deliverables")
+
+
+def _studio_place(doc, pairs):
+    """pairs: [(sheet id int, view id int)] -> (placed, [(sheet id, why)])."""
+    found = revit_lod.by_ids(doc, [i for p in pairs for i in p])
+    todo, failed = [], []
+    for sid, vid in pairs:
+        if sid in found and vid in found:
+            todo.append((found[sid], found[vid]))
+        else:
+            failed.append((sid, u"sheet or view not found"))
+    placed, bad = revit_lod.place_views(doc, todo)
+    failed.extend((revit_lod.id_int(s.Id), why) for s, _, why in bad)
+    return placed, failed
+
+
+def _studio_keyplans(doc, ids, fn):
+    found = revit_lod.by_ids(doc, ids)
+    sheets = [found[i] for i in ids if i in found]
+    done, problems = revit_lod.switch_keyplans(doc, sheets, fn)
+    return done, [(revit_lod.id_int(s.Id), p, why) for s, p, why in problems]
+
+
+def _studio_sheet_parameters(doc):
+    from Autodesk.Revit.DB import ViewSheet
+    sheet = doc.ActiveView
+    if not isinstance(sheet, ViewSheet):
+        picked = revit_lod.selected_sheets(doc, revit.uidoc)
+        if not picked:
+            return None
+        sheet = picked[0]
+    return [(u"%s  (%s)" % (b, a), c, u"%s" % (d if d is not None else u""))
+            for a, b, c, d, _ in revit_lod.parameters_on(doc, sheet)]
+
+
+def _studio_edit_rules(values):
+    before = values.get("keyplan_rules")
+    _edit_rules(values)
+    return values.get("keyplan_rules") != before
+
+
+def studio():
+    """LOD Studio: every LOD tool in one window."""
+    doc = _doc()
+    if doc is None:
+        return
+    from lod.window_ui import StudioWindow
+    project = u""
+    try:
+        project = doc.ProjectInformation.Name or u""
+    except Exception:
+        pass
+    callbacks = {
+        "settings": settings.load,
+        "save_settings": settings.save,
+        "pick_lod": _studio_pick_lod,
+        "read_lod": _studio_read_lod,
+        "sheets": lambda: revit_lod.sheets(doc, settings.load()["rev_param"],
+                                           settings.load()["area_param"]),
+        "sheet_rows": lambda: revit_lod.sheet_rows(doc),
+        "view_rows": lambda: revit_lod.view_rows(doc),
+        "keyplan_now": lambda params: revit_lod.keyplan_now(doc, params),
+        "title_blocks": lambda: revit_lod.title_blocks(doc),
+        "create": lambda items, tb, fn: revit_lod.create_sheets(
+            doc, items, tb, settings.load()["rev_param"], settings.load()["area_param"], fn),
+        "apply": lambda changes: revit_lod.apply_changes(
+            doc, changes, settings.load()["rev_param"], settings.load()["area_param"]),
+        "place": lambda pairs: _studio_place(doc, pairs),
+        "keyplans": lambda ids, fn: _studio_keyplans(doc, ids, fn),
+        "sheet_parameters": lambda: _studio_sheet_parameters(doc),
+        "edit_rules": _studio_edit_rules,
+        "save_file": lambda name: forms.save_file(file_ext="xlsx", default_name=name),
+        "project": project,
+    }
+    model = u"%s\n%s" % (doc.Title, project) if project else doc.Title
+    StudioWindow(callbacks, model).show()

@@ -336,3 +336,48 @@ def place_views(doc, pairs):
             t.RollBack()
         raise
     return placed, failed
+
+
+# ------------------------------------------------------------ LOD Studio
+
+def sheet_rows(doc):
+    """[(sheet id int, number, name)] of the real sheets, by number."""
+    return sorted(((id_int(s.Id), s.SheetNumber, s.Name) for s in all_sheets(doc)),
+                  key=lambda r: r[1])
+
+
+def view_rows(doc):
+    """[(view id int, name, set(sheet id ints it is on), is a legend)]."""
+    on = views_on_sheets(doc)
+    return [(id_int(v.Id), name, on.get(id_int(v.Id), set()), u"%s" % v.ViewType == u"Legend")
+            for v, name in _placeable_views(doc)]
+
+
+def _value(p):
+    if p.StorageType == StorageType.Integer:
+        return p.AsInteger() == 1 if p.HasValue else False
+    if p.StorageType == StorageType.String:
+        return p.AsString() or u""
+    return p.AsValueString() or u""
+
+
+def keyplan_now(doc, parameters):
+    """{sheet id int: {parameter: value now}} read from the title blocks."""
+    found = {}
+    for tb in (FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_TitleBlocks)
+               .WhereElementIsNotElementType()):
+        sid = id_int(tb.OwnerViewId)
+        values = found.setdefault(sid, {})
+        for name in parameters:
+            p = tb.LookupParameter(name)
+            if p is not None and name not in values:
+                values[name] = _value(p)
+    return found
+
+
+def by_ids(doc, ids):
+    """Elements of these id ints (one collector, no ElementId building)."""
+    wanted = set(ids)
+    from Autodesk.Revit.DB import View
+    return dict((id_int(v.Id), v) for v in FilteredElementCollector(doc).OfClass(View)
+                if id_int(v.Id) in wanted)

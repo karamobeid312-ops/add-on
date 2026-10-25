@@ -18,7 +18,7 @@ Everything is on one **Electrical** ribbon tab, with six panels:
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
-| **LOD** | Create Sheets, Compare LOD, Sync LOD, Export LOD, Place Views, Key Plans, LOD Settings: the drawing sheets kept in step with the List of Deliverables Excel file, and key plans switched from the sheet names, see [List of Deliverables](#list-of-deliverables) |
+| **LOD** | LOD Studio (one window: Create sheets, Compare + sync, Place views, Key plans, Export LOD, Setup): the drawing sheets kept in step with the List of Deliverables Excel file, and key plans switched from the sheet names, see [List of Deliverables](#list-of-deliverables) |
 
 ## What gets drawn
 
@@ -552,6 +552,11 @@ and revisions of the LOD become sheets, and the sheets can be compared
 against it or written back to it. The LOD is read with Excel (`.xlsx`,
 `.xlsm` or `.xls`, opened read-only and never changed); the last file used
 is offered again next time.
+
+**LOD Studio** opens one window with the LOD file, a search box and *Setup*
+in the top bar, and one tab per step, each with its own table (tick the rows
+to do) and button. The steps below are its tabs.
+
 
 - **Create Sheets** – a sheet for every LOD drawing the model does not have
   yet. The list shows them all ticked: untick any to skip. Each sheet gets
