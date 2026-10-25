@@ -25,7 +25,7 @@ NAMES = ("BadgeText", "TitleText", "SubText", "ModelText", "StatusDot", "StatusT
          "FloorGrid", "ResultsTabText", "SelectRowButton", "SelectNewButton", "ResultsInfo",
          "ResultGrid", "SetupPanel", "SetupDone", "CategoryList", "CategoryInfo", "ModeCombo",
          "ToleranceText", "JoinCheck", "ElectricalPanel", "SwapFromText", "SwapToText",
-         "CircuitsCheck", "WiresCheck", "RunPanel", "RunText", "RunBar", "TagsCheck")
+         "CircuitsCheck", "WiresCheck", "RunPanel", "RunText", "RunBar", "TagsCheck", "LinesCheck")
 FLOOR_COLUMNS = ("key", "floor", "tower1", "already", "todo", "skipped", "status", "state")
 RESULT_COLUMNS = ("key", "floor", "what", "count", "item", "status", "state")
 
@@ -233,6 +233,7 @@ class MirrorWindow(object):
         self.ToleranceText.Text = (u"%.1f" % self.state["tolerance_mm"]).rstrip(u"0").rstrip(u".")
         self.JoinCheck.IsChecked = bool(self.state.get("join", True))
         self.TagsCheck.IsChecked = bool(self.state.get("tags", True))
+        self.LinesCheck.IsChecked = bool(self.state.get("lines", True))
         if self.domain == rules.ELECTRICAL:
             from System.Windows import Visibility
             self.JoinCheck.Visibility = Visibility.Collapsed
@@ -261,10 +262,12 @@ class MirrorWindow(object):
             self.state["placement_text"] = u""
         self.state.update(unticked=unticked, mode=mode, tolerance_mm=tolerance,
                           join=bool(self.JoinCheck.IsChecked),
-                          tags=bool(self.TagsCheck.IsChecked))
+                          tags=bool(self.TagsCheck.IsChecked),
+                          lines=bool(self.LinesCheck.IsChecked))
         self.revit["keep"]({"unticked": u"|".join(sorted(unticked)), "mode": mode,
                             "tolerance_mm": tolerance, "join": bool(self.JoinCheck.IsChecked),
-                            "tags": bool(self.TagsCheck.IsChecked)})
+                            "tags": bool(self.TagsCheck.IsChecked),
+                            "lines": bool(self.LinesCheck.IsChecked)})
         if self.domain == rules.ELECTRICAL:
             swap = ((self.SwapFromText.Text or u"").strip(), (self.SwapToText.Text or u"").strip())
             self.state.update(swap=swap, circuits=bool(self.CircuitsCheck.IsChecked),
@@ -332,6 +335,7 @@ class MirrorWindow(object):
             return
         name = self.state.get("box")
         self.outline = self.revit["outline"](name) if name else []
+        self.state["outline"] = self.outline
         placement = self.state.get("placement")
         if len(self.outline) < 3:
             self.sides = {}

@@ -179,6 +179,8 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
         if progress is not None:
             progress(done[0] + share * done[1], total, text)
     tags = revit_mep.Tags(doc) if state.get("tags", True) else None
+    lines, line_elements = revit_mep.read_lines(doc, model.floors) if state.get("lines", True) \
+        else ({}, {})
     group = TransactionGroup(doc, title)
     group.Start()
     try:
@@ -190,6 +192,12 @@ def _mirror(doc, title, model, keys, sides, placement, about, tolerance, join, s
             results.append(revit_mep.mirror_floor(doc, model, floors[key], sides[key], placement,
                                                   about, tolerance, join, tags, inside))
             _timed(results[-1], "mirroring elements and tags", start)
+            if lines.get(key):
+                inside(0.97, u"Mirroring %s: lines..." % model.names.get(key, u""))
+                start = time.time()
+                revit_mep.mirror_lines(doc, lines[key], line_elements, state.get("outline") or [],
+                                       placement, about, tolerance, results[-1])
+                _timed(results[-1], "lines", start)
         if model.domain == rules.ELECTRICAL:
             _electrical(doc, model, keys, sides, results, placement, tolerance, state, step,
                         tags, inside)
@@ -245,6 +253,7 @@ def run(domain):
         "join": join and domain != rules.ELECTRICAL, "model": None,
         "swap": (config.get("swap_from", u"B1") or u"", config.get("swap_to", u"B2") or u""),
         "circuits": flag("circuits"), "wires": flag("wires"), "tags": flag("tags"),
+        "lines": flag("lines"),
         "ticked": None, "results": [],
         "new_ids": [],
     }

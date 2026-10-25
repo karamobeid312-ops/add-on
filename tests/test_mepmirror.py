@@ -314,3 +314,13 @@ def test_time_row():
     row = [v for v, _, _ in rows if v["what"] == u"Time taken"][0]
     assert row["count"] == u"80"
     assert row["item"].startswith(u"circuits, wires and their tags (all) 70 s, wires 50 s")
+
+
+def test_line_rows():
+    from mepmirror import report
+    rows = report.result_rows(_Result(lines=[5, 6], lines_already=3, lines_leave=[7]),
+                              {}.get, lambda i: i)
+    whats = dict((v["what"], (v, state)) for v, state, _ in rows)
+    assert whats[u"Lines mirrored into Tower 2"][0]["count"] == u"2"
+    assert whats[u"Lines already in Tower 2"][0]["count"] == u"3"
+    assert whats[u"Lines crossing out of Tower 1: not mirrored"][1] == report.WARN

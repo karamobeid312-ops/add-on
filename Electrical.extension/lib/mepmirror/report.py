@@ -3,7 +3,7 @@
 from __future__ import division
 
 OK, WARN, BAD, NONE = "ok", "warn", "bad", ""
-TOP_STEPS = (u"mirroring elements and tags", u"board names",
+TOP_STEPS = (u"mirroring elements and tags", u"lines", u"board names",
              u"circuits, wires and their tags (all)")
 
 
@@ -138,6 +138,12 @@ def result_rows(result, label_of, key_of):
     add(u"Board names to check by hand", WARN, [], item=_names(check), count=len(check))
     add(u"Already in Tower 2", NONE, [], item=u"same type at the mirrored spot",
         count=result.already)
+    add(u"Lines mirrored into Tower 2", OK, getattr(result, "lines", ()),
+        item=u"detail and model lines, in their own views")
+    add(u"Lines already in Tower 2", NONE, [], item=u"same style and view, mirrored spot",
+        count=getattr(result, "lines_already", 0))
+    add(u"Lines crossing out of Tower 1: not mirrored", WARN, getattr(result, "lines_leave", ()),
+        item=u"")
     add(u"On the mirror line: shared, not mirrored", NONE, [], item=u"", count=result.shared)
     add(u"Leaves Tower 1 (riser, podium...): not mirrored", WARN, result.leaves)
     add(u"In a model group: not mirrored", WARN, result.grouped)

@@ -21,7 +21,7 @@ from __future__ import division
 import time
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, BuiltInParameter, ConnectorType, Domain, ElementId,
+    BuiltInCategory, BuiltInParameter, ConnectorType, CurveElement, Domain, ElementId,
     ElementTransformUtils, FamilyInstance, FilteredElementCollector, IndependentTag,
     LeaderEndCondition, LocationCurve, LocationPoint, Reference, XYZ,
 )
@@ -534,6 +534,9 @@ class FloorResult(object):
         self.by_name = []           # (Tower 1 board, Tower 2 board found by name)
         self.circuits = None        # copycircuits LevelResult: circuits and wires made
         self.seconds = {}           # step -> seconds it took
+        self.lines = []             # new ids of the detail / model lines mirrored
+        self.lines_already = 0      # Tower 1 lines Tower 2 has already
+        self.lines_leave = []       # ids of lines crossing out of Tower 1: skipped
 
 
 def _id_list(ids):
@@ -840,3 +843,70 @@ def mirror_floor(doc, model, floor, side, placement, about, tolerance, join=True
         result.made[k] = e.Id
     result.off_spot = [i for i in result.off_spot if doc.GetElement(i) is not None]
     return result
+
+
+# ---------------------------------------------------------------- lines
+
+def read_lines(doc, floors):
+    """({floor key: [Thing]}, {key: element}) of the detail and model lines
+    (Revit's Lines category: lines drawn by hand, fire alarm loops...). A
+    detail line is on the level of its plan; one in a drafting view or on
+    a sheet is left out. Its type is its line style and view, so a copy
+    must be in the same view with the same style."""
+    found, elements = {}, {}
+    for e in FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Lines) \
+            .WhereElementIsNotElementType():
+        if not isinstance(e, CurveElement):
+            continue
+        try:
+            curve = e.GeometryCurve
+            if curve is None or not curve.IsBound:
+                continue
+            p, q = curve.GetEndPoint(0), curve.GetEndPoint(1)
+            level, view_key = None, None
+            if e.ViewSpecific:
+                view = doc.GetElement(e.OwnerViewId)
+                gen = getattr(view, "GenLevel", None)
+                if gen is None:
+                    continue                # drafting view, sheet, section...
+                level, view_key = id_int(gen.Id), id_int(view.Id)
+                z = gen.Elevation
+                a, b = (p.X, p.Y, z), (q.X, q.Y, z)
+            else:
+                a, b = (p.X, p.Y, p.Z), (q.X, q.Y, q.Z)
+            style = e.LineStyle
+            grouped = id_int(e.GroupId) != _INVALID
+            t = plan.Thing(id_int(e.Id), (id_int(style.Id) if style else 0, view_key), a, b,
+                           None, level, u"Line : %s" % (style.Name if style else u""),
+                           grouped)
+        except Exception:
+            continue
+        floor = plan.pick_floor(t, floors)
+        if floor is None:
+            continue
+        found.setdefault(floor, []).append(t)
+        elements[t.key] = e
+    return found, elements
+
+
+def mirror_lines(doc, things, elements, outline, placement, about, tolerance, result):
+    """Mirror the floor's Tower 1 lines Tower 2 has not got (same style and
+    view, both ends at the mirrored spot) into Tower 2, in their own views."""
+    side = plan.pair(plan.split(things, outline, placement, tolerance), placement, tolerance)
+    result.lines_already = len(side.copies)
+    result.lines_leave = [elements[t.key].Id for t in side.leaves]
+    if not side.missing:
+        return
+    plane, move = revit_mirror._plane(placement, about)
+    tx = revit_mirror._transaction(doc, "Mirror Tower lines: %s" % result.floor)
+    tx.Start()
+    try:
+        new_ids = _halves(doc, [(elements[t.key], []) for t in side.missing], plane, result)
+        if new_ids and move.GetLength() > 1e-9:
+            ElementTransformUtils.MoveElements(doc, _id_list(new_ids), move)
+        tx.Commit()
+    except Exception:
+        if tx.HasStarted() and not tx.HasEnded():
+            tx.RollBack()
+        raise
+    result.lines = [i for i in new_ids if doc.GetElement(i) is not None]
