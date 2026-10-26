@@ -6,8 +6,8 @@ A board is laid out in two RCD sections: lighting and FCU circuits on a
 gets 10 % spares (of its circuits, rounded up) right after its circuits;
 section 2 starts on a new R row, and a section takes at least 6 ways. On
 a three phase board the circuits are spread over R, Y and B to balance
-the phase loads. The board's ways (a way is one slot) are the whole rows
-holding all that, and every other slot is a space. Each RCD is the
+the phase loads. The board's ways (a way is one slot) are the smallest of
+12, 18, 24, 30, 36 and 42 holding all that, and every other slot is a space. Each RCD is the
 smallest standard RCCB carrying its section's load."""
 from __future__ import division
 
@@ -29,11 +29,19 @@ def spares_needed(circuits):
     return int(math.ceil(circuits * SPARE_SHARE - 1e-9)) if circuits > 0 else 0
 
 
+WAY_SIZES = [12, 18, 24, 30, 36, 42]       # the only boards there are (ways)
+WAY_STEP = 6
+
+
 def ways_for(slots, per_row=3):
     """The ways (a way is one slot: R1, or Y1) of the board holding `slots`
-    slots, in whole rows of R, Y, B: 32 slots take 11 rows, 33 ways."""
-    rows = int(math.ceil(slots / per_row)) if slots > 0 else 0
-    return rows * per_row
+    slots: the smallest of 12, 18, 24, 30, 36, 42 (25 slots take 30 ways)."""
+    if slots <= 0:
+        return 0
+    for size in WAY_SIZES:
+        if size >= slots:
+            return size
+    return int(math.ceil(slots / WAY_STEP)) * WAY_STEP     # too big: see too_big
 
 
 def rcd_text(load_va, section, per_way=3):
@@ -172,6 +180,11 @@ class BoardPlan(object):
         return slot
 
     @property
+    def too_big(self):
+        """More ways than the biggest board: it has to be split."""
+        return self.ways > WAY_SIZES[-1]
+
+    @property
     def new_spares(self):
         return sorted(s for slots in self.spare_slots.values() for s in slots)
 
@@ -185,7 +198,8 @@ class BoardPlan(object):
 
     def text(self):
         """'36 ways, 100mA RCCB 40A 4P: 14 circuits + 2 spares, ...' for the preview."""
-        parts = [u"%d ways (was %d)" % (self.ways, self.old_ways)]
+        parts = [u"%d ways (was %d)%s" % (self.ways, self.old_ways,
+                                          u" MORE THAN 42: SPLIT THE BOARD" if self.too_big else u"")]
         for section in sorted(self.rcds):
             spares = len(self.spare_slots[section])
             parts.append(u"%s: %d circuits + %d spare%s" % (

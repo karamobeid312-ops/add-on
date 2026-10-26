@@ -17,9 +17,15 @@ def test_spares_ten_percent_rounded_up():
     assert [spares_needed(n) for n in (0, 1, 10, 11, 29)] == [0, 1, 1, 2, 3]
 
 
-def test_ways_in_whole_rows():
-    assert ways_for(32) == 33 and ways_for(36) == 36 and ways_for(37) == 39
-    assert ways_for(3) == 3 and ways_for(25) == 27
+def test_ways_twelve_then_by_six():
+    assert ways_for(3) == 12 and ways_for(12) == 12 and ways_for(13) == 18
+    assert ways_for(25) == 30 and ways_for(32) == 36 and ways_for(36) == 36
+    assert ways_for(37) == 42 and ways_for(43) == 48
+
+
+def test_board_bigger_than_42_ways_is_flagged():
+    plan = board(singles([S2] * 40))
+    assert plan.ways == 48 and plan.too_big and u"SPLIT THE BOARD" in plan.text()
 
 
 def test_rcd_from_the_section_load():
@@ -62,8 +68,8 @@ def test_three_pole_circuit_starts_on_a_way():
 def test_only_power():
     plan = board(singles([S2] * 29))
     assert S1 not in plan.rcds
-    assert plan.spare_slots[S2] == [30, 31, 32] and plan.ways == 33
-    assert plan.spaces == [33] and not plan.moved
+    assert plan.spare_slots[S2] == [30, 31, 32] and plan.ways == 36
+    assert plan.spaces == [33, 34, 35, 36] and not plan.moved
 
 
 def test_nothing_to_do_twice():
