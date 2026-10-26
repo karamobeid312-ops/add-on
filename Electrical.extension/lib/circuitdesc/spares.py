@@ -6,16 +6,14 @@ A board is laid out in two RCD sections: lighting and FCU circuits on a
 gets 10 % spares (of its circuits, rounded up) right after its circuits;
 section 2 starts on a new R row, and a section takes at least 6 ways. On
 a three phase board the circuits are spread over R, Y and B to balance
-the phase loads. The board's ways (a way is one slot) are the standard
-size holding all that, and every other slot is a space. Each RCD is the
+the phase loads. The board's ways (a way is one slot) are the whole rows
+holding all that, and every other slot is a space. Each RCD is the
 smallest standard RCCB carrying its section's load."""
 from __future__ import division
 
 import math
 
 SPARE_SHARE = 0.10
-# standard boards, in rows of R, Y, B (a way is one slot: R1, or Y1)
-ROW_SIZES = [4, 6, 8, 12, 16, 18, 24, 30, 36, 42]
 RCCB_SIZES = [25, 40, 63, 80, 100, 125]                # A
 VOLTS_3PH, VOLTS_1PH = 400.0, 230.0
 
@@ -32,12 +30,9 @@ def spares_needed(circuits):
 
 
 def ways_for(slots, per_row=3):
-    """The ways (slots) of the standard board holding `slots` slots: 32
-    slots take a 12 row board, 36 ways."""
+    """The ways (a way is one slot: R1, or Y1) of the board holding `slots`
+    slots, in whole rows of R, Y, B: 32 slots take 11 rows, 33 ways."""
     rows = int(math.ceil(slots / per_row)) if slots > 0 else 0
-    for size in ROW_SIZES:
-        if size >= rows:
-            return size * per_row
     return rows * per_row
 
 
