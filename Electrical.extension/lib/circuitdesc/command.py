@@ -231,6 +231,53 @@ def _show_boards(done, failed):
                            columns=["Board", "Why"])
 
 
+FCU_DF = u"0.9"
+
+
+class _FcuCircuit(forms.TemplateListItem):
+    @property
+    def name(self):
+        board, system = self.item
+        return u"%s  %s:   DF %s   >   %s" % (
+            board, system.CircuitNumber, revit_desc.read_df(system) or u"(blank)", FCU_DF)
+
+
+def fcu_df():
+    """Set the diversity factor of every FCU circuit to 0.9 (of the boards
+    picked first, else of the whole model)."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model.", title="FCU DF")
+        return
+    circuits = revit_desc.power_circuits(doc)
+    picked = set(revit_desc.id_int(b.Id) for b in revit_desc.chosen_boards(doc, uidoc))
+    if picked:
+        circuits = dict((k, v) for k, v in circuits.items() if k in picked)
+    found = revit_desc.fcu_circuits(circuits)
+    todo = [x for x in found if revit_desc.read_df(x[1]) != FCU_DF]
+    if not todo:
+        forms.alert(u"%d FCU circuit%s found, all already DF %s." % (
+            len(found), "" if len(found) == 1 else "s", FCU_DF), title="FCU DF")
+        return
+    chosen = forms.SelectFromList.show(
+        [_FcuCircuit(x, checked=True) for x in todo],
+        title=u"FCU DF: %d FCU circuits to DF %s (untick to keep)" % (len(todo), FCU_DF),
+        multiselect=True, button_name="Write", width=700, height=600)
+    if not chosen:
+        return
+    done, no_param = 0, []
+    with revit.Transaction("FCU circuits DF %s" % FCU_DF):
+        for board, system in chosen:
+            if revit_desc.write_df(system, FCU_DF):
+                done += 1
+            else:
+                no_param.append(u"%s %s" % (board, system.CircuitNumber))
+    text = u"%d FCU circuit%s set to DF %s." % (done, "" if done == 1 else "s", FCU_DF)
+    if no_param:
+        text += u"\n\nNo diversity factor parameter on: " + u", ".join(no_param)
+    forms.alert(text, title="FCU DF")
+
+
 STYLE_TEXT = {
     NUMBER_NAME: "Number + name   (012 PUMP ROOM)",
     NAME: "Name only   (PUMP ROOM)",

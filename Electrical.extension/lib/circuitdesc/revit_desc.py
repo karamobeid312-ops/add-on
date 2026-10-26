@@ -547,6 +547,39 @@ def write_wiring(circuit):
             param.Set(value)
 
 
+def read_df(system):
+    """The circuit's diversity factor as text ('' when blank or none)."""
+    return read_wiring(system).get(DF, u"")
+
+
+def write_df(system, text):
+    """Write the diversity factor; False when the circuit has no DF parameter."""
+    param = _wiring_param(system, DF)
+    if param is None or param.IsReadOnly:
+        return False
+    if param.StorageType == StorageType.String:
+        param.Set(text)
+    elif param.StorageType == StorageType.Integer:
+        param.Set(int(round(float(text))))
+    else:
+        param.Set(float(text))
+    return True
+
+
+def fcu_circuits(circuits):
+    """[(board name, circuit)] of the circuits feeding an FCU."""
+    out = []
+    for systems in circuits.values():
+        for system in systems:
+            try:
+                elements = list(system.Elements)
+            except Exception:
+                continue
+            if any(is_fcu(e) for e in elements):
+                out.append((panel_name(system.BaseEquipment), system))
+    return sorted(out, key=lambda x: (x[0], x[1].CircuitNumber or u""))
+
+
 def write_loads(circuit):
     for i, group in enumerate(circuit.loads, 1):
         for part, text in zip((TYPE, NOS, WPU), group):
