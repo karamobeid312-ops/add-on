@@ -129,6 +129,31 @@ def _set_text(element, name, text):
         p.Set(text)
 
 
+def _top_slot(board):
+    """The last slot holding a circuit, spare or space now."""
+    top = 0
+    for system in board_systems(board):
+        try:
+            top = max(top, system.StartSlot + max(system.PolesNumber, 1) - 1)
+        except Exception:
+            continue
+    return top
+
+
+def _move(view, item, slot, to_slot):
+    """Move a circuit in the panel schedule, or say why it can't be."""
+    row, col = _cell(view, slot)
+    to_row, to_col = _cell(view, to_slot)
+    try:
+        movable = view.CanMoveSlotTo(row, col, to_row, to_col)
+    except Exception:
+        movable = True
+    if not movable:
+        raise RuntimeError(u"circuit %s can't be moved from slot %d to slot %d "
+                           u"(is the slot locked?)" % (item.name, slot, to_slot))
+    view.MoveSlotTo(row, col, to_row, to_col)
+
+
 def _set_max_slots(board, slots):
     p = board.get_Parameter(BuiltInParameter.RBS_ELEC_MAX_POLE_BREAKERS)
     if p is not None and not p.IsReadOnly and p.AsInteger() != slots:
@@ -157,21 +182,29 @@ def apply(board_plan, spare_amps):
     per_way = board_plan.per_way
     top = max(board_plan.old_slots, board_plan.slots)
     top += (per_way - top % per_way) % per_way
-    _set_max_slots(board, top + len(moved) * per_way * max([1] + [i.poles for i in moved]))
     staged = {}
-    stage = top + 1
-    for item in moved:                  # out of the way first...
-        row, col = _cell(view, item.slot)
-        to_row, to_col = _cell(view, stage)
-        view.MoveSlotTo(row, col, to_row, to_col)
+    stage = top + 1                     # single-pole circuits side by side,
+    for item in moved:                  # multi-pole ones from an R row
+        if item.poles > 1:
+            stage += (per_way - (stage - 1) % per_way) % per_way
         staged[item.key] = stage
-        stage += per_way * max(1, int((item.poles + per_way - 1) / per_way))
+        stage += item.poles
+    end = stage - 1
+    _set_max_slots(board, end + (per_way - end % per_way) % per_way)
+    for item in moved:                  # out of the way first...
+        _move(view, item, item.slot, staged[item.key])
     doc.Regenerate()
     for item in moved:                  # ...then into their section
-        row, col = _cell(view, staged[item.key])
-        to_row, to_col = _cell(view, board_plan.targets[item.key])
-        view.MoveSlotTo(row, col, to_row, to_col)
+        _move(view, item, staged[item.key], board_plan.targets[item.key])
     doc.Regenerate()
+    # Revit stops the whole run ("cannot be ignored") when the board is made
+    # smaller than its circuits: check first, so only this board is skipped
+    top = _top_slot(board)
+    if top > board_plan.slots:
+        stuck = [s.CircuitNumber for s in board_systems(board)
+                 if s.StartSlot + max(s.PolesNumber, 1) - 1 > board_plan.slots]
+        raise RuntimeError(u"circuits %s are still past way %d (up to slot %d): "
+                           u"board left as it was" % (u", ".join(stuck), board_plan.slots, top))
     _set_max_slots(board, board_plan.slots)
     _set_ways(board, board_plan.ways, board_plan.slots)
 
