@@ -8,7 +8,7 @@ from Autodesk.Revit.DB import (
 )
 from Autodesk.Revit.DB.Electrical import ElectricalSystem, ElectricalSystemType
 
-from circuitdesc.describe import LIGHTING, LOAD_SLOTS, MCB, POWER, WIRING_NAMES, Circuit, fill_unknown, label, number_text
+from circuitdesc.describe import DF, LIGHTING, LOAD_SLOTS, MCB, POWER, WIRING_NAMES, Circuit, fill_unknown, label, number_text
 
 FEET = 0.3048                   # metres in a foot
 SIDE_STEP = 0.3 / FEET          # off the wall, for fixtures on a wall face
@@ -245,6 +245,7 @@ def read(board, systems, models, values):
         circuit.has_loads = has_loads
         circuit.fcu = any(is_fcu(e) for e in elements) if not feeder else False
         circuit.watts = circuit_watts(system)
+        circuit.df_param = df_param_name(system)
         out.append(circuit)
     return out
 
@@ -487,10 +488,27 @@ def circuit_kind(elements):
     return LIGHTING
 
 
+# the circuit parameter the DIVERS. FACTOR column reads: the first found
+DF_NAMES = ("Diversity_Factor", "Circuit_Diversity_Factor", "Circuit_DF", "Divers_Factor",
+            "Diversity Factor", "DF", "Circuit_S2DF")
+
+
 def _wiring_param(system, name):
     if name == MCB:
         return system.get_Parameter(BuiltInParameter.RBS_ELEC_CIRCUIT_RATING_PARAM)
+    if name == DF:
+        for df_name in DF_NAMES:
+            param = system.LookupParameter(df_name)
+            if param is not None:
+                return param
+        return None
     return system.LookupParameter(name)
+
+
+def df_param_name(system):
+    """Name of the parameter the diversity factor goes to, or None."""
+    param = _wiring_param(system, DF)
+    return param.Definition.Name if param is not None else None
 
 
 def read_wiring(system):

@@ -101,6 +101,13 @@ def _show(done, found, failed):
                         for c in no_watts],
             columns=["Board", "Circuit", "Types"])
     others = []
+    df_names = sorted(set(c.df_param for c in found if getattr(c, "df_param", None)))
+    no_df = [c for c in found if c.kind and not c.feeder and not getattr(c, "df_param", None)]
+    if df_names:
+        others.append(u"Diversity factor written to %s" % u", ".join(df_names))
+    if no_df:
+        others.append(u"%d circuit%s with no diversity factor parameter (%s): DF not written" % (
+            len(no_df), "" if len(no_df) == 1 else "s", u", ".join(revit_desc.DF_NAMES)))
     no_params = [c for c in found if not getattr(c, "has_loads", True) and not c.feeder]
     if no_params:
         others.append(u"%d circuit%s without the Load1_Type ... Load6_WpU parameters: "
