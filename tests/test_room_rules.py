@@ -87,3 +87,11 @@ def test_auto_summary():
     assert "103 WC (WC of 5 m2 or less)" in details
     assert "104 AHU (AHU room: the code wants multi-sensors)" in details
     assert details.index("HEAT") < details.index("SMOKE")
+
+
+def test_corridor_names():
+    from firealarm.room_rules import is_corridor
+    for name in ("CORRIDOR", "Lift Lobby", "HALLWAY", "PASSAGE 01", "FOYER"):
+        assert is_corridor(name), name
+    for name in ("BEDROOM", "OFFICE", "SHALL", "KITCHEN"):
+        assert not is_corridor(name), name

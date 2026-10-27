@@ -20,7 +20,7 @@ Rooms whose walls are all square to the grid (L, T, U shapes, corridors)
 are also cut into rectangles, across and along, each with its own grid;
 the layout with the fewest detectors wins.
 
-Corridors and halls with square walls are cut into legs (the main run,
+Corridors, lobbies and halls (by their name) with square walls are cut into legs (the main run,
 each arm, each lobby); each leg 3 m or longer and 1 m or wider (smoke) gets
 its own row of detectors along its middle, and door recesses and the like
 are only filled in where still out of reach.
@@ -628,7 +628,7 @@ def _area_centroid(loops):
     return (cx / (3 * a), cy / (3 * a))
 
 
-def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE):
+def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE, corridor=False):
     """Detector points for a room.
 
     loops: the room outline and any holes (columns, shafts) as lists of
@@ -636,6 +636,7 @@ def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE):
     spacing: max distance between detectors (half of it from the walls).
     clearance: min distance from walls and columns, relaxed only where the
     room is too narrow for it.
+    corridor: lay it out leg by leg (corridors, lobbies, halls).
     """
     loops = [clean_loop(loop) for loop in loops]
     loops = [loop for loop in loops if len(loop) >= 3 and abs(loop_area(loop)) > EPS]
@@ -659,7 +660,7 @@ def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE):
                     (len(best.points), len(best.points) - best.on_grid):
                 best = other
 
-    if _is_orthogonal(local, tol):
+    if corridor and _is_orthogonal(local, tol):
         legs = _legs(local, spacing * MIN_LEG, tol)
         if len(legs) >= 2:
             other = _legs_layout(local, legs, spacing, clearance)

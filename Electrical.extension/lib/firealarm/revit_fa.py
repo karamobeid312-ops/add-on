@@ -118,6 +118,7 @@ class SpaceRef(object):
         if link is not None:
             self.label += u" [%s]" % link_name(link)
         self.key = (_id_int(link.Id) if link is not None else 0, _id_int(space.Id))
+        self.corridor = False               # laid out leg by leg (set from its name)
 
     def point(self, p):
         return self.transform.OfPoint(p)
@@ -477,7 +478,7 @@ def _plan(doc, ref, spacing, clearance, finder, existing):
         return plan
     plan.floor_z, top_z = _heights(ref)
     plan.level = _level(doc, ref, plan.floor_z)
-    plan.layout = layout_detectors(loops, spacing, clearance)
+    plan.layout = layout_detectors(loops, spacing, clearance, corridor=ref.corridor)
     for x, y in plan.layout.points:
         xf, yf = x / M_PER_FOOT, y / M_PER_FOOT
         plan.spots.append((xf, yf, finder.above(xf, yf, plan.floor_z)))

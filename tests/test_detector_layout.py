@@ -168,7 +168,7 @@ def test_corridor_legs_on_their_centre_lines():
             (14.8, -1), (14.8, 0), (29, 0), (29, -1), (31, -1), (31, 0), (32, 0),
             (32, 11.2), (28, 11.2), (28, 2), (11.8, 2), (11.8, 11.2), (9.8, 11.2),
             (9.8, 2), (4, 2), (4, 5.7), (0, 5.7)]
-    points = layout_detectors([room], SMOKE).points
+    points = layout_detectors([room], SMOKE, corridor=True).points
     corridor = sorted(p for p in points if abs(p[1] - 1.0) < 1e-6)
     assert len(corridor) == 4                       # one straight row, evenly spaced
     gaps = [b[0] - a[0] for a, b in zip(corridor, corridor[1:])]

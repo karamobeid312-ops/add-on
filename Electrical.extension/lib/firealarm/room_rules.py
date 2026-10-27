@@ -37,7 +37,16 @@ DEFAULT_RULES = {
                   "ABLUTION",
     "rules_heat": "KITCHEN, PANTRY, COOKING, PUMP, GARBAGE, REFUSE, TRASH, WASTE, BIN, "
                   "GENERATOR, GENSET, DG, BATTERY, CHARGER",
+    # not a detector choice: these rooms are laid out leg by leg (a row
+    # of detectors along the middle of each arm)
+    "rules_corridor": "CORRIDOR, PASSAGE, LOBBY, HALL, FOYER, GALLERY",
 }
+
+
+def is_corridor(name, rules=None):
+    """Lay this room out leg by leg?"""
+    rules = rules or rules_from(None)
+    return match(name, rules["rules_corridor"]) is not None
 BATH_HEAT_AREA = 5.0    # m2, bigger bathrooms get heat detectors
 
 FLAG_REASONS = {

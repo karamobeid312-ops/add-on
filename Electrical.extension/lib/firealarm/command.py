@@ -9,7 +9,7 @@ from firealarm.addresses import DETECTION, SOUNDER, on_loop
 from firealarm.loops import loop_count, loop_numbers
 from firealarm.report import (summarize, summarize_addresses, summarize_auto, summarize_loops,
                               summarize_riser)
-from firealarm.room_rules import HEAT, SMOKE, decide, rules_from
+from firealarm.room_rules import HEAT, SMOKE, decide, is_corridor, rules_from
 from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
 from firealarm.revit_fa import (by_level, detector_types, linked_models,
                                 pick_linked_spaces, pick_spaces, place_detectors,
@@ -105,6 +105,7 @@ def run(kind):
     spaces = _choose_spaces(doc, uidoc)
     if not spaces:
         return
+    _mark_corridors(spaces, values)
     symbol = _detector_type(doc, kind, values)
     if symbol is None:
         return
@@ -132,6 +133,13 @@ def run(kind):
     forms.alert(headline, expanded=details, title=TITLE)
 
 
+def _mark_corridors(spaces, values):
+    """Corridors, lobbies and halls (by name) are laid out leg by leg."""
+    rules = rules_from(values)
+    for ref in spaces:
+        ref.corridor = is_corridor(ref.name(), rules)
+
+
 def run_auto():
     """Smoke or heat detectors in each selected room, from its name (UAE
     Fire Code Table 8.14, see room_rules)."""
@@ -145,6 +153,7 @@ def run_auto():
     if not spaces:
         return
     rules = rules_from(values)
+    _mark_corridors(spaces, values)
     decisions = [(ref, decide(ref.name(), ref.area(), ref.height(), rules,
                               values["bath_heat_area"])) for ref in spaces]
 
@@ -583,6 +592,7 @@ _RULES = [
     ("bath_heat_area", "Bathroom area for heat"),
     ("rules_none", "No detector rooms"),
     ("rules_flag", "Rooms to do by hand (multi-sensor, beam...)"),
+    ("rules_corridor", "Corridors (a row of detectors along each leg)"),
 ]
 
 _RULE_PROMPT = ("Words in the room name, comma separated. A word also matches longer words\n"
