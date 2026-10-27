@@ -158,3 +158,23 @@ def test_single_detector_in_biggest_rectangle_of_stepped_room():
     assert len(points) == 1
     assert abs(points[0][0] - 3.9) < 1e-6 and abs(points[0][1] - 2.1) < 1e-6
     assert worst_gap([room], points, 0.1) <= reach(SMOKE) + 1e-6
+
+
+def test_corridor_legs_on_their_centre_lines():
+    # 32 m corridor 2 m wide (y 0..2), a lobby on the left (y 2..5.7), an arm
+    # going up in the middle (x 9.8..11.8, y 2..11.2), a hall on the right
+    # (x 28..32, y 2..11.2) and door recesses 1 m deep under the corridor
+    room = [(0, 0), (1.8, 0), (1.8, -1), (3.8, -1), (3.8, 0), (12.3, 0), (12.3, -1),
+            (14.8, -1), (14.8, 0), (29, 0), (29, -1), (31, -1), (31, 0), (32, 0),
+            (32, 11.2), (28, 11.2), (28, 2), (11.8, 2), (11.8, 11.2), (9.8, 11.2),
+            (9.8, 2), (4, 2), (4, 5.7), (0, 5.7)]
+    points = layout_detectors([room], SMOKE).points
+    corridor = sorted(p for p in points if abs(p[1] - 1.0) < 1e-6)
+    assert len(corridor) == 4                       # one straight row, evenly spaced
+    gaps = [b[0] - a[0] for a, b in zip(corridor, corridor[1:])]
+    assert max(gaps) - min(gaps) < 1e-6
+    assert any(abs(p[0] - 10.8) < 1e-6 and p[1] > 2 for p in points)   # the arm
+    assert any(abs(p[0] - 30.0) < 1e-6 and p[1] > 2 for p in points)   # the hall
+    assert any(abs(p[0] - 2.0) < 1e-6 and p[1] > 2 for p in points)    # the lobby
+    assert not any(p[1] < 0 for p in points)        # nothing in the door recesses
+    assert worst_gap([room], points, 0.2) <= reach(SMOKE) + 1e-6

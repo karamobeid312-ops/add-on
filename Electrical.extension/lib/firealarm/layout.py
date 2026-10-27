@@ -20,6 +20,11 @@ Rooms whose walls are all square to the grid (L, T, U shapes, corridors)
 are also cut into rectangles, across and along, each with its own grid;
 the layout with the fewest detectors wins.
 
+Corridors and halls with square walls are cut into legs (the main run,
+each arm, each lobby); each leg 3 m or longer and 1 m or wider (smoke) gets
+its own row of detectors along its middle, and door recesses and the like
+are only filled in where still out of reach.
+
 When one detector covers the whole room it goes in the middle of the
 biggest rectangle that fits in the room (or of its area) if it still covers it all from
 there, so an L-shaped bedroom gets it over the bed, not at the entrance.
@@ -33,6 +38,10 @@ import math
 
 DEFAULT_CLEARANCE = 0.5      # min distance from walls and columns (m)
 CHECKS_PER_SPACING = 20      # checking grid pitch = spacing / 20 (0.45 m at 9 m)
+MIN_LEG = 1 / 3.0            # legs shorter than spacing / 3 (3 m smoke) get no detector of their own
+MIN_LEG_WIDTH = 1 / 3.0      # nor legs narrower than a third of that (1 m smoke): wall jogs
+LEG_OVERLAP = 2 / 3.0        # a leg's end that is this much inside an earlier leg is cut off
+MAX_LEG_CELLS = 900          # rooms cut into more cells (many columns) are not split into legs
 EPS = 1e-9
 
 
@@ -343,6 +352,14 @@ def _grid_layout(loops, spacing, clearance):
             place(middle)
 
     # 5. anything still out of reach
+    _fill_gaps(check, place, clear, clearance)
+
+    return _Result(detectors, [Grid(x0, y0, px, py, nx, ny)], len(on_grid),
+                   len(check.uncovered()))
+
+
+def _fill_gaps(check, place, clear, clearance):
+    """Step 5: a detector wherever a checking point is still out of reach."""
     for idx in check.uncovered():
         if check.covered[idx]:
             continue
@@ -364,9 +381,6 @@ def _grid_layout(loops, spacing, clearance):
             place(middle)
         else:
             place(_nearest(spots, middle))
-
-    return _Result(detectors, [Grid(x0, y0, px, py, nx, ny)], len(on_grid),
-                   len(check.uncovered()))
 
 
 def _is_orthogonal(loops, tol):
@@ -488,6 +502,118 @@ def _biggest_rectangle(loops, tol):
     return best
 
 
+def _legs(loops, min_leg, tol):
+    """The legs of a corridor or hall with square walls, biggest first, as
+    rectangles (x0, y0, x1, y1): each leg is the rectangle in the room
+    holding the most of what is not in a leg yet, cut back at its ends
+    where it runs into an earlier leg. Legs shorter than min_leg (door
+    recesses, a bedroom's entrance) are left out."""
+    segs = segments(loops)
+    xs, ys = [], []
+    for values, k in ((xs, 0), (ys, 1)):
+        for v in sorted(p[k] for loop in loops for p in loop):
+            if not values or v - values[-1] > tol:
+                values.append(v)
+    nx, ny = len(xs) - 1, len(ys) - 1
+    if nx < 1 or ny < 1 or nx * ny > MAX_LEG_CELLS:
+        return []
+    inside = [[point_inside((xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2, segs)
+               for j in range(ny)] for i in range(nx)]
+    run = [[0] * (ny + 1) for _ in range(nx)]       # cells inside from j up, in a row
+    for i in range(nx):
+        for j in range(ny - 1, -1, -1):
+            run[i][j] = run[i][j + 1] + 1 if inside[i][j] else 0
+    taken = [[False] * ny for _ in range(nx)]
+    picked = []
+    while True:
+        free = []           # per column: height not in a leg yet, summed up from the bottom
+        for i in range(nx):
+            sums = [0.0]
+            for j in range(ny):
+                sums.append(sums[-1] + (0.0 if taken[i][j] else ys[j + 1] - ys[j]))
+            free.append(sums)
+        best, best_new = None, 0.0
+        for i0 in range(nx):
+            for j0 in range(ny):
+                for j1 in range(j0, j0 + run[i0][j0]):
+                    new = 0.0
+                    for i1 in range(i0, nx):
+                        if run[i1][j0] <= j1 - j0:
+                            break
+                        new += (free[i1][j1 + 1] - free[i1][j0]) * (xs[i1 + 1] - xs[i1])
+                        if new > best_new + EPS:
+                            best, best_new = (i0, j0, i1, j1), new
+        if best is None:
+            break
+        i0, j0, i1, j1 = best
+        for i in range(i0, i1 + 1):
+            for j in range(j0, j1 + 1):
+                taken[i][j] = True
+        picked.append(best)
+
+    out, claimed = [], [[False] * ny for _ in range(nx)]
+
+    def column_done(i, j0, j1):     # mostly in earlier legs: a wall jog doesn't count
+        done = sum(ys[j + 1] - ys[j] for j in range(j0, j1 + 1) if claimed[i][j])
+        return done >= LEG_OVERLAP * (ys[j1 + 1] - ys[j0])
+
+    def row_done(j, i0, i1):
+        done = sum(xs[i + 1] - xs[i] for i in range(i0, i1 + 1) if claimed[i][j])
+        return done >= LEG_OVERLAP * (xs[i1 + 1] - xs[i0])
+
+    for i0, j0, i1, j1 in picked:
+        if xs[i1 + 1] - xs[i0] >= ys[j1 + 1] - ys[j0]:      # along x
+            while i0 < i1 and column_done(i0, j0, j1):
+                i0 += 1
+            while i1 > i0 and column_done(i1, j0, j1):
+                i1 -= 1
+        else:
+            while j0 < j1 and row_done(j0, i0, i1):
+                j0 += 1
+            while j1 > j0 and row_done(j1, i0, i1):
+                j1 -= 1
+        rect = (xs[i0], ys[j0], xs[i1 + 1], ys[j1 + 1])
+        sides = sorted((rect[2] - rect[0], rect[3] - rect[1]))
+        if sides[1] < min_leg - tol or sides[0] < min_leg * MIN_LEG_WIDTH - tol:
+            continue
+        for i in range(i0, i1 + 1):
+            for j in range(j0, j1 + 1):
+                claimed[i][j] = True
+        out.append(rect)
+    return out
+
+
+def _legs_layout(loops, legs, spacing, clearance):
+    """Detectors along the middle of each leg, then wherever the rest of
+    the room (door recesses...) is still out of reach."""
+    segs = segments(loops)
+    xs = [p[0] for loop in loops for p in loop]
+    ys = [p[1] for loop in loops for p in loop]
+    box = (min(xs), min(ys), max(xs), max(ys))
+    step = min(spacing / CHECKS_PER_SPACING, min(box[2] - box[0], box[3] - box[1]) / 4.0)
+    check = _Checker(segs, box, step, reach(spacing))
+    detectors, grids = [], []
+
+    def place(p):
+        detectors.append(p)
+        check.cover(p)
+
+    def clear(p):
+        return point_inside(p[0], p[1], segs) and \
+            wall_distance(p[0], p[1], segs) >= clearance - 1e-6
+
+    for x0, y0, x1, y1 in legs:
+        nx, ny = _bays(x1 - x0, spacing), _bays(y1 - y0, spacing)
+        px, py = (x1 - x0) / nx, (y1 - y0) / ny
+        grids.append(Grid(x0, y0, px, py, nx, ny))
+        for j in range(ny):
+            for i in range(nx):
+                place((x0 + (i + 0.5) * px, y0 + (j + 0.5) * py))
+    on_grid = len(detectors)
+    _fill_gaps(check, place, clear, clearance)
+    return _Result(detectors, grids, on_grid, len(check.uncovered()))
+
+
 def _area_centroid(loops):
     """Centre of area of the outline (its biggest loop), None if degenerate."""
     loop = max(loops, key=lambda l: abs(loop_area(l)))
@@ -531,6 +657,13 @@ def layout_detectors(loops, spacing, clearance=DEFAULT_CLEARANCE):
             if other.uncovered <= best.uncovered and \
                     (len(other.points), len(other.points) - other.on_grid) < \
                     (len(best.points), len(best.points) - best.on_grid):
+                best = other
+
+    if _is_orthogonal(local, tol):
+        legs = _legs(local, spacing * MIN_LEG, tol)
+        if len(legs) >= 2:
+            other = _legs_layout(local, legs, spacing, clearance)
+            if other.uncovered <= best.uncovered:
                 best = other
 
     if len(best.points) == 1 and best.uncovered == 0:
