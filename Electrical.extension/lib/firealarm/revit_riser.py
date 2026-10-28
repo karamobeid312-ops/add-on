@@ -255,13 +255,25 @@ def _set_colours(doc, styles):
 FILL_TYPE = "FA Solid Red"
 
 
+def _type_name(element_type):
+    """A type's name: IronPython cannot read .Name on Revit types."""
+    p = element_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)
+    if p is not None and p.AsString():
+        return p.AsString()
+    try:
+        from Autodesk.Revit.DB import Element
+        return Element.Name.GetValue(element_type)
+    except Exception:
+        return ""
+
+
 def _fill_type(doc):
     """The filled region type for the dots: solid red, made from the first
     filled region type the first time."""
     from Autodesk.Revit.DB import FillPatternElement, FillPatternTarget, FilledRegionType
     types = list(FilteredElementCollector(doc).OfClass(FilledRegionType))
     for t in types:
-        if t.Name == FILL_TYPE:
+        if _type_name(t) == FILL_TYPE:
             return t
     solid = next(p for p in FilteredElementCollector(doc).OfClass(FillPatternElement)
                  if p.GetFillPattern().IsSolidFill and
