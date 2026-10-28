@@ -17,14 +17,16 @@ sys.path.insert(0, HERE)
 from firealarm.loop_diagram import Device, loop_diagram  # noqa: E402
 from preview_svg import to_svg  # noqa: E402
 
-LOOP1 = ("MCP MM HD HD MCP HD MCP HD MM HD MCP SD SD HD SD MCP MM HD SD HD MCP MM HD SD SD "
-         "MCP MM MCP MM MCP FD HY HD MCP SD SD MM MM SD").split()
-LOOP2 = ["SB"] * 13
+# the office drawing SUBSTATION2 FIRE ALARM SCHEMATIC (03 and 04 added)
+LOOP1 = ("MCP MM MCP HD MCP HD MCP HD MM HD MCP SD SD HD MM HD HD MCP MCP MM FD HY HD HD HY FD "
+         "MCP MM MCP MM FD HY HD MCP SD SD MM MM SD").split()
+WP = (2, 6, 8, 10)          # weatherproof sounders with beacon
 
 
 def sample():
     devices = [Device("L1/%s-%02d" % (c, k + 1)) for k, c in enumerate(LOOP1)]
-    devices += [Device("L2/%s-%02d" % (c, k + 1)) for k, c in enumerate(LOOP2)]
+    devices += [Device("L1/SB-%02d" % k, name="SOUNDER : W/P" if k in WP else "SOUNDER")
+                for k in range(1, 14)]
     devices.append(Device(""))
     return devices
 
@@ -32,7 +34,8 @@ def sample():
 def main(argv):
     out = argv[1] if len(argv) > 1 else "loop_diagram.svg"
     scale = float(argv[2]) if len(argv) > 2 else 4.0
-    diagram = loop_diagram(sample(), "SFACP-AUD-SS-02")
+    diagram = loop_diagram(sample(), "SFACP-AUD-SS-02",
+                           links="FROM TRAIN SERVICING SUPPORT AND FACILITIES; TO ENGINE SHED")
     with io.open(out, "w", encoding="utf-8") as f:
         f.write(to_svg(diagram.drawing, px_per_mm=scale))
     for w in diagram.warnings:

@@ -240,30 +240,30 @@ class LoopRun(object):
         self.unaddressed = []       # [(element id, family : type, comments)]
 
 
-def generate_loops(doc, chosen, panel_lines, cable, per_row):
+def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links=""):
     """Draw the loop diagram from the addresses in the devices' Comments in
     a new drafting view. Returns (view or None, LoopRun)."""
-    from firealarm.loop_diagram import Device, loop_diagram
+    from firealarm.loop_diagram import DRAW_SCALE, Device, loop_diagram
     run = LoopRun()
     devices, panels = devices_and_panels(doc)
     run.devices = len(devices)
     items = []
     for element in devices:
         address = device_address(element)
-        item = Device(address, symbol_of(element, chosen), id_int(element.Id))
+        item = Device(address, symbol_of(element, chosen), id_int(element.Id), label(element))
         if item.loop is None:
             run.unaddressed.append((id_int(element.Id), label(element), address))
             continue
         items.append(item)
     panel = main_panel(panels)
     run.panel = panel_name(panel)
-    run.diagram = loop_diagram(items, run.panel, panel_lines, cable, per_row)
+    run.diagram = loop_diagram(items, run.panel, panel_lines, cable, per_row, network, links)
     if not run.diagram.loops:
         return None, run
     t = Transaction(doc, "FA Loop Diagram")
     t.Start()
     try:
-        view = render(doc, run.diagram.drawing, LOOP_VIEW_NAME)
+        view = render(doc, run.diagram.drawing, LOOP_VIEW_NAME, DRAW_SCALE)
         t.Commit()
     except Exception:
         t.RollBack()

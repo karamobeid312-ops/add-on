@@ -3,7 +3,8 @@
 from firealarm.layout import DEFAULT_CLEARANCE
 from firealarm.loops import MAX_DEVICES
 from firealarm.room_rules import BATH_HEAT_AREA, DEFAULT_RULES
-from firealarm.loop_diagram import DEFAULT_CABLE, DEFAULT_PANEL_LINES, DEFAULT_PER_ROW
+from firealarm.loop_diagram import (DEFAULT_CABLE, DEFAULT_LINKS, DEFAULT_NETWORK,
+                                    DEFAULT_PANEL_LINES, DEFAULT_PER_ROW)
 
 SECTION = "FireAlarmDetectors"
 
@@ -24,6 +25,8 @@ DEFAULTS = {
     "riser_panel_lines": DEFAULT_PANEL_LINES,   # loop diagram: lines in the panel box (; between)
     "riser_cable": DEFAULT_CABLE,               # loop diagram: note on the loop lines
     "riser_per_row": DEFAULT_PER_ROW,           # loop diagram: devices in a row before it turns
+    "riser_network": DEFAULT_NETWORK,           # loop diagram: box left of the panel (; between lines)
+    "riser_links": DEFAULT_LINKS,               # loop diagram: FROM ... / TO ... right of the panel
 }
 DEFAULTS.update(DEFAULT_RULES)  # Auto Detectors room name keywords (comma separated)
 

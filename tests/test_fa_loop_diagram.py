@@ -65,3 +65,40 @@ def test_summary():
     assert "L1: 2 devices, L1/SD-01 to L1/SD-03" in details
     assert "numbers missing: 02" in details
     assert "L2 (sounders)" in details
+
+
+def test_sounders_of_a_loop_are_their_own_magenta_circuit_above():
+    items = [Device("L1/MCP-01"), Device("L1/SD-02"), Device("L1/SB-01"), Device("L1/SB-02")]
+    diagram = loop_diagram(items)
+    assert [(l.number, l.sounder) for l in diagram.loops] == [(1, False), (1, True)]
+    assert not diagram.warnings                 # SB-01 and MCP-01 are not the same number
+    at = dict((t.text, (t.x, t.y)) for t in diagram.drawing.texts if t.text.startswith("L1/"))
+    assert at["L1/SB-01"][1] > at["L1/MCP-01"][1]
+    assert at["L1/SB-01"][0] == at["L1/MCP-01"][0]
+    texts = [t.text for t in diagram.drawing.texts]
+    assert texts.count("START") == 2 and texts.count("FIRE RATED CABLE") == 4
+
+
+def test_office_symbols():
+    assert Device("L1/SD-01").symbol().code == "SD"
+    assert Device("L1/FD-21").symbol().code == "FD"
+    assert Device("L1/SB-01", name="Sounder : Standard").symbol().code == "SB"
+    assert Device("L1/SB-02", name="Sounder : W/P with beacon").symbol().code == "SBW"
+    assert Device("L1/SB-03", code="BELLS").symbol().code == "SBW"
+    assert Device("L1/CM-01").symbol().code == "CM"     # floor riser symbol
+
+
+def test_detection_wiring_is_dash_dot_and_dot_is_filled():
+    diagram = loop_diagram([Device("L1/MCP-01"), Device("L1/MM-02"), Device("L1/SD-03")])
+    row = [l for l in diagram.drawing.lines if l.style == DETECTION_STYLE and l.y1 == l.y2
+           and l.y1 > 40 and l.x1 > 20]
+    assert len(row) > 10                        # dashes between the devices
+    assert len([a for a in diagram.drawing.arcs if a.r < 0.7]) > 10     # MCP dot rings
+
+
+def test_panel_title_and_links():
+    diagram = loop_diagram([Device("L1/SD-01")], "SFACP-AUD-SS-02",
+                           links="FROM TRAIN SERVICING; TO ENGINE SHED")
+    texts = " ".join(t.text.replace("\n", " ") for t in diagram.drawing.texts)
+    assert "SUB MAIN FIRE ALARM CONTROL PANEL" in texts
+    assert "TO ENGINE SHED" in texts and "Multi Service Network" in texts

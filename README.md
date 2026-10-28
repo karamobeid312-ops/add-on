@@ -355,23 +355,28 @@ pairs on one loop, the roof with typical floor 11.*
 ### Loop diagram (addresses in Comments)
 
 **FA Riser** first asks which riser. **Loop diagram** draws every device in
-a new drafting view, *FA Loop Diagram*, from the address in its
-**Comments** (`L1/MM-02`: loop 1, monitor module, number 02), like the
-office loop diagram:
+a new drafting view, *FA Loop Diagram* (1:100), from the address in its
+**Comments** (`L1/MM-02`: loop 1, monitor module, number 02), copied from
+the office drawing *SUBSTATION2 FIRE ALARM SCHEMATIC* (symbols, spacing,
+line colours, cable notes and panel):
 
 ![Loop diagram sample](docs/loop-diagram-preview.png)
 
-- `L1`, `L2`... is the loop. Each loop is drawn in address order, starting
-  at its START line and coming back to its END line at the control panel.
-- A long loop turns at the end of a row and comes back on the next row
-  (devices per row in **FA Settings**, 25 by default).
-- A loop of only sirens / bells / flashers (`SB`, `HS`...) is drawn as a
-  sounder loop, in magenta (**FA Riser Sounder Wiring**).
-- The address is written under each device; the symbol comes from the
-  address type, else from the family as above.
-- The panel box shows the panel's Panel Name (else Mark) and the panel
-  lines from **FA Settings**; each loop carries the cable note from
-  **FA Settings**.
+- `L1`, `L2`... is the loop. Each loop's detection devices are drawn in
+  address order from its START line, joined by red dash-dot lines, and
+  come back to its END line. A long loop turns at the end of a row and
+  comes back on the next row (devices per row in **FA Settings**, 20 by
+  default).
+- The loop's sounders (`L1/SB-01`..., numbered on their own) have their
+  own magenta START / END lines and row above.
+- Office symbols for SD, HD, FD, HY, MCP, MM and SB. A sounder whose family
+  or type says W/P, WP, WEATHER, STROBE, BEACON or FLASH (or whose symbol
+  is the bell with strobe) gets the W/P sounder with beacon. Other types
+  use the floor riser symbols.
+- The panel is titled SUB MAIN (Panel Name starting SFACP) or MAIN (MFACP)
+  FIRE ALARM CONTROL PANEL with its Panel Name (else Mark). The panel box
+  lines, the cable note, the network box on its left and the lines out of
+  its right side (`FROM ...; TO ...`) are set in **FA Settings**.
 - Devices with no address in Comments (or the `FA Address` parameter) are
   left out and listed in the summary, with gaps in the numbering and
   addresses used twice.

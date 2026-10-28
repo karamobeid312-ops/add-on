@@ -396,14 +396,21 @@ def line_style(doc, name, colour):
     return sub.GetGraphicsStyle(GraphicsStyleType.Projection)
 
 
-def render(doc, drawing, view_name=VIEW_NAME):
-    """Create a new 1:1 drafting view and draw `drawing` into it.
+def render(doc, drawing, view_name=VIEW_NAME, scale=1):
+    """Create a new drafting view and draw `drawing` (paper millimetres)
+    into it at 1:`scale`.
 
-    Must be called inside an open transaction. Returns the new view.
+    A scale above 1 draws the geometry `scale` times bigger in the model, so
+    details smaller than Revit's shortest line (about 0.8 mm) still draw;
+    text sizes stay paper sizes. Must be called inside an open transaction.
+    Returns the new view.
     """
     view = ViewDrafting.Create(doc, _drafting_view_type(doc).Id)
     view.Name = _unique_view_name(doc, view_name)
-    view.Scale = 1  # 1:1 so layout millimetres == paper millimetres
+    view.Scale = scale  # layout millimetres == paper millimetres
+
+    def _xyz(x_mm, y_mm):
+        return XYZ(x_mm * scale / MM_PER_FOOT, y_mm * scale / MM_PER_FOOT, 0.0)
 
     short = doc.Application.ShortCurveTolerance
     by_style = {}
@@ -413,9 +420,9 @@ def render(doc, drawing, view_name=VIEW_NAME):
             by_style.setdefault(getattr(ln, "style", None), CurveArray()).Append(
                 Line.CreateBound(a, b))
     for arc in drawing.arcs:
-        if arc.r * (arc.a1 - arc.a0) / MM_PER_FOOT > short:
+        if arc.r * scale * (arc.a1 - arc.a0) / MM_PER_FOOT > short:
             by_style.setdefault(getattr(arc, "style", None), CurveArray()).Append(
-                Arc.Create(_xyz(arc.cx, arc.cy), arc.r / MM_PER_FOOT,
+                Arc.Create(_xyz(arc.cx, arc.cy), arc.r * scale / MM_PER_FOOT,
                            arc.a0, arc.a1, XYZ.BasisX, XYZ.BasisY))
     for name, curves in by_style.items():
         if curves.IsEmpty:
