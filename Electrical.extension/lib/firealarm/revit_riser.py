@@ -23,7 +23,7 @@ from firealarm.revit_address import symbol_of
 from firealarm.revit_loop import device_reach, id_int, label, level_of, loop_curves, model_levels
 from firealarm.riser import Segment, riser_layout
 from firealarm.riser_symbols import is_panel_name
-from sld.revit_sld import render
+from sld.revit_sld import line_style, render
 
 VIEW_NAME = "FA Riser Diagram"
 MM_PER_FOOT = 304.8
@@ -252,6 +252,58 @@ def _set_colours(doc, styles):
                 sub.LineColor = Color(r, g, b)
 
 
+FILL_TYPE = "FA Solid Red"
+
+
+def _fill_type(doc):
+    """The filled region type for the dots: solid red, made from the first
+    filled region type the first time."""
+    from Autodesk.Revit.DB import FillPatternElement, FillPatternTarget, FilledRegionType
+    types = list(FilteredElementCollector(doc).OfClass(FilledRegionType))
+    for t in types:
+        if t.Name == FILL_TYPE:
+            return t
+    solid = next(p for p in FilteredElementCollector(doc).OfClass(FillPatternElement)
+                 if p.GetFillPattern().IsSolidFill and
+                 p.GetFillPattern().Target == FillPatternTarget.Drafting)
+    t = types[0].Duplicate(FILL_TYPE)
+    try:                                    # Revit 2019 and later
+        t.ForegroundPatternId = solid.Id
+        t.ForegroundPatternColor = Color(255, 0, 0)
+    except AttributeError:
+        t.FillPatternId = solid.Id
+        t.Color = Color(255, 0, 0)
+    return t
+
+
+def _fill_dots(doc, view, fills, scale):
+    """Solid red dots (the manual call points') as filled regions; earlier
+    ones in the view are taken away first."""
+    from System.Collections.Generic import List
+    from Autodesk.Revit.DB import Arc, CurveLoop, ElementId, FilledRegion, XYZ
+    if not fills:
+        return
+    fill_type = _fill_type(doc)
+    old = [r.Id for r in FilteredElementCollector(doc, view.Id).OfClass(FilledRegion)
+           if r.OwnerViewId == view.Id and r.GetTypeId() == fill_type.Id]
+    if old:
+        doc.Delete(List[ElementId](old))
+    for cx, cy, r, style in fills:
+        c = XYZ(cx * scale / MM_PER_FOOT, cy * scale / MM_PER_FOOT, 0.0)
+        radius = r * scale / MM_PER_FOOT
+        loop = CurveLoop()
+        loop.Append(Arc.Create(c, radius, 0.0, math.pi, XYZ.BasisX, XYZ.BasisY))
+        loop.Append(Arc.Create(c, radius, math.pi, 2 * math.pi, XYZ.BasisX, XYZ.BasisY))
+        loops = List[CurveLoop]()
+        loops.Add(loop)
+        region = FilledRegion.Create(doc, fill_type.Id, view.Id, loops)
+        if style:
+            try:                            # red edge, as the symbol
+                region.SetLineStyleId(line_style(doc, style, (255, 0, 0)).Id)
+            except Exception:
+                pass
+
+
 def _model_size(drawing, scale):
     """The drawing `scale` times bigger, texts keeping their paper size: drawn
     in a 1:`scale` view it prints the same, and dashes shorter than Revit's
@@ -297,6 +349,7 @@ def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="
         _set_colours(doc, run.diagram.drawing.styles)
         view = render(doc, _model_size(run.diagram.drawing, DRAW_SCALE), LOOP_VIEW_NAME)
         view.Scale = DRAW_SCALE
+        _fill_dots(doc, view, getattr(run.diagram.drawing, "fills", []), DRAW_SCALE)
         t.Commit()
     except Exception:
         t.RollBack()

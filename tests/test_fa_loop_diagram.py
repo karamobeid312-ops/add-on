@@ -91,12 +91,12 @@ def test_office_symbols():
     assert Device("L1/CM-01").symbol().code == "CM"     # floor riser symbol
 
 
-def test_detection_wiring_is_dash_dot_and_dot_is_filled():
+def test_wiring_and_symbols_solid_and_dot_filled():
     diagram = loop_diagram([Device("L1/MCP-01"), Device("L1/MM-02"), Device("L1/SD-03")])
     row = [l for l in diagram.drawing.lines if l.style == DETECTION_STYLE and l.y1 == l.y2
            and l.y1 > 40 and l.x1 > 20]
-    assert len(row) > 10                        # dashes between the devices
-    assert len([a for a in diagram.drawing.arcs if a.r < 0.7]) > 10     # MCP dot rings
+    assert all(l.x2 - l.x1 > 5.0 or l.x1 - l.x2 > 5.0 for l in row)     # no dashes
+    assert len(diagram.drawing.fills) == 1 and diagram.drawing.fills[0][2] == 0.62  # MCP dot
     symbols = [l for l in diagram.drawing.lines if l.style == SYMBOL_STYLE]
     assert all(math.hypot(l.x2 - l.x1, l.y2 - l.y1) > 1.0 for l in symbols)   # solid outlines
 

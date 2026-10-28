@@ -16,7 +16,7 @@ under it, and an END line back down to the panel.
 Each loop's sounders (L1/SB-01...) are a circuit of their own, drawn in
 magenta above the loop's detection devices. The first circuit takes the
 lowest rows and the lines nearest the rows, so no lines cross. Detection
-devices are joined by red dash-dot lines, as in the office drawing.
+devices are joined by solid red lines.
 
 All sizes in millimetres on paper; the office drawing is 1:100, so the
 diagram is drawn in Revit at 1:100 (DRAW_SCALE) to keep its small dashes.
@@ -28,7 +28,7 @@ import math
 
 from sld.geometry import BOTTOM, CENTER, LEFT, MIDDLE, TOP, VERTICAL, Drawing, line_length, wrap
 from firealarm.addresses import parse_address
-from firealarm.loop_symbols import LOOP_SYMBOLS, patterned_line
+from firealarm.loop_symbols import LOOP_SYMBOLS
 from firealarm.riser_symbols import SYMBOLS as ALL_SYMBOLS, Symbol, _text_box, symbol
 
 DETECTION_STYLE = "FA Riser Wiring"         # red: loop lines, panel
@@ -219,6 +219,7 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
                  per_row=DEFAULT_PER_ROW, network=DEFAULT_NETWORK, links=DEFAULT_LINKS):
     """devices: [Device]. Returns a LoopDiagram."""
     d = Drawing()
+    d.fills = []                # (cx, cy, r, style): solid dots, filled regions in Revit
     for name, colour in ((DETECTION_STYLE, RED), (SOUNDER_STYLE, MAGENTA), (SYMBOL_STYLE, RED),
                          (BMS_STYLE, GREEN), (POWER_STYLE, BLUE), (NETWORK_STYLE, MAGENTA)):
         d.styles[name] = colour
@@ -265,7 +266,6 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
 
     for k, loop in enumerate(loops):
         lead = SOUNDER_STYLE if loop.sounder else DETECTION_STYLE
-        pattern = "solid" if loop.sounder else "center"
         xs, xe = start_x[k], end_x[k]
         widest = max(len(r) for r in loop.rows)
         syms = [dv.symbol() for dv in loop.devices]
@@ -273,7 +273,7 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
         address_top = max(s.bottom for s in syms) + ADDRESS_GAP
 
         def wire(x1, y1, x2, y2):
-            patterned_line(d, x1, y1, x2, y2, pattern, lead)
+            d.line(x1, y1, x2, y2, lead)
 
         d.line(xs, panel_top, xs, row_y[(k, 0)], lead)              # START up
         at = xs
@@ -381,7 +381,7 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
     link_y = ([y_top - name_top - TEXT_PANEL / 2] if panel_name else []) + bms + \
         [m for t, m in rows if m not in bms]
     for text, yl in zip(_parts(links), link_y):
-        patterned_line(d, p_right, yl, p_right + LINK_LONG, yl, "center", DETECTION_STYLE)
+        d.line(p_right, yl, p_right + LINK_LONG, yl, DETECTION_STYLE)
         d.text(p_right + LINK_LONG + 1.5, yl, text, TEXT_LINK, align=LEFT, valign=MIDDLE)
 
     return LoopDiagram(d, loops, bad, warnings)

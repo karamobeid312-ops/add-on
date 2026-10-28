@@ -152,7 +152,12 @@ def patterned_arc(d, cx, cy, r, a0, a1, pattern, style=None):
 
 
 def dot(d, cx, cy, r, style=None, step=0.06):
-    """A filled dot: rings close enough to print solid."""
+    """A filled dot: a solid filled region in Revit (the drawing's `fills`),
+    else rings close enough to print solid."""
+    fills = getattr(d, "fills", None)
+    if fills is not None:
+        fills.append((cx, cy, r, style))
+        return
     rr = r
     while rr > step / 2:
         d.circle(cx, cy, rr, style)

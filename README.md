@@ -363,7 +363,7 @@ line colours, cable notes and panel):
 ![Loop diagram sample](docs/loop-diagram-preview.png)
 
 - `L1`, `L2`... is the loop. Each loop's detection devices are drawn in
-  address order from its START line, joined by red dash-dot lines, and
+  address order from its START line, joined by solid red lines, and
   come back to its END line. A long loop turns at the end of a row and
   comes back on the next row (devices per row in **FA Settings**, 20 by
   default).
