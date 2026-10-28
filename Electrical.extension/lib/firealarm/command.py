@@ -7,8 +7,8 @@ from System.Collections.Generic import List
 from firealarm import revit_address, revit_loop, revit_riser, revit_routes, settings
 from firealarm.addresses import DETECTION, SOUNDER, on_loop
 from firealarm.loops import loop_count, loop_numbers
-from firealarm.report import (summarize, summarize_addresses, summarize_auto, summarize_loops,
-                              summarize_riser)
+from firealarm.report import (summarize, summarize_addresses, summarize_auto,
+                              summarize_loop_diagram, summarize_loops, summarize_riser)
 from firealarm.room_rules import HEAT, SMOKE, decide, is_corridor, rules_from
 from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
 from firealarm.revit_fa import (by_level, detector_types, linked_models,
@@ -534,12 +534,29 @@ def draw_riser():
         forms.alert("Open a project model to draw the riser.", title=TITLE)
         return
     values = settings.load()
+    choice = forms.CommandSwitchWindow.show([RISER_LOOPS, RISER_FLOORS],
+                                            message="Which riser?")
+    if not choice:
+        return
+    if choice == RISER_LOOPS:
+        view, run = revit_riser.generate_loops(
+            doc, settings.chosen_symbols(values), values["riser_panel_lines"],
+            values["riser_cable"], values["riser_per_row"])
+        if view is not None:
+            revit.uidoc.ActiveView = view
+        headline, details = summarize_loop_diagram(run)
+        forms.alert(headline, expanded=details, title=TITLE)
+        return
     view, run = revit_riser.generate(doc, settings.chosen_symbols(values), values["loop_gap"],
                                      values["loop_devices"])
     if view is not None:
         revit.uidoc.ActiveView = view
     headline, details = summarize_riser(run, lambda code: symbol(code).description)
     forms.alert(headline, expanded=details, title=TITLE)
+
+
+RISER_LOOPS = "Loop diagram: every device in address order (addresses in Comments)"
+RISER_FLOORS = "Floor riser: devices counted per floor (loop lines in the plans)"
 
 
 AUTOMATIC = u"Automatic: %s"
@@ -584,6 +601,9 @@ _SETTINGS = [
     ("riser_symbols", "Riser symbols", ""),
     ("address_tag", "Address tag", ""),
     ("room_rules", "Auto Detectors room rules", ""),
+    ("riser_panel_lines", "Loop diagram panel lines", ""),
+    ("riser_cable", "Loop diagram cable note", ""),
+    ("riser_per_row", "Loop diagram devices per row", ""),
 ]
 
 _RULES = [
@@ -653,6 +673,8 @@ _PROMPTS = {
                  "Relaxed only in spaces too narrow for it.",
     "loop_devices": "Most devices on one fire alarm loop.\n"
                     "More devices are split into several loops.",
+    "riser_per_row": "Devices in one row of the loop diagram; a longer loop\n"
+                     "comes back on the next row.",
     "loop_gap": "Gap between a loop line and the centre of a device, at least\n"
                 "(mm on the printed sheet). Lines also stop at the edge of the device.",
 }
@@ -709,6 +731,15 @@ def edit_settings():
         if key == "room_rules":
             _edit_room_rules(values)
             continue
+        if key in ("riser_panel_lines", "riser_cable"):
+            text = forms.ask_for_string(
+                default=values[key], title="%s Settings" % TITLE,
+                prompt="Lines in the panel box, separated by ;" if key == "riser_panel_lines"
+                else "Note on each loop's lines (split onto two lines at the last comma)")
+            if text is not None:
+                values[key] = text.strip()
+                settings.save(values)
+            continue
         if key == "riser_symbols":
             if doc is None or doc.IsFamilyDocument:
                 forms.alert("Open the project model to set the riser symbols.", title=TITLE)
@@ -733,7 +764,7 @@ def edit_settings():
         if value < 0 or (value == 0 and key not in ("clearance", "loop_gap")):
             forms.alert("Enter a positive number.", title=TITLE)
             continue
-        if key == "loop_devices":
+        if key in ("loop_devices", "riser_per_row"):
             value = max(1, int(round(value)))
         values[key] = value
         settings.save(values)

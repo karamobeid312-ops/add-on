@@ -185,3 +185,40 @@ def summarize_auto(rooms, replaced=False):
                 lines.append(first + why + ("\n" + rest if rest else ""))
         sections.append("\n".join(lines))
     return headline, "\n\n".join(sections)
+
+
+def summarize_loop_diagram(run):
+    """(headline, details) after FA Riser as a loop diagram. run:
+    revit_riser.LoopRun."""
+    diagram = run.diagram
+    loops = diagram.loops if diagram else []
+    drawn = sum(len(l.devices) for l in loops)
+    if not loops:
+        headline = (u"No addressed devices found: write the addresses (L1/SD-01...) in the "
+                    u"Comments of the fire alarm devices, or run Address Devices.")
+    else:
+        headline = u"Loop diagram drawn in '%s': %d loop%s, %d device%s." % (
+            run.view_name, len(loops), "" if len(loops) == 1 else "s", drawn,
+            "" if drawn == 1 else "s")
+    if run.unaddressed:
+        headline += u" %d device%s without an address left out." % (
+            len(run.unaddressed), "" if len(run.unaddressed) == 1 else "s")
+    lines = [u"Panel: %s" % run.panel if run.panel else
+             u"No fire alarm panel found (a family named FACP, MFACP or ...CONTROL PANEL)."]
+    for loop in loops:
+        lines.append(u"L%d%s: %d device%s, %s to %s" % (
+            loop.number, " (sounders)" if loop.sounder else "", len(loop.devices),
+            "" if len(loop.devices) == 1 else "s", loop.devices[0].address,
+            loop.devices[-1].address))
+        numbers = [d.number for d in loop.devices]
+        missing = sorted(set(range(1, max(numbers) + 1)) - set(numbers))
+        if missing:
+            lines.append(u"    numbers missing: %s" % ", ".join("%02d" % n for n in missing[:30]))
+    for w in (diagram.warnings if diagram else []):
+        lines.append(u"CHECK: %s" % w)
+    if run.unaddressed:
+        lines.append(u"")
+        lines.append(u"Without an address in Comments (id, type, Comments):")
+        for element_id, name, text in run.unaddressed[:200]:
+            lines.append(u"    %s  %s  %s" % (element_id, name, text or "(empty)"))
+    return headline, "\n".join(lines)

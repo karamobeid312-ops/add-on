@@ -190,3 +190,83 @@ def generate(doc, chosen, gap_mm, max_devices):
         raise
     run.view_name = view.Name
     return view, run
+
+
+# ---------------------------------------------------------------- loop diagram
+
+LOOP_VIEW_NAME = "FA Loop Diagram"
+
+
+def _text(element, bip=None, name=None):
+    try:
+        p = element.get_Parameter(bip) if bip is not None else element.LookupParameter(name)
+    except Exception:
+        p = None
+    if p is None or not p.HasValue:
+        return ""
+    try:
+        return (p.AsString() or p.AsValueString() or "").strip()
+    except Exception:
+        return ""
+
+
+def device_address(element):
+    """The address written in the device's Comments (L1/SD-01), else in its
+    FA Address parameter, '' when neither has one."""
+    from firealarm.addresses import parse_address
+    for text in (_text(element, BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS),
+                 _text(element, name="FA Address")):
+        if parse_address(text):
+            return text.strip().upper()
+    return _text(element, BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+
+
+def panel_name(panel):
+    """Panel Name, else Mark, else 'Family : Type'."""
+    if panel is None:
+        return ""
+    return (_text(panel, BuiltInParameter.RBS_ELEC_PANEL_NAME)
+            or _text(panel, BuiltInParameter.ALL_MODEL_MARK) or label(panel))
+
+
+class LoopRun(object):
+    """What the loop diagram read and drew, for the summary."""
+
+    def __init__(self):
+        self.diagram = None
+        self.view_name = ""
+        self.panel = ""
+        self.devices = 0
+        self.unaddressed = []       # [(element id, family : type, comments)]
+
+
+def generate_loops(doc, chosen, panel_lines, cable, per_row):
+    """Draw the loop diagram from the addresses in the devices' Comments in
+    a new drafting view. Returns (view or None, LoopRun)."""
+    from firealarm.loop_diagram import Device, loop_diagram
+    run = LoopRun()
+    devices, panels = devices_and_panels(doc)
+    run.devices = len(devices)
+    items = []
+    for element in devices:
+        address = device_address(element)
+        item = Device(address, symbol_of(element, chosen), id_int(element.Id))
+        if item.loop is None:
+            run.unaddressed.append((id_int(element.Id), label(element), address))
+            continue
+        items.append(item)
+    panel = main_panel(panels)
+    run.panel = panel_name(panel)
+    run.diagram = loop_diagram(items, run.panel, panel_lines, cable, per_row)
+    if not run.diagram.loops:
+        return None, run
+    t = Transaction(doc, "FA Loop Diagram")
+    t.Start()
+    try:
+        view = render(doc, run.diagram.drawing, LOOP_VIEW_NAME)
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    run.view_name = view.Name
+    return view, run

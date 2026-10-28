@@ -352,6 +352,30 @@ pairs on one loop, the roof with typical floor 11.*
 | Symbol | The type's `FA Symbol` parameter (a code such as `SD`, `MCP`, `BELLS`, or the legend description), else the one chosen in **FA Settings → Riser symbols**, else a guess from the family and type name: SMOKE / OPTICAL / PHOTO → photoelectric smoke detector (ABOVE / FALSE CEILING, RAISED FLOOR, TRENCH, DUCT, BEAM TX / RX variants), HEAT → heat detector, MANUAL / CALL POINT / MCP / BREAK GLASS → manual station, BELL / SOUNDER (with STROBE / BEACON) → bell (with strobe), HORN → horn with strobe, STROBE / BEACON / VAD (CEILING) → wall (ceiling) strobe, TELEPHONE / JACK, FLOW, TAMPER, MONITOR → MM, CONTROL / RELAY → CM, ZONE → ZM, LINEAR HEAT, VESDA / ASPIRATING → HSSD, REPEATER, EOL, ISOLATOR. A type nothing fits gets a box with its initials and its own legend line. The summary lists every type with its symbol. |
 | Line styles | **FA Riser Wiring** (loop lines) and **FA Riser Symbols** (symbols, panel), made red the first time; text notes use the `SLD <size>mm Arial` types. |
 
+### Loop diagram (addresses in Comments)
+
+**FA Riser** first asks which riser. **Loop diagram** draws every device in
+a new drafting view, *FA Loop Diagram*, from the address in its
+**Comments** (`L1/MM-02`: loop 1, monitor module, number 02), like the
+office loop diagram:
+
+![Loop diagram sample](docs/loop-diagram-preview.png)
+
+- `L1`, `L2`... is the loop. Each loop is drawn in address order, starting
+  at its START line and coming back to its END line at the control panel.
+- A long loop turns at the end of a row and comes back on the next row
+  (devices per row in **FA Settings**, 25 by default).
+- A loop of only sirens / bells / flashers (`SB`, `HS`...) is drawn as a
+  sounder loop, in magenta (**FA Riser Sounder Wiring**).
+- The address is written under each device; the symbol comes from the
+  address type, else from the family as above.
+- The panel box shows the panel's Panel Name (else Mark) and the panel
+  lines from **FA Settings**; each loop carries the cable note from
+  **FA Settings**.
+- Devices with no address in Comments (or the `FA Address` parameter) are
+  left out and listed in the summary, with gaps in the numbering and
+  addresses used twice.
+
 ## Voltage drop
 
 The **Voltage Drop** panel of the **Electrical** tab:
