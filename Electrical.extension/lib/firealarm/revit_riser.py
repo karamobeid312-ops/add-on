@@ -240,6 +240,25 @@ class LoopRun(object):
         self.unaddressed = []       # [(element id, family : type, comments)]
 
 
+def _model_size(drawing, scale):
+    """The drawing `scale` times bigger, texts keeping their paper size: drawn
+    in a 1:`scale` view it prints the same, and dashes shorter than Revit's
+    shortest line (about 0.8 mm) still draw."""
+    import copy
+    from sld.geometry import Drawing
+    out = Drawing()
+    out.styles = dict(drawing.styles)
+    for ln in drawing.lines:
+        out.line(ln.x1 * scale, ln.y1 * scale, ln.x2 * scale, ln.y2 * scale, ln.style)
+    for a in drawing.arcs:
+        out.arc(a.cx * scale, a.cy * scale, a.r * scale, a.a0, a.a1, a.style)
+    for t in drawing.texts:
+        t = copy.copy(t)
+        t.x, t.y = t.x * scale, t.y * scale
+        out.texts.append(t)
+    return out
+
+
 def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links=""):
     """Draw the loop diagram from the addresses in the devices' Comments in
     a new drafting view. Returns (view or None, LoopRun)."""
@@ -263,7 +282,8 @@ def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="
     t = Transaction(doc, "FA Loop Diagram")
     t.Start()
     try:
-        view = render(doc, run.diagram.drawing, LOOP_VIEW_NAME, DRAW_SCALE)
+        view = render(doc, _model_size(run.diagram.drawing, DRAW_SCALE), LOOP_VIEW_NAME)
+        view.Scale = DRAW_SCALE
         t.Commit()
     except Exception:
         t.RollBack()
