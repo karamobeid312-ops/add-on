@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-from firealarm.loop_diagram import (DETECTION_STYLE, SOUNDER_STYLE, Device, group_loops,
+import math
+
+from firealarm.loop_diagram import (DETECTION_STYLE, SOUNDER_STYLE, SYMBOL_STYLE, Device,
+                                    group_loops,
                                     loop_diagram)
 from firealarm.report import summarize_loop_diagram
 
@@ -94,6 +97,8 @@ def test_detection_wiring_is_dash_dot_and_dot_is_filled():
            and l.y1 > 40 and l.x1 > 20]
     assert len(row) > 10                        # dashes between the devices
     assert len([a for a in diagram.drawing.arcs if a.r < 0.7]) > 10     # MCP dot rings
+    symbols = [l for l in diagram.drawing.lines if l.style == SYMBOL_STYLE]
+    assert all(math.hypot(l.x2 - l.x1, l.y2 - l.y1) > 1.0 for l in symbols)   # solid outlines
 
 
 def test_panel_title_and_links():

@@ -95,11 +95,12 @@ class LoopSymbol(object):
     def draw(self, d, x, y, style):
         for op in self.shape:
             kind = op[0]
+            # drawn solid: the office drawing's dashed outlines read as hatching
             if kind == "L":
-                patterned_line(d, x + op[1], y + op[2], x + op[3], y + op[4], op[5], style)
+                d.line(x + op[1], y + op[2], x + op[3], y + op[4], style)
             elif kind == "A":
-                patterned_arc(d, x + op[1], y + op[2], op[3], math.radians(op[4]),
-                              math.radians(op[5]), op[6], style)
+                d.arc(x + op[1], y + op[2], op[3], math.radians(op[4]), math.radians(op[5]),
+                      style)
             elif kind == "D":
                 dot(d, x + op[1], y + op[2], op[3], style)
             elif kind == "T":

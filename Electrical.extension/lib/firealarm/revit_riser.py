@@ -15,8 +15,8 @@ from __future__ import division
 import math
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, BuiltInParameter, FamilyInstance, FilteredElementCollector, Transaction,
-    ViewPlan,
+    BuiltInCategory, BuiltInParameter, Color, FamilyInstance, FilteredElementCollector,
+    Transaction, ViewPlan,
 )
 
 from firealarm.revit_address import symbol_of
@@ -240,6 +240,18 @@ class LoopRun(object):
         self.unaddressed = []       # [(element id, family : type, comments)]
 
 
+def _set_colours(doc, styles):
+    """Bring line styles made earlier (the floor riser's crimson symbols) to
+    the loop diagram's colours."""
+    lines = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Lines)
+    for name, (r, g, b) in styles.items():
+        if lines.SubCategories.Contains(name):
+            sub = lines.SubCategories.get_Item(name)
+            colour = sub.LineColor
+            if (colour.Red, colour.Green, colour.Blue) != (r, g, b):
+                sub.LineColor = Color(r, g, b)
+
+
 def _model_size(drawing, scale):
     """The drawing `scale` times bigger, texts keeping their paper size: drawn
     in a 1:`scale` view it prints the same, and dashes shorter than Revit's
@@ -282,6 +294,7 @@ def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="
     t = Transaction(doc, "FA Loop Diagram")
     t.Start()
     try:
+        _set_colours(doc, run.diagram.drawing.styles)
         view = render(doc, _model_size(run.diagram.drawing, DRAW_SCALE), LOOP_VIEW_NAME)
         view.Scale = DRAW_SCALE
         t.Commit()
