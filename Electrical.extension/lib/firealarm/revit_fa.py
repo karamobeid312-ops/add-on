@@ -85,6 +85,11 @@ def is_space(element):
         return False
 
 
+def space_name(space):
+    """The name alone, without the number."""
+    return _param_text(space, BuiltInParameter.ROOM_NAME)
+
+
 def space_label(space):
     number = _param_text(space, BuiltInParameter.ROOM_NUMBER)
     name = _param_text(space, BuiltInParameter.ROOM_NAME)
@@ -113,9 +118,28 @@ class SpaceRef(object):
         if link is not None:
             self.label += u" [%s]" % link_name(link)
         self.key = (_id_int(link.Id) if link is not None else 0, _id_int(space.Id))
+        self.corridor = False               # laid out leg by leg (set from its name)
 
     def point(self, p):
         return self.transform.OfPoint(p)
+
+    def name(self):
+        return space_name(self.space)
+
+    def area(self):
+        """m2, None when not placed."""
+        try:
+            area = self.space.Area
+        except Exception:
+            return None
+        return area * M_PER_FOOT * M_PER_FOOT if area > 0 else None
+
+    def height(self):
+        """Floor to top of the room or space (m), None when not known."""
+        box = self.space.get_BoundingBox(None)
+        if box is None:
+            return None
+        return (box.Max.Z - box.Min.Z) * M_PER_FOOT
 
 
 def _unique(refs):
@@ -454,7 +478,7 @@ def _plan(doc, ref, spacing, clearance, finder, existing):
         return plan
     plan.floor_z, top_z = _heights(ref)
     plan.level = _level(doc, ref, plan.floor_z)
-    plan.layout = layout_detectors(loops, spacing, clearance)
+    plan.layout = layout_detectors(loops, spacing, clearance, corridor=ref.corridor)
     for x, y in plan.layout.points:
         xf, yf = x / M_PER_FOOT, y / M_PER_FOOT
         plan.spots.append((xf, yf, finder.above(xf, yf, plan.floor_z)))

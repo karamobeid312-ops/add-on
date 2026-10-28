@@ -105,6 +105,18 @@ touch, send a screenshot.
 
 The **Fire Alarm** panel of the **Electrical** tab:
 
+- **Auto Detectors** – same as below, but each room gets smoke, heat or no
+  detector from its name, as UAE Fire Code (2018) Chapter 8, Table 8.14:
+  heat in kitchens, pantries, pump, garbage / refuse, generator and battery
+  rooms, and in toilets and bathrooms over 5 m²; none in smaller toilets,
+  shafts, (sprinklered) parking, balconies and voids; smoke everywhere
+  else. AHU and lift machine rooms (multi-sensors), atriums and rooms over
+  10 m high (beam / aspirating) are only listed, to do by hand. A room's
+  name is read from the room or space itself (linked rooms too); a word
+  also matches longer words (KITCHEN matches KITCHENETTE), words of 3
+  letters or less only whole words (WC, AHU, DG). The words are in
+  **FA Settings → Auto Detectors room rules**. The summary groups the rooms
+  by heat / smoke / by hand / none, each with the word that decided it.
 - **Smoke Detectors** / **Heat Detectors** – select the spaces (or click the
   button and pick them, in this model or in a linked model, or take all
   spaces on a level), and a detector is placed on the ceiling so that
@@ -339,6 +351,35 @@ pairs on one loop, the roof with typical floor 11.*
 | Main panel | A fire alarm device or electrical equipment named MFACP, FACP, CIE or ...CONTROL PANEL (MAIN or MFACP first). Its level is the panel's floor, its room the LOC. text. With none, the panel is drawn on the lowest floor. |
 | Symbol | The type's `FA Symbol` parameter (a code such as `SD`, `MCP`, `BELLS`, or the legend description), else the one chosen in **FA Settings → Riser symbols**, else a guess from the family and type name: SMOKE / OPTICAL / PHOTO → photoelectric smoke detector (ABOVE / FALSE CEILING, RAISED FLOOR, TRENCH, DUCT, BEAM TX / RX variants), HEAT → heat detector, MANUAL / CALL POINT / MCP / BREAK GLASS → manual station, BELL / SOUNDER (with STROBE / BEACON) → bell (with strobe), HORN → horn with strobe, STROBE / BEACON / VAD (CEILING) → wall (ceiling) strobe, TELEPHONE / JACK, FLOW, TAMPER, MONITOR → MM, CONTROL / RELAY → CM, ZONE → ZM, LINEAR HEAT, VESDA / ASPIRATING → HSSD, REPEATER, EOL, ISOLATOR. A type nothing fits gets a box with its initials and its own legend line. The summary lists every type with its symbol. |
 | Line styles | **FA Riser Wiring** (loop lines) and **FA Riser Symbols** (symbols, panel), made red the first time; text notes use the `SLD <size>mm Arial` types. |
+
+### Loop diagram (addresses in Comments)
+
+**FA Riser** first asks which riser. **Loop diagram** draws every device in
+a new drafting view, *FA Loop Diagram* (1:100), from the address in its
+**Comments** (`L1/MM-02`: loop 1, monitor module, number 02), copied from
+the office drawing *SUBSTATION2 FIRE ALARM SCHEMATIC* (symbols, spacing,
+line colours, cable notes and panel):
+
+![Loop diagram sample](docs/loop-diagram-preview.png)
+
+- `L1`, `L2`... is the loop. Each loop's detection devices are drawn in
+  address order from its START line, joined by solid red lines, and
+  come back to its END line. A long loop turns at the end of a row and
+  comes back on the next row (devices per row in **FA Settings**, 20 by
+  default).
+- The loop's sounders (`L1/SB-01`..., numbered on their own) have their
+  own magenta START / END lines and row above.
+- Office symbols for SD, HD, FD, HY, MCP, MM and SB. A sounder whose family
+  or type says W/P, WP, WEATHER, STROBE, BEACON or FLASH (or whose symbol
+  is the bell with strobe) gets the W/P sounder with beacon. Other types
+  use the floor riser symbols.
+- The panel is titled SUB MAIN (Panel Name starting SFACP) or MAIN (MFACP)
+  FIRE ALARM CONTROL PANEL with its Panel Name (else Mark). The panel box
+  lines, the cable note, the network box on its left and the lines out of
+  its right side (`FROM ...; TO ...`) are set in **FA Settings**.
+- Devices with no address in Comments (or the `FA Address` parameter) are
+  left out and listed in the summary, with gaps in the numbering and
+  addresses used twice.
 
 ## Voltage drop
 

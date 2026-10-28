@@ -15,15 +15,15 @@ from __future__ import division
 import math
 
 from Autodesk.Revit.DB import (
-    BuiltInCategory, BuiltInParameter, FamilyInstance, FilteredElementCollector, Transaction,
-    ViewPlan,
+    BuiltInCategory, BuiltInParameter, Color, FamilyInstance, FilteredElementCollector,
+    Transaction, ViewPlan,
 )
 
 from firealarm.revit_address import symbol_of
 from firealarm.revit_loop import device_reach, id_int, label, level_of, loop_curves, model_levels
 from firealarm.riser import Segment, riser_layout
 from firealarm.riser_symbols import is_panel_name
-from sld.revit_sld import render
+from sld.revit_sld import line_style, render
 
 VIEW_NAME = "FA Riser Diagram"
 MM_PER_FOOT = 304.8
@@ -184,6 +184,184 @@ def generate(doc, chosen, gap_mm, max_devices):
     t.Start()
     try:
         view = render(doc, run.riser.drawing, VIEW_NAME)
+        t.Commit()
+    except Exception:
+        t.RollBack()
+        raise
+    run.view_name = view.Name
+    return view, run
+
+
+# ---------------------------------------------------------------- loop diagram
+
+LOOP_VIEW_NAME = "FA Loop Diagram"
+
+
+def _text(element, bip=None, name=None):
+    try:
+        p = element.get_Parameter(bip) if bip is not None else element.LookupParameter(name)
+    except Exception:
+        p = None
+    if p is None or not p.HasValue:
+        return ""
+    try:
+        return (p.AsString() or p.AsValueString() or "").strip()
+    except Exception:
+        return ""
+
+
+def device_address(element):
+    """The address written in the device's Comments (L1/SD-01), else in its
+    FA Address parameter, '' when neither has one."""
+    from firealarm.addresses import parse_address
+    for text in (_text(element, BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS),
+                 _text(element, name="FA Address")):
+        if parse_address(text):
+            return text.strip().upper()
+    return _text(element, BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+
+
+def panel_name(panel):
+    """Panel Name, else Mark, else 'Family : Type'."""
+    if panel is None:
+        return ""
+    return (_text(panel, BuiltInParameter.RBS_ELEC_PANEL_NAME)
+            or _text(panel, BuiltInParameter.ALL_MODEL_MARK) or label(panel))
+
+
+class LoopRun(object):
+    """What the loop diagram read and drew, for the summary."""
+
+    def __init__(self):
+        self.diagram = None
+        self.view_name = ""
+        self.panel = ""
+        self.devices = 0
+        self.unaddressed = []       # [(element id, family : type, comments)]
+
+
+def _set_colours(doc, styles):
+    """Bring line styles made earlier (the floor riser's crimson symbols) to
+    the loop diagram's colours."""
+    lines = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Lines)
+    for name, (r, g, b) in styles.items():
+        if lines.SubCategories.Contains(name):
+            sub = lines.SubCategories.get_Item(name)
+            colour = sub.LineColor
+            if (colour.Red, colour.Green, colour.Blue) != (r, g, b):
+                sub.LineColor = Color(r, g, b)
+
+
+FILL_TYPE = "FA Solid Red"
+
+
+def _type_name(element_type):
+    """A type's name: IronPython cannot read .Name on Revit types."""
+    p = element_type.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)
+    if p is not None and p.AsString():
+        return p.AsString()
+    try:
+        from Autodesk.Revit.DB import Element
+        return Element.Name.GetValue(element_type)
+    except Exception:
+        return ""
+
+
+def _fill_type(doc):
+    """The filled region type for the dots: solid red, made from the first
+    filled region type the first time."""
+    from Autodesk.Revit.DB import FillPatternElement, FillPatternTarget, FilledRegionType
+    types = list(FilteredElementCollector(doc).OfClass(FilledRegionType))
+    for t in types:
+        if _type_name(t) == FILL_TYPE:
+            return t
+    solid = next(p for p in FilteredElementCollector(doc).OfClass(FillPatternElement)
+                 if p.GetFillPattern().IsSolidFill and
+                 p.GetFillPattern().Target == FillPatternTarget.Drafting)
+    t = types[0].Duplicate(FILL_TYPE)
+    try:                                    # Revit 2019 and later
+        t.ForegroundPatternId = solid.Id
+        t.ForegroundPatternColor = Color(255, 0, 0)
+    except AttributeError:
+        t.FillPatternId = solid.Id
+        t.Color = Color(255, 0, 0)
+    return t
+
+
+def _fill_dots(doc, view, fills, scale):
+    """Solid red dots (the manual call points') as filled regions; earlier
+    ones in the view are taken away first."""
+    from System.Collections.Generic import List
+    from Autodesk.Revit.DB import Arc, CurveLoop, ElementId, FilledRegion, XYZ
+    if not fills:
+        return
+    fill_type = _fill_type(doc)
+    old = [r.Id for r in FilteredElementCollector(doc, view.Id).OfClass(FilledRegion)
+           if r.OwnerViewId == view.Id and r.GetTypeId() == fill_type.Id]
+    if old:
+        doc.Delete(List[ElementId](old))
+    for cx, cy, r, style in fills:
+        c = XYZ(cx * scale / MM_PER_FOOT, cy * scale / MM_PER_FOOT, 0.0)
+        radius = r * scale / MM_PER_FOOT
+        loop = CurveLoop()
+        loop.Append(Arc.Create(c, radius, 0.0, math.pi, XYZ.BasisX, XYZ.BasisY))
+        loop.Append(Arc.Create(c, radius, math.pi, 2 * math.pi, XYZ.BasisX, XYZ.BasisY))
+        loops = List[CurveLoop]()
+        loops.Add(loop)
+        region = FilledRegion.Create(doc, fill_type.Id, view.Id, loops)
+        if style:
+            try:                            # red edge, as the symbol
+                region.SetLineStyleId(line_style(doc, style, (255, 0, 0)).Id)
+            except Exception:
+                pass
+
+
+def _model_size(drawing, scale):
+    """The drawing `scale` times bigger, texts keeping their paper size: drawn
+    in a 1:`scale` view it prints the same, and dashes shorter than Revit's
+    shortest line (about 0.8 mm) still draw."""
+    import copy
+    from sld.geometry import Drawing
+    out = Drawing()
+    out.styles = dict(drawing.styles)
+    for ln in drawing.lines:
+        out.line(ln.x1 * scale, ln.y1 * scale, ln.x2 * scale, ln.y2 * scale, ln.style)
+    for a in drawing.arcs:
+        out.arc(a.cx * scale, a.cy * scale, a.r * scale, a.a0, a.a1, a.style)
+    for t in drawing.texts:
+        t = copy.copy(t)
+        t.x, t.y = t.x * scale, t.y * scale
+        out.texts.append(t)
+    return out
+
+
+def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links=""):
+    """Draw the loop diagram from the addresses in the devices' Comments in
+    a new drafting view. Returns (view or None, LoopRun)."""
+    from firealarm.loop_diagram import DRAW_SCALE, Device, loop_diagram
+    run = LoopRun()
+    devices, panels = devices_and_panels(doc)
+    run.devices = len(devices)
+    items = []
+    for element in devices:
+        address = device_address(element)
+        item = Device(address, symbol_of(element, chosen), id_int(element.Id), label(element))
+        if item.loop is None:
+            run.unaddressed.append((id_int(element.Id), label(element), address))
+            continue
+        items.append(item)
+    panel = main_panel(panels)
+    run.panel = panel_name(panel)
+    run.diagram = loop_diagram(items, run.panel, panel_lines, cable, per_row, network, links)
+    if not run.diagram.loops:
+        return None, run
+    t = Transaction(doc, "FA Loop Diagram")
+    t.Start()
+    try:
+        _set_colours(doc, run.diagram.drawing.styles)
+        view = render(doc, _model_size(run.diagram.drawing, DRAW_SCALE), LOOP_VIEW_NAME)
+        view.Scale = DRAW_SCALE
+        _fill_dots(doc, view, getattr(run.diagram.drawing, "fills", []), DRAW_SCALE)
         t.Commit()
     except Exception:
         t.RollBack()
