@@ -76,6 +76,8 @@ _HY = ([("L", _HEX_R * math.cos(math.radians(a)), _HEX_R * math.sin(math.radians
           ("L", 0.579, -0.014, 0.0, 0.7, "center"), ("T", 2.21, -1.73, "H", 1.0)])
 
 _MCP = _box(3.718, 3.08, "center") + [("D", 0.0, 0.0, 0.62)]
+# weatherproof call point, as on the plans: a solid red box with a white dot
+_MCP_WP = _box(3.718, 3.08, "solid") + [("F", 3.718, 3.08, 0.75)]
 _MM = _box(5.058, 2.604, "hidden") + [("T", 0.0, 0.0, "MM", 1.81)]
 
 
@@ -90,6 +92,8 @@ class LoopSymbol(object):
                 ys += [op[2], op[4]]
             elif op[0] in "AD":
                 ys.append(op[2] - (op[3] if op[0] == "D" else 0.0))
+            elif op[0] == "F":
+                ys.append(-op[2] / 2)
         self.bottom = -min(ys)  # how far the symbol reaches under the line
 
     def draw(self, d, x, y, style):
@@ -103,6 +107,8 @@ class LoopSymbol(object):
                       style)
             elif kind == "D":
                 dot(d, x + op[1], y + op[2], op[3], style)
+            elif kind == "F":
+                filled_box(d, x, y, op[1], op[2], op[3], style)
             elif kind == "T":
                 d.text(x + op[1], y + op[2], op[3], op[4], align=CENTER, valign=MIDDLE)
         return self.half
@@ -114,6 +120,7 @@ LOOP_SYMBOLS = dict((s.code, s) for s in (
     LoopSymbol("FD", _diamond("F"), 2.556),
     LoopSymbol("HY", _HY, 2.231),
     LoopSymbol("MCP", _MCP, 1.859),
+    LoopSymbol("MCPW", _MCP_WP, 1.859),
     LoopSymbol("MM", _MM, 2.529),
     LoopSymbol("SB", _SOUNDER, 1.859),
     LoopSymbol("SBW", _SOUNDER_WP, 4.082),
@@ -149,6 +156,27 @@ def patterned_line(d, x1, y1, x2, y2, pattern, style=None):
 def patterned_arc(d, cx, cy, r, a0, a1, pattern, style=None):
     for a, b in _dashes(r * (a1 - a0), pattern):
         d.arc(cx, cy, r, a0 + a / r, a0 + b / r, style)
+
+
+def filled_box(d, cx, cy, w, h, hole, style=None, step=0.06):
+    """A solid box with a white round hole of radius `hole` in its middle: a
+    filled region in Revit (the drawing's `regions`), else hatch lines."""
+    regions = getattr(d, "regions", None)
+    x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
+    d.circle(cx, cy, hole, style)
+    if regions is not None:
+        regions.append(((x0, y0, x1, y1), (cx, cy, hole), style))
+        return
+    yy = y0 + step / 2
+    while yy < y1:
+        dy = abs(yy - cy)
+        if dy < hole:
+            dx = math.sqrt(hole * hole - dy * dy)
+            d.line(x0, yy, cx - dx, yy, style)
+            d.line(cx + dx, yy, x1, yy, style)
+        else:
+            d.line(x0, yy, x1, yy, style)
+        yy += step
 
 
 def dot(d, cx, cy, r, style=None, step=0.06):

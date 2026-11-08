@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "Electrical.extension", "lib"))
 sys.path.insert(0, HERE)
 
 from firealarm.loop_diagram import Device, loop_diagram  # noqa: E402
-from firealarm.loop_symbols import dot  # noqa: E402
+from firealarm.loop_symbols import dot, filled_box  # noqa: E402
 from preview_svg import to_svg  # noqa: E402
 
 # the office drawing SUBSTATION2 FIRE ALARM SCHEMATIC (03 and 04 added)
@@ -42,6 +42,9 @@ def main(argv):
         fills, drawing.fills = drawing.fills, None     # filled regions in Revit: rings here
         for cx, cy, r, style in fills:
             dot(drawing, cx, cy, r, style, step=0.03)
+        regions, drawing.regions = drawing.regions, None
+        for (x0, y0, x1, y1), (cx, cy, r), style in regions:
+            filled_box(drawing, cx, cy, x1 - x0, y1 - y0, r, style, step=0.03)
         f.write(to_svg(drawing, px_per_mm=scale))
     for w in diagram.warnings:
         print("warning:", w)

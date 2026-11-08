@@ -29,7 +29,7 @@ import math
 from sld.geometry import BOTTOM, CENTER, LEFT, MIDDLE, TOP, VERTICAL, Drawing, line_length, wrap
 from firealarm.addresses import parse_address
 from firealarm.loop_symbols import LOOP_SYMBOLS
-from firealarm.riser_symbols import SYMBOLS as ALL_SYMBOLS, Symbol, _text_box, symbol
+from firealarm.riser_symbols import SYMBOLS as ALL_SYMBOLS, Symbol, _has, _text_box, symbol
 
 DETECTION_STYLE = "FA Riser Wiring"         # red: loop lines, panel
 SOUNDER_STYLE = "FA Riser Sounder Wiring"   # magenta
@@ -100,7 +100,11 @@ _BY_ADDRESS = {
 }
 _KNOWN = set(s.code for s in ALL_SYMBOLS)
 # a sounder whose family or type says one of these is the W/P sounder with beacon
-_WEATHERPROOF = ("W/P", "WP", "WEATHER", "STROBE", "BEACON", "FLASH")
+# a device whose family, type or any parameter (FA Riser reads them all) says
+# one of these is weatherproof; a sounder that says a _BEACON word has a beacon
+_WEATHERPROOF = ("W/P", "WP", "WEATHERPROOF", "WEATHER PROOF", "WEATHER-PROOF",
+                 "IP65", "IP66", "IP67")
+_BEACON = ("STROBE", "BEACON", "FLASH", "FLASHER", "VAD")
 
 
 class _RiserSymbol(object):
@@ -123,13 +127,15 @@ class Device(object):
         self.loop, self.kind, self.number = parsed if parsed else (None, None, None)
         self.code = code            # riser symbol code of the family, for unknown address types
         self.element_id = element_id
-        self.name = (name or "").upper()    # family : type
+        self.name = (name or "").upper()    # family : type, and the parameter texts
 
     def symbol(self):
         loop_code = _LOOP_BY_ADDRESS.get(self.kind)
         if loop_code == "SB" and (self.code in ("BELLS", "HS", "STW", "STC") or
-                                  any(w in self.name for w in _WEATHERPROOF)):
+                                  _has(self.name, *(_WEATHERPROOF + _BEACON))):
             loop_code = "SBW"
+        elif loop_code == "MCP" and _has(self.name, *_WEATHERPROOF):
+            loop_code = "MCPW"
         if loop_code:
             return LOOP_SYMBOLS[loop_code]
         code = _BY_ADDRESS.get(self.kind) or (self.code if self.code in _KNOWN else None)
@@ -233,6 +239,7 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
         nac_cable = DEFAULT_NAC_CABLE
     d = Drawing()
     d.fills = []                # (cx, cy, r, style): solid dots, filled regions in Revit
+    d.regions = []              # ((x0, y0, x1, y1), (cx, cy, r) hole, style): solid boxes
     for name, colour in ((DETECTION_STYLE, RED), (SOUNDER_STYLE, MAGENTA), (SYMBOL_STYLE, RED),
                          (BMS_STYLE, GREEN), (POWER_STYLE, BLUE), (NETWORK_STYLE, MAGENTA)):
         d.styles[name] = colour

@@ -267,6 +267,35 @@ def _type_name(element_type):
         return ""
 
 
+def device_text(doc, element):
+    """Everything the model says about a device, for picking its symbol
+    (weatherproof, beacon...): 'Family : Type', every text parameter of the
+    instance and its type (Type Comments, Description, Model...), and the
+    names of the Yes/No parameters that are ticked (a 'Weatherproof' box)."""
+    from Autodesk.Revit.DB import StorageType
+    parts = [label(element)]
+    sources = [element]
+    try:
+        sources.append(doc.GetElement(element.GetTypeId()))
+    except Exception:
+        pass
+    for source in sources:
+        if source is None:
+            continue
+        for p in source.Parameters:
+            try:
+                if p.StorageType == StorageType.String:
+                    text = p.AsString()
+                    if text:
+                        parts.append(text)
+                elif (p.StorageType == StorageType.Integer and p.AsInteger() == 1 and
+                      (p.AsValueString() or "") == "Yes"):
+                    parts.append(p.Definition.Name)
+            except Exception:
+                pass
+    return u" | ".join(parts)
+
+
 def _fill_type(doc):
     """The filled region type for the dots: solid red, made from the first
     filled region type the first time."""
@@ -288,26 +317,43 @@ def _fill_type(doc):
     return t
 
 
-def _fill_dots(doc, view, fills, scale):
-    """Solid red dots (the manual call points') as filled regions; earlier
-    ones in the view are taken away first."""
+def _fill_dots(doc, view, fills, scale, regions=()):
+    """Solid red dots (the manual call points') and solid boxes with a round
+    hole (weatherproof call points) as filled regions; earlier ones in the
+    view are taken away first."""
     from System.Collections.Generic import List
-    from Autodesk.Revit.DB import Arc, CurveLoop, ElementId, FilledRegion, XYZ
-    if not fills:
+    from Autodesk.Revit.DB import Arc, CurveLoop, ElementId, FilledRegion, Line, XYZ
+    if not fills and not regions:
         return
     fill_type = _fill_type(doc)
     old = [r.Id for r in FilteredElementCollector(doc, view.Id).OfClass(FilledRegion)
            if r.OwnerViewId == view.Id and r.GetTypeId() == fill_type.Id]
     if old:
         doc.Delete(List[ElementId](old))
-    for cx, cy, r, style in fills:
-        c = XYZ(cx * scale / MM_PER_FOOT, cy * scale / MM_PER_FOOT, 0.0)
-        radius = r * scale / MM_PER_FOOT
+
+    def xyz(x, y):
+        return XYZ(x * scale / MM_PER_FOOT, y * scale / MM_PER_FOOT, 0.0)
+
+    def circle(cx, cy, r):
         loop = CurveLoop()
+        c, radius = xyz(cx, cy), r * scale / MM_PER_FOOT
         loop.Append(Arc.Create(c, radius, 0.0, math.pi, XYZ.BasisX, XYZ.BasisY))
         loop.Append(Arc.Create(c, radius, math.pi, 2 * math.pi, XYZ.BasisX, XYZ.BasisY))
+        return loop
+
+    def box(x0, y0, x1, y1):
+        loop = CurveLoop()
+        pts = [xyz(x0, y0), xyz(x1, y0), xyz(x1, y1), xyz(x0, y1)]
+        for a, b in zip(pts, pts[1:] + pts[:1]):
+            loop.Append(Line.CreateBound(a, b))
+        return loop
+
+    shapes = [([circle(cx, cy, r)], style) for cx, cy, r, style in fills]
+    shapes += [([box(*rect), circle(*hole)], style) for rect, hole, style in regions]
+    for curve_loops, style in shapes:
         loops = List[CurveLoop]()
-        loops.Add(loop)
+        for loop in curve_loops:
+            loops.Add(loop)
         region = FilledRegion.Create(doc, fill_type.Id, view.Id, loops)
         if style:
             try:                            # red edge, as the symbol
@@ -346,7 +392,8 @@ def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="
     items = []
     for element in devices:
         address = device_address(element)
-        item = Device(address, symbol_of(element, chosen), id_int(element.Id), label(element))
+        item = Device(address, symbol_of(element, chosen), id_int(element.Id),
+                      device_text(doc, element))
         if item.loop is None:
             run.unaddressed.append((id_int(element.Id), label(element), address))
             continue
@@ -363,7 +410,9 @@ def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="
         _set_colours(doc, run.diagram.drawing.styles)
         view = render(doc, _model_size(run.diagram.drawing, DRAW_SCALE), LOOP_VIEW_NAME)
         view.Scale = DRAW_SCALE
-        _fill_dots(doc, view, getattr(run.diagram.drawing, "fills", []), DRAW_SCALE)
+        drawing = run.diagram.drawing
+        _fill_dots(doc, view, getattr(drawing, "fills", []), DRAW_SCALE,
+                   getattr(drawing, "regions", []))
         t.Commit()
     except Exception:
         t.RollBack()

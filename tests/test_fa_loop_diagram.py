@@ -128,3 +128,11 @@ def test_network_box_stands_clear_of_the_panel():
     link = green[0]
     assert min(link.x1, link.x2) > net.x and max(link.x1, link.x2) < panel.x
     assert abs(link.x2 - link.x1) >= 9.0                   # the link line shows
+
+
+def test_weatherproof_call_point():
+    assert Device("L3/MCP-01", name="MCP : W/P").symbol().code == "MCPW"
+    assert Device("L3/MCP-01", name="Manual Call Point : Weatherproof").symbol().code == "MCPW"
+    assert Device("L3/MCP-01", name="Manual Call Point : Standard").symbol().code == "MCP"
+    diagram = loop_diagram([Device("L3/MCP-01", name="MCP_WP")])
+    assert len(diagram.drawing.regions) == 1 and not diagram.drawing.fills

@@ -369,10 +369,14 @@ line colours, cable notes and panel):
   default).
 - The loop's sounders (`L1/SB-01`..., numbered on their own) have their
   own magenta START / END lines and row above.
-- Office symbols for SD, HD, FD, HY, MCP, MM and SB. A sounder whose family
-  or type says W/P, WP, WEATHER, STROBE, BEACON or FLASH (or whose symbol
-  is the bell with strobe) gets the W/P sounder with beacon. Other types
-  use the floor riser symbols.
+- Office symbols for SD, HD, FD, HY, MCP, MM and SB. Every device is read
+  in full: family, type, every text parameter of the instance and its type
+  (Type Comments, Description, Model...) and the ticked Yes/No parameters.
+  When any of them says W/P, WP, WEATHERPROOF or IP65/66/67, a call point
+  gets the weatherproof symbol (solid red box, white dot, as on the plans)
+  and a sounder the W/P sounder with beacon (also for STROBE, BEACON,
+  FLASH or the bell-with-strobe symbol). Other types use the floor riser
+  symbols.
 - The panel is titled SUB MAIN (Panel Name starting SFACP) or MAIN (MFACP)
   FIRE ALARM CONTROL PANEL with its Panel Name (else Mark). The panel box
   lines, the cable notes (SLC on the detection lines to the right, NAC on
