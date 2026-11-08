@@ -542,7 +542,7 @@ def draw_riser():
         view, run = revit_riser.generate_loops(
             doc, settings.chosen_symbols(values), values["riser_panel_lines"],
             values["riser_cable"], values["riser_per_row"], values["riser_network"],
-            values["riser_links"])
+            values["riser_links"], values["riser_nac_cable"])
         if view is not None:
             revit.uidoc.ActiveView = view
         headline, details = summarize_loop_diagram(run)
@@ -603,7 +603,8 @@ _SETTINGS = [
     ("address_tag", "Address tag", ""),
     ("room_rules", "Auto Detectors room rules", ""),
     ("riser_panel_lines", "Loop diagram panel lines", ""),
-    ("riser_cable", "Loop diagram cable note", ""),
+    ("riser_cable", "Loop diagram cable note (detection, SLC)", ""),
+    ("riser_nac_cable", "Loop diagram cable note (sounders, NAC)", ""),
     ("riser_per_row", "Loop diagram devices per row", ""),
     ("riser_network", "Loop diagram network box", ""),
     ("riser_links", "Loop diagram links right of the panel", ""),
@@ -611,7 +612,8 @@ _SETTINGS = [
 
 _TEXT_PROMPTS = {
     "riser_panel_lines": "Lines in the panel box, separated by ;",
-    "riser_cable": "Note on each loop's lines (split onto two lines at the last comma)",
+    "riser_cable": "Note on the detection loop lines (split onto two lines at the last comma)",
+    "riser_nac_cable": "Note on the sounder loop lines (split onto two lines at the last comma)",
     "riser_network": "Box left of the panel, lines separated by ; (empty: no box)",
     "riser_links": "Lines out of the panel's right side, separated by ; "
                    "(e.g. FROM ... ; TO ...; empty: none)",

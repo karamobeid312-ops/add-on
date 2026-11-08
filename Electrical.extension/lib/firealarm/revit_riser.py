@@ -335,7 +335,8 @@ def _model_size(drawing, scale):
     return out
 
 
-def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links=""):
+def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="",
+                   nac_cable=None):
     """Draw the loop diagram from the addresses in the devices' Comments in
     a new drafting view. Returns (view or None, LoopRun)."""
     from firealarm.loop_diagram import DRAW_SCALE, Device, loop_diagram
@@ -352,7 +353,8 @@ def generate_loops(doc, chosen, panel_lines, cable, per_row, network="", links="
         items.append(item)
     panel = main_panel(panels)
     run.panel = panel_name(panel)
-    run.diagram = loop_diagram(items, run.panel, panel_lines, cable, per_row, network, links)
+    run.diagram = loop_diagram(items, run.panel, panel_lines, cable, per_row, network, links,
+                               nac_cable)
     if not run.diagram.loops:
         return None, run
     t = Transaction(doc, "FA Loop Diagram")

@@ -375,7 +375,9 @@ line colours, cable notes and panel):
   use the floor riser symbols.
 - The panel is titled SUB MAIN (Panel Name starting SFACP) or MAIN (MFACP)
   FIRE ALARM CONTROL PANEL with its Panel Name (else Mark). The panel box
-  lines, the cable note, the network box on its left and the lines out of
+  lines, the cable notes (SLC on the detection lines to the right, NAC on
+  the sounder lines to the left: four notes however many loops), the
+  network box on its left and the lines out of
   its right side (`FROM ...; TO ...`) are set in **FA Settings**.
 - Devices with no address in Comments (or the `FA Address` parameter) are
   left out and listed in the summary, with gaps in the numbering and

@@ -107,3 +107,14 @@ def test_panel_title_and_links():
     texts = " ".join(t.text.replace("\n", " ") for t in diagram.drawing.texts)
     assert "SUB MAIN FIRE ALARM CONTROL PANEL" in texts
     assert "TO ENGINE SHED" in texts and "Multi Service Network" in texts
+
+
+def test_four_cable_notes_however_many_loops():
+    items = [Device("L1/HD-01"), Device("L2/SB-01"), Device("L3/MCP-01"), Device("L4/SB-01")]
+    diagram = loop_diagram(items)
+    texts = [t for t in diagram.drawing.texts]
+    slc = [t for t in texts if t.text.startswith("SLC LOOP")]
+    nac = [t for t in texts if t.text.startswith("NAC LOOP")]
+    assert len(slc) == 2 and len(nac) == 2
+    assert all(t.x > 0 for t in slc) and all(t.x < -40 for t in nac)     # right / left
+    assert len(set(t.y for t in slc + nac)) == 4

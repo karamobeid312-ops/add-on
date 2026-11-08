@@ -64,8 +64,9 @@ FIRST_DEVICE = 34.65        # innermost START line -> first device
 TURN_PAD = 7.6              # last device's side -> where the line turns up
 PANEL_GAP = 46.06           # panel top -> first row
 LABEL_Y = 33.4              # START / END texts, centred this far above the panel
-NOTE_LOW, NOTE_HIGH = 11.5, 25.0    # cable notes: on the END line, on the START line
-NOTE_STEP = 27.0            # more circuits on one side: the next pair this much higher
+# cable notes, above the panel, bottom up as in the office loop diagrams
+NOTE_LEVELS = {(True, "END"): 7.0, (False, "START"): 13.5, (True, "START"): 20.0,
+               (False, "END"): 26.5}
 NOTE_TEXT = 7.1             # innermost START line -> note text, notes to the right
 NOTE_LEFT = 39.4            # outer END line -> end of the notes to the left
 ELLIPSE_W, ELLIPSE_H = 4.5, 1.88
@@ -81,6 +82,7 @@ LINK_LONG = 26.7            # FROM ... / TO ... lines on the right
 SIRENS_AND_FLASHERS = frozenset(["SB", "B", "BS", "ST", "HS", "BELL", "BELLS", "STC", "STW"])
 
 DEFAULT_CABLE = "SLC LOOP,2X1.5 mm2 CU, FIRE RATED CABLE"
+DEFAULT_NAC_CABLE = "NAC LOOP,2X1.5 mm2 CU, FIRE RATED CABLE"
 DEFAULT_PANEL_LINES = ("IP NETWORK INTERFACE MODULE; BACNET GATEWAY; "
                        "POWER UNIT WITH BACKUP BATTERY FOR 24 HRS")
 DEFAULT_NETWORK = "Multi Service Network; (Operational Communication Network)"
@@ -201,6 +203,14 @@ def _parts(text):
     return [p.strip() for p in (text or "").replace("\n", ";").split(";") if p.strip()]
 
 
+def _two_lines(cable):
+    """The note on two lines, split at the last comma."""
+    parts = [p.strip() for p in (cable or "").split(",") if p.strip()]
+    if len(parts) > 1:
+        return ",".join(parts[:-1]) + ",", parts[-1]
+    return (parts[0] if parts else ""), ""
+
+
 def _ellipse(d, cx, cy, w, h, style=None, n=24):
     d.polyline([(cx + w / 2 * math.cos(2 * math.pi * k / n),
                  cy + h / 2 * math.sin(2 * math.pi * k / n)) for k in range(n + 1)], style)
@@ -216,8 +226,11 @@ def _arrow(d, x, y, towards, style, half=0.37, rows=7):
 
 
 def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=DEFAULT_CABLE,
-                 per_row=DEFAULT_PER_ROW, network=DEFAULT_NETWORK, links=DEFAULT_LINKS):
+                 per_row=DEFAULT_PER_ROW, network=DEFAULT_NETWORK, links=DEFAULT_LINKS,
+                 nac_cable=None):
     """devices: [Device]. Returns a LoopDiagram."""
+    if nac_cable is None:
+        nac_cable = DEFAULT_NAC_CABLE
     d = Drawing()
     d.fills = []                # (cx, cy, r, style): solid dots, filled regions in Revit
     for name, colour in ((DETECTION_STYLE, RED), (SOUNDER_STYLE, MAGENTA), (SYMBOL_STYLE, RED),
@@ -245,14 +258,9 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
     pitch = max([PITCH_MIN] + [line_length(t, TEXT_ADDRESS) + PITCH_PAD for t in labels])
     first_x = FIRST_DEVICE
 
-    # cable notes: the innermost circuit's to the right, the others' to the left
-    right_notes = [0] if loops else []
-    left_notes = list(range(1, len(loops)))
-    levels = max(len(right_notes), len(left_notes), 1)
-
     # rows bottom up
     panel_top = 0.0
-    y = PANEL_GAP + (levels - 1) * NOTE_STEP
+    y = PANEL_GAP
     row_y = {}
     for k, loop in enumerate(loops):
         if k:
@@ -304,28 +312,33 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
             else:                                                   # lead back to END
                 d.polyline([(at, yr), (xe, yr), (xe, panel_top)], lead)
         for x, text in ((xs, "START"), (xe, "END")):
-            d.text(x - 0.6, panel_top + LABEL_Y + (levels - 1) * NOTE_STEP, text, TEXT_LINE,
+            d.text(x - 0.6, panel_top + LABEL_Y, text, TEXT_LINE,
                    align=CENTER, valign=BOTTOM, rotation=VERTICAL)
 
-    # cable notes: an ellipse on each line and the note beside it
-    parts = [p.strip() for p in (cable or "").split(",") if p.strip()]
-    first_line = ",".join(parts[:-1]) + "," if len(parts) > 1 else (parts[0] if parts else "")
-    second_line = parts[-1] if len(parts) > 1 else ""
-    note_w = max(line_length(first_line, TEXT_CABLE), line_length(second_line, TEXT_CABLE))
-    for side, members in ((1, right_notes), (-1, left_notes)):
-        for j, k in enumerate(members):
-            for x, yn in ((start_x[k], NOTE_HIGH), (end_x[k], NOTE_LOW)):
-                yn = panel_top + yn + j * NOTE_STEP
+    # cable notes, four in all however many loops (as the office drawing):
+    # SLC on the detection lines to the right, NAC on the sounder lines to
+    # the left; an ellipse on each line the note is for
+    for sounder, cable_text, side in ((False, cable, 1), (True, nac_cable, -1)):
+        ks = [k for k, l in enumerate(loops) if l.sounder == sounder]
+        if not ks:
+            continue
+        first_line, second_line = _two_lines(cable_text)
+        note_w = max(line_length(first_line, TEXT_CABLE), line_length(second_line, TEXT_CABLE))
+        for xs_of, level in ((start_x, NOTE_LEVELS[(sounder, "START")]),
+                             (end_x, NOTE_LEVELS[(sounder, "END")])):
+            yn = panel_top + level
+            xs = [xs_of[k] for k in ks]
+            for x in xs:
                 _ellipse(d, x, yn, ELLIPSE_W, ELLIPSE_H)
-                if side > 0:
-                    tx = start_x[0] + NOTE_TEXT
-                    d.line(x + ELLIPSE_W / 2, yn, tx + note_w + 0.5, yn)
-                else:
-                    tx = lines_left - NOTE_LEFT
-                    d.line(x - ELLIPSE_W / 2, yn, tx, yn)
-                d.text(tx, yn + 0.6, first_line, TEXT_CABLE, align=LEFT, valign=BOTTOM)
-                if second_line:
-                    d.text(tx, yn - 0.6, second_line, TEXT_CABLE, align=LEFT, valign=TOP)
+            if side > 0:
+                tx = start_x[0] + NOTE_TEXT
+                d.line(min(xs) - ELLIPSE_W / 2, yn, tx + note_w + 0.5, yn)
+            else:
+                tx = lines_left - NOTE_LEFT
+                d.line(tx, yn, max(xs) + ELLIPSE_W / 2, yn)
+            d.text(tx, yn + 0.6, first_line, TEXT_CABLE, align=LEFT, valign=BOTTOM)
+            if second_line:
+                d.text(tx, yn - 0.6, second_line, TEXT_CABLE, align=LEFT, valign=TOP)
 
     # the panel
     p_right = (start_x[0] if loops else 0.0) + PANEL_RIGHT
