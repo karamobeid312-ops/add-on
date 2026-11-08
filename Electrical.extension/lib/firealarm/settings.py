@@ -64,6 +64,8 @@ def load():
         cfg = _config()
         for key, default in DEFAULTS.items():
             values[key] = _coerce(key, cfg.get_option(key, default))
+        if values["riser_per_row"] == 20:       # the old default, saved with FA Settings
+            values["riser_per_row"] = DEFAULT_PER_ROW
     except Exception:
         pass
     return values

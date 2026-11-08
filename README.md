@@ -365,7 +365,7 @@ line colours, cable notes and panel):
 - `L1`, `L2`... is the loop. Each loop's detection devices are drawn in
   address order from its START line, joined by solid red lines, and
   come back to its END line. A long loop turns at the end of a row and
-  comes back on the next row (devices per row in **FA Settings**, 20 by
+  comes back on the next row (devices per row in **FA Settings**, 15 by
   default).
 - The loop's sounders (`L1/SB-01`..., numbered on their own) have their
   own magenta START / END lines and row above.

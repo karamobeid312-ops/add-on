@@ -87,7 +87,7 @@ DEFAULT_PANEL_LINES = ("IP NETWORK INTERFACE MODULE; BACNET GATEWAY; "
                        "POWER UNIT WITH BACKUP BATTERY FOR 24 HRS")
 DEFAULT_NETWORK = "Multi Service Network; (Operational Communication Network)"
 DEFAULT_LINKS = ""
-DEFAULT_PER_ROW = 20
+DEFAULT_PER_ROW = 15
 
 # address type -> office loop symbol
 _LOOP_BY_ADDRESS = {"SD": "SD", "HD": "HD", "FD": "FD", "HY": "HY", "MCP": "MCP", "MM": "MM",
