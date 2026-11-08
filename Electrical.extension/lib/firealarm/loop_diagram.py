@@ -382,8 +382,9 @@ def loop_diagram(devices, panel_name="", panel_lines=DEFAULT_PANEL_LINES, cable=
     # network box beside the panel's title
     net = _parts(network)
     if net:
-        bx0 = p_left - 50.4
-        bx1 = max(p_left - 9.5, bx0 + max(line_length(t, TEXT_NOTE) for t in net) + 5.0)
+        # 9.5 clear of the panel for the link line; a long text widens it to the left
+        bx1 = p_left - 9.5
+        bx0 = bx1 - max(40.9, max(line_length(t, TEXT_NOTE) for t in net) + 7.2)
         by1 = y_top - 1.6
         by0 = by1 - max(10.95, 4.3 + len(net) * 2.5 + 2.0)
         d.rect(bx0, by0, bx1, by1, NETWORK_STYLE)

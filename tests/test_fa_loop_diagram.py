@@ -118,3 +118,13 @@ def test_four_cable_notes_however_many_loops():
     assert len(slc) == 2 and len(nac) == 2
     assert all(t.x > 0 for t in slc) and all(t.x < -40 for t in nac)     # right / left
     assert len(set(t.y for t in slc + nac)) == 4
+
+
+def test_network_box_stands_clear_of_the_panel():
+    diagram = loop_diagram([Device("L1/SD-01")], "252")
+    net = [t for t in diagram.drawing.texts if t.text.startswith("Multi Service")][0]
+    panel = [t for t in diagram.drawing.texts if t.text.startswith("FIRE ALARM CONTROL")][0]
+    green = [l for l in diagram.drawing.lines if l.style == "FA Riser BMS" and l.y1 > -15]
+    link = green[0]
+    assert min(link.x1, link.x2) > net.x and max(link.x1, link.x2) < panel.x
+    assert abs(link.x2 - link.x1) >= 9.0                   # the link line shows
