@@ -231,6 +231,14 @@ def heat_detectors(c, ink):
     c.fill([flame(16, 30, 9)], AMBER)
 
 
+def auto_detectors(c, ink):
+    detector(c, ink)
+    for x, top in ((9, 18), (14, 16)):
+        stroke(c, wave(x, 29, top), 2.0, GRAY)
+    c.fill([flame(22, 30, 13)], RED)
+    c.fill([flame(22, 30, 7)], AMBER)
+
+
 def fa_loop(c, ink):
     c.fill([rounded(2, 12, 9, 21, 1.5)], ink)                   # panel
     c.fill([rect(3.8, 14, 7.2, 16.5)], RED)
@@ -320,6 +328,7 @@ ICONS = [
     (TAB + "SLD.panel/Settings.pushbutton", sld_settings),
     (TAB + "Fire Alarm.panel/Smoke Detectors.pushbutton", smoke_detectors),
     (TAB + "Fire Alarm.panel/Heat Detectors.pushbutton", heat_detectors),
+    (TAB + "Fire Alarm.panel/Auto Detectors.pushbutton", auto_detectors),
     (TAB + "Fire Alarm.panel/Draw FA Loop.pushbutton", fa_loop),
     (TAB + "Fire Alarm.panel/Address Devices.pushbutton", address_devices),
     (TAB + "Fire Alarm.panel/FA Riser.pushbutton", fa_riser),
