@@ -376,3 +376,10 @@ def test_runs_of_the_square_loop_lines():
     found = runs(lines)
     assert len(found) == 3                       # one wire device to device, round the loop
     assert sum(len(r) - 1 for r in found) <= len(lines)
+
+
+def test_legs_are_straight_wires_with_lines_in_line_joined():
+    from firealarm.wire_paths import legs
+    lines = [((0.25, 0.0), (3.0, 0.0)), ((3.0, 0.0), (5.0, 0.0)), ((5.0, 0.0), (5.0, 4.75))]
+    assert legs(lines) == [((0.25, 0.0), (5.0, 0.0)), ((5.0, 0.0), (5.0, 4.75))] or \
+        legs(lines) == [((5.0, 4.75), (5.0, 0.0)), ((5.0, 0.0), (0.25, 0.0))]

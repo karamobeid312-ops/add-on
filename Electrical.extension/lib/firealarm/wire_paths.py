@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Loop lines -> wire paths: the straight lines of a loop joined end to
-end into runs, one wire a run. A run goes on through a point where exactly
-two lines meet (a bend) and stops where a line ends at nothing (at a device,
+end into runs, and the runs' straight legs (one wire a leg). A run goes
+on through a point where exactly two lines meet (a bend) and stops where a line ends at nothing (at a device,
 the lines stop at its edge) or where more than two meet. Points in the
 middle of a straight stretch are dropped. Keep compatible with IronPython 2.7.
 """
@@ -65,6 +65,14 @@ def runs(segments, tol=TOLERANCE):
         points = [nodes[n] for n in order]
         found.append(_simplify(points, tol))
     return found
+
+
+def legs(segments, tol=TOLERANCE):
+    """[((x0, y0), (x1, y1))]: the straight legs of the runs, lines in line
+    joined. A wire with a bend in it is drawn with the corner cut (chamfer)
+    or rounded (arc), so each leg is its own two-point wire, and the
+    corners stay square."""
+    return [(a, b) for run in runs(segments, tol) for a, b in zip(run, run[1:])]
 
 
 def _simplify(points, tol):

@@ -203,8 +203,9 @@ plan (one floor) at a time.
 **Loop to Wires** (next to Draw FA Loop) swaps detail lines of the open
 plan for wires along the same path. Tick the line types to switch (the
 view's line styles with their line counts, FA Loop styles first; select
-some lines first to choose only among theirs), then the wire type. Each run
-of lines between two devices becomes one chamfer wire, shown in the line's
+some lines first to choose only among theirs), then the wire type. Each straight leg
+becomes one straight wire (a wire with a bend in it would have its corner
+cut or rounded by Revit, so the corners stay at 90 degrees), shown in the line's
 colour and weight; arcs stay lines. A wire made from FA Loop lines keeps
 its loop in its Comments (*FA Loop 1*, *FA Sounder Loop 2*...), so Address
 Devices, FA Riser and Draw FA Loop (*Replace them*) work with the wires as

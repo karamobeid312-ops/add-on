@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Revit side of Loop to Wires: the detail lines of a plan, of the line
-styles chosen, swapped for wires, one wire for each run of lines between
-two devices (firealarm.wire_paths), along the same path (chamfer wires:
-straight between bends), shown in the view in the line's colour and
+styles chosen, swapped for wires along the same path, one straight wire
+for each straight leg (firealarm.wire_paths: a wire with a bend in it
+gets its corner cut or rounded by Revit), shown in the view in the line's colour and
 weight. A wire made from FA Loop lines keeps its loop in its Comments
 ('FA Loop 1', 'FA Sounder Loop 2'...), so Draw FA Loop, Address Devices
 and FA Riser read the wires as they read the lines. The wires are not
@@ -18,7 +18,7 @@ from Autodesk.Revit.DB.Electrical import Wire, WireType, WiringType
 from System.Collections.Generic import List
 
 from firealarm.revit_loop import _STYLE_NAME, id_int, loop_name
-from firealarm.wire_paths import runs
+from firealarm.wire_paths import legs
 
 
 class WireResult(object):
@@ -106,7 +106,7 @@ def lines_to_wires(doc, view, wire_type, groups):
             colour, weight = _look(curves[0])
             loop = style if _STYLE_NAME.match(style) else None
             made = []
-            for run in runs(segments):
+            for run in legs(segments):          # straight wires: square corners
                 points = List[XYZ]([XYZ(x, y, z) for x, y in run])
                 try:
                     wire = Wire.Create(doc, wire_type.Id, view.Id, WiringType.Chamfer,
