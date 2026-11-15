@@ -362,6 +362,7 @@ def draw_loop():
 ADDRESS_VIEW = "Loops drawn in this plan"
 ADDRESS_ALL = "Loops drawn in all plans"
 ADDRESS_FREE = "Devices without a loop line"
+ADDRESS_ORDER = "Pick devices in my order (click one by one, Esc to finish)"
 
 
 def _address_notes(addresser, tag_loaded):
@@ -467,6 +468,34 @@ def _free_loops(doc, uidoc, view, values):
     return loops, note
 
 
+def _ordered_loops(doc, uidoc, view, values):
+    """Devices clicked one by one, numbered in the order clicked ->
+    (loops for Addresser.run, a note); (None, None) when cancelled."""
+    picked = revit_loop.pick_in_order(uidoc)
+    if not picked:
+        return None, None
+    chosen_symbols = settings.chosen_symbols(values)
+    codes = dict((revit_loop.id_int(d.Id), revit_address.symbol_of(d, chosen_symbols))
+                 for d in picked)
+    kind, devices = _loop_kind(picked, codes)
+    if not devices:
+        return None, None
+    left = len(picked) - len(devices)
+    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
+                            kept=list(revit_loop.existing_loop_lines(doc, view)),
+                            skip=set(revit_loop.id_int(d.Id) for d in devices), here_too=True)
+    if numbers is None:
+        return None, None
+    size = max(1, int(values["loop_devices"]))
+    chunks = [devices[k:k + size] for k in range(0, len(devices), size)]
+    numbers = list(numbers) + loop_numbers(len(chunks) - len(numbers), numbers)
+    loops = [(number, kind, [(view, chunk)]) for number, chunk in zip(numbers, chunks)]
+    note = u"Numbered in the order you clicked them (%s)." % _plural(len(devices), "device")
+    if left:
+        note += u" %s not on a %s loop left out." % (_plural(left, "device"), kind)
+    return loops, note
+
+
 def address_devices():
     """Write the addresses in the Mark of the fire alarm devices, loop by loop in route
     order (L1/SD-01...), and tag them."""
@@ -478,7 +507,7 @@ def address_devices():
     plan = revit_loop.is_plan(view)
     owners = set(owner for _, owner, _, _ in revit_loop.loop_curves(doc))
     options = ([ADDRESS_VIEW] if plan and revit_loop.id_int(view.Id) in owners else []) + \
-        ([ADDRESS_ALL] if owners else []) + ([ADDRESS_FREE] if plan else [])
+        ([ADDRESS_ALL] if owners else []) + ([ADDRESS_FREE, ADDRESS_ORDER] if plan else [])
     if not options:
         forms.alert("No loop lines are drawn in this model.\n\nDraw the loops with Draw FA "
                     "Loop, or open a floor or ceiling plan to address its devices without "
@@ -496,6 +525,12 @@ def address_devices():
         if loops is None:
             return
         skip, keep_ranges, warnings, notes = (), True, [], [note]
+    elif choice == ADDRESS_ORDER:
+        loops, note = _ordered_loops(doc, uidoc, view, values)
+        if loops is None:
+            return
+        # numbered afresh in the order clicked, after the loop's other devices
+        skip, keep_ranges, warnings, notes = (), False, [], [note]
     else:
         loops, skip, warnings, notes, look = _drawn_loops(
             doc, view if choice == ADDRESS_VIEW else None, values)

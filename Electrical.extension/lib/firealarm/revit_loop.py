@@ -154,6 +154,32 @@ def pick_devices(uidoc):
     return [doc.GetElement(r.ElementId) for r in refs]
 
 
+def pick_in_order(uidoc):
+    """Devices clicked one by one, in the order clicked, until Esc (a device
+    clicked twice counts once). Those clicked so far stay selected."""
+    from System.Collections.Generic import List
+    from Autodesk.Revit.DB import ElementId
+    doc = uidoc.Document
+    picked, ids = [], []
+    while True:
+        try:
+            ref = uidoc.Selection.PickObject(
+                ObjectType.Element, _LoopDeviceFilter(),
+                "Click the devices in address order (%d so far), Esc to finish" % len(picked))
+        except OperationCanceledException:
+            break
+        element = doc.GetElement(ref.ElementId)
+        if element is None or id_int(element.Id) in [id_int(i) for i in ids]:
+            continue
+        picked.append(element)
+        ids.append(element.Id)
+        try:
+            uidoc.Selection.SetElementIds(List[ElementId](ids))
+        except Exception:
+            pass
+    return picked
+
+
 def pick_start(uidoc):
     try:
         ref = uidoc.Selection.PickObject(

@@ -275,6 +275,10 @@ Click the button and choose which devices:
   *Continue Ln*. They are counted in the order Draw FA Loop would connect
   them, without drawing lines; more than 120 (FA Settings) are split into
   more loops, as Draw FA Loop does.
+- **Pick devices in my order** – click the devices one by one (they stay
+  highlighted), Esc to finish; choose detection or sounder and the loop
+  number (new or *Continue Ln*). They are numbered exactly in the order
+  clicked, after the loop's other addressed devices.
 
 How the lines are followed: a line ending at a device (within its box, or
 the line gap) belongs to that device; lines meeting at a bend join; the
