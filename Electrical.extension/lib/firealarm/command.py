@@ -407,24 +407,38 @@ def draw_loop():
 
 
 def loop_to_wires():
-    """Swap the FA Loop detail lines of the active plan (or the selected
-    ones) for wires along the same path."""
+    """Swap detail lines of the active plan, of the line styles chosen (of
+    the selected lines when some are selected), for wires along the same
+    path."""
     doc, uidoc = revit.doc, revit.uidoc
     if doc is None or doc.IsFamilyDocument:
         forms.alert("Open a project model first.", title=TITLE)
         return
     view = doc.ActiveView
     if not revit_loop.is_plan(view):
-        forms.alert("Open the floor or ceiling plan with the loop lines.", title=TITLE)
+        forms.alert("Open the floor or ceiling plan with the lines.", title=TITLE)
         return
     selected = set(revit_loop.id_int(i) for i in uidoc.Selection.GetElementIds())
-    groups = revit_wires.loop_lines(doc, view, selected or None)
-    if selected and not groups:             # the selection holds no loop lines: all of them
-        groups = revit_wires.loop_lines(doc, view)
+    groups = revit_wires.view_lines(doc, view, selected or None)
+    if selected and not groups:             # the selection holds no lines: all of the view's
+        groups = revit_wires.view_lines(doc, view)
     if not groups:
-        forms.alert("This view has no FA Loop lines to switch to wires. Draw them with "
-                    "Draw FA Loop first.", title=TITLE)
+        forms.alert("This view has no detail lines to switch to wires.", title=TITLE)
         return
+    loops = sorted(n for n in groups if revit_loop.is_loop_style(n))
+    others = sorted((n for n in groups if n not in loops), key=lambda n: n.lower())
+    labels, styles = [], {}
+    for name in loops + others:
+        count = len(groups[name])
+        text = u"%s  (%d line%s)" % (name, count, "" if count == 1 else "s")
+        labels.append(text)
+        styles[text] = name
+    picked = forms.SelectFromList.show(
+        labels, title="Line types to switch to wires", button_name="Next: wire type",
+        multiselect=True)
+    if not picked:
+        return
+    groups = dict((styles[text], groups[styles[text]]) for text in picked)
     types, best = revit_wires.wire_types(doc)
     if not types:
         forms.alert("The model has no wire types.", title=TITLE)
@@ -432,13 +446,10 @@ def loop_to_wires():
     if len(types) == 1:
         wire_type = types[best]
     else:
-        names = [best] + sorted(n for n in types if n != best)
         count = sum(len(c) for c in groups.values())
         choice = forms.SelectFromList.show(
-            names, title=u"Wire type for %d loop line%s (%s)" % (
-                count, "" if count == 1 else "s",
-                ", ".join(("Sounder L%d" if kind == SOUNDER else "L%d") % number
-                          for number, kind in sorted(groups))),
+            [best] + sorted(n for n in types if n != best),
+            title=u"Wire type for %d line%s" % (count, "" if count == 1 else "s"),
             button_name="Switch to wires", multiselect=False)
         if not choice:
             return

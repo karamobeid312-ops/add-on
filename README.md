@@ -200,15 +200,16 @@ plan (one floor) at a time.
 6. After a shortest-route loop, give the devices their addresses with
    **Address Devices** ([Addresses](#addresses)).
 
-**Loop to Wires** (next to Draw FA Loop) swaps the FA Loop detail lines of
-the open plan for wires along the same path: one chamfer wire for each run
-of lines between two devices, shown in the loop's colour and line weight.
-Select some loop lines first to switch only their loops; with several wire
-types in the model you pick one. Each wire keeps its loop in its Comments
-(*FA Loop 1*, *FA Sounder Loop 2*...), so Address Devices, FA Riser and
-Draw FA Loop (*Replace them*) work with the wires as they do with the lines.
-The wires are drawn free, not connected to the devices. A loop whose wires
-Revit refuses keeps its lines.
+**Loop to Wires** (next to Draw FA Loop) swaps detail lines of the open
+plan for wires along the same path. Tick the line types to switch (the
+view's line styles with their line counts, FA Loop styles first; select
+some lines first to choose only among theirs), then the wire type. Each run
+of lines between two devices becomes one chamfer wire, shown in the line's
+colour and weight; arcs stay lines. A wire made from FA Loop lines keeps
+its loop in its Comments (*FA Loop 1*, *FA Sounder Loop 2*...), so Address
+Devices, FA Riser and Draw FA Loop (*Replace them*) work with the wires as
+they do with the lines. The wires are drawn free, not connected to the
+devices. A line type whose wires Revit refuses keeps its lines.
 
 ![Sample loops](docs/loop-preview.png)
 

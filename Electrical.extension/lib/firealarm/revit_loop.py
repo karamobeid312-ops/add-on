@@ -205,6 +205,11 @@ def loop_name(element):
         return ""
 
 
+def is_loop_style(name):
+    """True for 'FA Loop 1', 'FA Sounder Loop 2'..."""
+    return bool(_STYLE_NAME.match(name or ""))
+
+
 def _loop_style(curve):
     """(loop number, kind) of a loop line or loop wire, or None."""
     match = _STYLE_NAME.match(loop_name(curve))
