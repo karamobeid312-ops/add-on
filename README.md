@@ -243,7 +243,7 @@ core of small rooms.*
 ### Addresses
 
 **Address Devices** (Fire Alarm panel) writes every device's address in
-the **FA Address** parameter and tags it:
+its **Mark** and tags it (no parameter is added to the model):
 
 ```
 L1/SD-01   L1/SD-02   L1/MCP-03   L1/HD-04 ...   L5/BS-01   L5/ST-02 ...
@@ -293,9 +293,10 @@ are not addressed), devices on the routes of two loops (addressed on the
 first), and other devices that had an address given now (left from
 before).
 
-**FA Address** is a shared parameter (text, instance) from
-`Electrical.extension/FA shared parameters.txt`, added to Fire Alarm
-Devices the first time devices are addressed; schedules can show it.
+The address goes in the device's **Mark**, which every fire alarm device
+has; schedules and tags can show it. A Mark that is not an address (such
+as `224`) is overwritten. Addresses an older version wrote in an
+*FA Address* parameter are still read.
 
 **Address tags.** Address Devices places a tag on every device it
 addresses (above and to the right, no leader) in the plan of its loop,
@@ -307,12 +308,9 @@ the tag once:
 1. **File → New → Annotation Symbol**, template *Fire Alarm Device Tag*
    (*Metric Fire Alarm Device Tag.rft*).
 2. **Create → Label**, click in the view.
-3. In *Edit Label* click **Add Parameter** (bottom left) → **Select...** →
-   **Browse** to `Electrical.extension/FA shared parameters.txt` → group
-   *Fire Alarm* → **FA Address** → OK, OK.
-4. Move **FA Address** to *Label Parameters* → OK. Set the text size (e.g.
-   1.8 mm) in the label's type.
-5. Save it (e.g. *FA Address Tag.rfa*) and **Load into Project**.
+3. In *Edit Label* move **Mark** to *Label Parameters* → OK. Set the text
+   size (e.g. 1.8 mm) in the label's type.
+4. Save it (e.g. *FA Address Tag.rfa*) and **Load into Project**.
 
 With no tag loaded the addresses are still written, and the summary says so.
 
@@ -383,7 +381,7 @@ line colours, cable notes and panel):
   the sounder lines to the left: four notes however many loops), the
   network box on its left and the lines out of
   its right side (`FROM ...; TO ...`) are set in **FA Settings**.
-- Devices with no address in Comments (or the `FA Address` parameter) are
+- Devices with no address in Comments (or Mark) are
   left out and listed in the summary, with gaps in the numbering and
   addresses used twice.
 
@@ -657,7 +655,6 @@ Electrical.extension/
     SLD.panel/            Generate SLD, SLD Settings
     Fire Alarm.panel/     Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices,
                           FA Riser, FA Settings
-  FA shared parameters.txt   the FA Address shared parameter
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
@@ -682,7 +679,7 @@ Electrical.extension/
     addresses.py   addresses L1/SD-01, loop kinds (no Revit)
     loop_order.py  the route of a loop read back from its lines (no Revit)
     revit_routes.py   loops drawn in the plans read back device by device
-    revit_address.py  FA Address parameter, addresses written, address tags
+    revit_address.py  addresses written in Mark, address tags
     report.py      summaries shown after placing, drawing loops, addressing and the riser
     settings.py    per-user settings
     command.py     button entry points

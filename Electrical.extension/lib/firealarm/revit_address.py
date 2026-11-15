@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 """Revit side of the fire alarm addresses: the device symbol (type) of a
-family instance, the 'FA Address' parameter (a shared parameter from
-'FA shared parameters.txt', added to Fire Alarm Devices on first use) and
-the address tags, written and placed by Address Devices.
+family instance, the address in its Mark (no parameter is ever added to
+the model) and the address tags, written and placed by Address Devices.
 
 Works with pyRevit's IronPython 2.7 and CPython 3 engines.
 """
 from __future__ import division
-
-import os
 
 from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, FamilyInstance, FamilySymbol, FilteredElementCollector,
@@ -19,10 +16,8 @@ from firealarm.addresses import address_kind, first_number, loop_addresses, pars
 from firealarm.revit_loop import id_int, label, level_of, model_levels
 from firealarm.riser_symbols import resolve
 
-PARAMETER = "FA Address"
-GROUP = "Fire Alarm"
-PARAMETER_FILE = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                               "..", "..", "FA shared parameters.txt"))
+PARAMETER = "Mark"                  # where the address is written
+OLD_PARAMETER = "FA Address"        # older versions wrote here: still read
 MM_PER_FOOT = 304.8
 TAG_OFFSET = 1.0            # mm on paper between a device and its tag
 
@@ -51,46 +46,24 @@ def symbol_of(element, chosen):
     return resolve(name, override, chosen.get(name))
 
 
-# ---------------------------------------------------------------- parameter
+# ---------------------------------------------------------------- Mark
 
-def has_parameter(doc):
-    iterator = doc.ParameterBindings.ForwardIterator()
-    while iterator.MoveNext():
-        if iterator.Key.Name == PARAMETER:
-            return True
-    return False
+def read_address(element):
+    """The device's address: its Mark (L1/SD-01), else an FA Address left
+    from older versions; '' when neither holds an address (a Mark such as
+    '224' is not one)."""
+    for text in (_mark(element), _text(element, OLD_PARAMETER)):
+        if parse_address(text):
+            return text.strip().upper()
+    return ""
 
 
-def add_parameter(doc):
-    """Add FA Address (text, instance) to Fire Alarm Devices from the shared
-    parameter file of the add-in. Inside a transaction. True when added."""
-    if has_parameter(doc):
-        return False
-    app = doc.Application
-    before = app.SharedParametersFilename
+def _mark(element):
     try:
-        app.SharedParametersFilename = PARAMETER_FILE
-        definition = app.OpenSharedParameterFile().Groups.get_Item(GROUP) \
-            .Definitions.get_Item(PARAMETER)
-    finally:
-        try:
-            app.SharedParametersFilename = before
-        except Exception:
-            pass
-    categories = app.Create.NewCategorySet()
-    categories.Insert(doc.Settings.Categories.get_Item(BuiltInCategory.OST_FireAlarmDevices))
-    binding = app.Create.NewInstanceBinding(categories)
-    try:
-        from Autodesk.Revit.DB import GroupTypeId           # Revit 2022+
-        return doc.ParameterBindings.Insert(definition, binding, GroupTypeId.IdentityData)
+        p = element.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
+        return ((p.AsString() if p is not None else "") or "").strip()
     except Exception:
-        pass
-    try:
-        from Autodesk.Revit.DB import BuiltInParameterGroup
-        return doc.ParameterBindings.Insert(definition, binding,
-                                            BuiltInParameterGroup.PG_IDENTITY_DATA)
-    except Exception:
-        return doc.ParameterBindings.Insert(definition, binding)
+        return ""
 
 
 # ---------------------------------------------------------------- tags
@@ -142,14 +115,14 @@ def _tag_point(device, view):
 # ---------------------------------------------------------------- addresses
 
 def _addressed(doc, skip=()):
-    """[(device, FA Address)] of the fire alarm devices with an address,
-    but those in `skip` (ids)."""
+    """[(device, address in its Mark)] of the fire alarm devices with an
+    address, but those in `skip` (ids)."""
     found = []
     for element in FilteredElementCollector(doc) \
             .OfCategory(BuiltInCategory.OST_FireAlarmDevices).OfClass(FamilyInstance):
         if id_int(element.Id) in skip:
             continue
-        value = _text(element, PARAMETER)
+        value = read_address(element)
         if value:
             found.append((element, value))
     return found
@@ -187,11 +160,10 @@ class AddressedLoop(object):
 class Addresser(object):
     """Writes the addresses of loops, device after device in route order,
     and tags them. chosen: {'Family : Type': symbol code} from FA Settings;
-    tag_type: the tag FamilySymbol, or None (only FA Address is filled)."""
+    tag_type: the tag FamilySymbol, or None (only Mark is filled)."""
 
     def __init__(self, doc, chosen, tag_type=None):
         self.doc, self.chosen, self.tag_type = doc, chosen, tag_type
-        self.parameter_added = False
         self.written = 0
         self.tagged = 0
         self.already_tagged = 0     # devices with a tag of that type already (kept)
@@ -221,7 +193,6 @@ class Addresser(object):
         t = Transaction(self.doc, "Address FA Devices")
         t.Start()
         try:
-            self.parameter_added = bool(add_parameter(self.doc))
             others = _addressed(self.doc, ids)
             existing = [value for element, value in others if id_int(element.Id) not in skip]
             written, done = set(), set()
@@ -240,7 +211,7 @@ class Addresser(object):
                         shown.append((view, fresh))
                 if not chain:
                     continue
-                own = [_text(d, PARAMETER) for d in chain] if keep_ranges else []
+                own = [read_address(d) for d in chain] if keep_ranges else []
                 first = first_number(number, len(chain), existing, own)
                 addresses = loop_addresses(number, [self.code(d) for d in chain], first)
                 self._write(chain, addresses)
@@ -262,7 +233,7 @@ class Addresser(object):
 
     def _write(self, devices, addresses):
         for device, address in zip(devices, addresses):
-            p = device.LookupParameter(PARAMETER)
+            p = device.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
             if p is None or p.IsReadOnly:
                 self.problems.append(u"%s has no editable %s parameter" % (label(device), PARAMETER))
                 continue

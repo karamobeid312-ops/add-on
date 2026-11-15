@@ -212,9 +212,11 @@ def _text(element, bip=None, name=None):
 
 def device_address(element):
     """The address written in the device's Comments (L1/SD-01), else in its
-    FA Address parameter, '' when neither has one."""
+    Mark (where Address Devices writes it), else in an FA Address left from
+    older versions; '' when none has one."""
     from firealarm.addresses import parse_address
     for text in (_text(element, BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS),
+                 _text(element, BuiltInParameter.ALL_MODEL_MARK),
                  _text(element, name="FA Address")):
         if parse_address(text):
             return text.strip().upper()

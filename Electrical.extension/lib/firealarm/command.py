@@ -285,7 +285,7 @@ def _address_tag(doc, values):
     if saved in types:
         return types[saved]
     options = sorted(types) + [settings.NO_TAG]
-    choice = forms.SelectFromList.show(options, title="Tag for the addresses (FA Address)",
+    choice = forms.SelectFromList.show(options, title="Tag for the addresses (Mark)",
                                        button_name="Use this tag", multiselect=False)
     if not choice:
         return None
@@ -353,7 +353,7 @@ def draw_loop():
                                     square=values["loop_square"], kind=kind)
     headline, details = summarize_loops(
         view.Name, results, revit_loop.label(start), counted, replaced=len(replace), kind=kind,
-        notes=[u"Give the devices their addresses (FA Address and tags) with Address Devices."])
+        notes=[u"Give the devices their addresses (Mark and tags) with Address Devices."])
     forms.alert(headline, expanded=details, title=TITLE)
 
 
@@ -366,8 +366,6 @@ ADDRESS_FREE = "Devices without a loop line"
 
 def _address_notes(addresser, tag_loaded):
     notes = []
-    if addresser.parameter_added:
-        notes.append(u"The FA Address parameter was added to Fire Alarm Devices.")
     if addresser.tag_type is not None:
         notes.append(u"Address tags placed: %d%s." % (
             addresser.tagged, " (%d device%s had one already, kept)" % (
@@ -375,7 +373,7 @@ def _address_notes(addresser, tag_loaded):
             if addresser.already_tagged else ""))
     elif not tag_loaded:
         notes.append(u"No fire alarm device tag is loaded: make one with a label showing "
-                     u"FA Address (see the README) to tag the addresses.")
+                     u"Mark (see the README) to tag the addresses.")
     else:
         notes.append(u"No address tags (choose one in FA Settings > Address tag).")
     for problem in sorted(set(addresser.problems)):
@@ -470,7 +468,7 @@ def _free_loops(doc, uidoc, view, values):
 
 
 def address_devices():
-    """Write FA Address on the fire alarm devices, loop by loop in route
+    """Write the addresses in the Mark of the fire alarm devices, loop by loop in route
     order (L1/SD-01...), and tag them."""
     doc, uidoc = revit.doc, revit.uidoc
     if doc is None or doc.IsFamilyDocument:
@@ -731,11 +729,11 @@ def edit_settings():
             types = revit_address.tag_types(doc)
             if not types:
                 forms.alert("No fire alarm device tag is loaded in this model.\n\nMake one "
-                            "with a label showing FA Address (see the README) and load it.",
+                            "with a label showing Mark (see the README) and load it.",
                             title=TITLE)
                 continue
             choice = forms.SelectFromList.show(sorted(types) + [settings.NO_TAG],
-                                               title="Tag for the addresses (FA Address)",
+                                               title="Tag for the addresses (Mark)",
                                                button_name="Use this tag", multiselect=False)
             if choice:
                 values[key] = choice
