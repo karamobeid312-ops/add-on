@@ -5,7 +5,7 @@ from pyrevit import forms, revit
 from System.Collections.Generic import List
 
 from firealarm import revit_address, revit_loop, revit_riser, revit_routes, settings
-from firealarm.addresses import DETECTION, SOUNDER, on_loop
+from firealarm.addresses import DETECTION, SOUNDER, address_kind, address_order, on_loop
 from firealarm.loops import loop_count, loop_numbers
 from firealarm.report import (summarize, summarize_addresses, summarize_auto,
                               summarize_loop_diagram, summarize_loops, summarize_riser)
@@ -294,6 +294,42 @@ def _address_tag(doc, values):
     return types.get(choice)
 
 
+ROUTE_ADDRESS = "Follow the addresses in Mark (L1/SD-01, L1/MCP-02... in number order)"
+ROUTE_SHORTEST = "Shortest route (new loop numbers, address the devices afterwards)"
+
+
+def _route_by_address(devices, chosen, kind):
+    """Whether to connect the devices in their Mark address order, and the
+    devices for it: (True, devices with an address of `kind`), (False,
+    chosen) for the shortest route, (None, []) cancelled. Asked only when
+    some devices have such an address."""
+    addressed = [d for d in devices if address_kind(revit_address.read_address(d)) == kind]
+    if not addressed:
+        return False, chosen
+    choice = forms.CommandSwitchWindow.show([ROUTE_ADDRESS, ROUTE_SHORTEST],
+                                            message="How should the loop go from device to device?")
+    if not choice:
+        return None, []
+    if choice == ROUTE_ADDRESS:
+        return True, addressed
+    return False, chosen
+
+
+def _address_notes_for_loop(devices, chosen, kind, duplicates):
+    """Notes for a loop drawn in address order: the order used, the devices
+    left off (no address of this kind) and repeated addresses."""
+    notes = [u"Devices connected in their Mark address order, loop by loop."]
+    on = set(revit_loop.id_int(d.Id) for d in devices)
+    left = [d for d in chosen if revit_loop.id_int(d.Id) not in on]
+    if left:
+        notes.append(u"Not connected, no %s address in Mark (%d): %s" % (
+            kind, len(left), ", ".join(revit_loop.label(d) for d in left[:15])
+            + (u"..." if len(left) > 15 else u"")))
+    if duplicates:
+        notes.append(u"Same address on more than one device: %s" % ", ".join(sorted(set(duplicates))))
+    return notes
+
+
 def draw_loop():
     """Connect the fire alarm devices of the active plan with detail
     lines, loop by loop, from the start and back."""
@@ -312,7 +348,11 @@ def draw_loop():
     chosen_symbols = settings.chosen_symbols(values)
     codes = dict((revit_loop.id_int(d.Id), revit_address.symbol_of(d, chosen_symbols))
                  for d in devices)
-    kind, devices = _loop_kind(devices, codes)
+    picked = devices
+    kind, chosen = _loop_kind(picked, codes)
+    if kind is None:
+        return
+    by_address, devices = _route_by_address(picked, chosen, kind)
     if not devices:
         return
     start = revit_loop.pick_start(uidoc)
@@ -341,19 +381,28 @@ def draw_loop():
         if answer.startswith("Replace"):
             replace = [i for ids in old.values() for i in ids]
 
-    # the addresses of this floor's devices are redone after the loops
-    shown = set(revit_loop.id_int(d.Id) for d in revit_loop.view_devices(doc, view))
-    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
-                            kept=list(other_kind) + ([] if replace else list(old)),
-                            skip=shown | set(revit_loop.id_int(d.Id) for d in devices))
-    if numbers is None:
-        return
+    orders = None
+    if by_address:                          # the loops and their order come from Mark
+        groups, _, duplicates = address_order(
+            [revit_address.read_address(d) for d in devices], kind)
+        numbers = [number for number, _ in groups]
+        orders = [indices for _, indices in groups]
+        notes = _address_notes_for_loop(devices, chosen, kind, duplicates)
+    else:
+        # the addresses of this floor's devices are redone after the loops
+        shown = set(revit_loop.id_int(d.Id) for d in revit_loop.view_devices(doc, view))
+        numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
+                                kept=list(other_kind) + ([] if replace else list(old)),
+                                skip=shown | set(revit_loop.id_int(d.Id) for d in devices))
+        if numbers is None:
+            return
+        notes = [u"Give the devices their addresses (Mark and tags) with Address Devices."]
     results = revit_loop.draw_loops(doc, view, devices, start, values["loop_devices"],
                                     values["loop_gap"], numbers, replace,
-                                    square=values["loop_square"], kind=kind)
+                                    square=values["loop_square"], kind=kind, orders=orders)
     headline, details = summarize_loops(
         view.Name, results, revit_loop.label(start), counted, replaced=len(replace), kind=kind,
-        notes=[u"Give the devices their addresses (Mark and tags) with Address Devices."])
+        notes=notes)
     forms.alert(headline, expanded=details, title=TITLE)
 
 

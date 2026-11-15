@@ -441,6 +441,38 @@ def plan_loops(points, start, max_devices=MAX_DEVICES, square=False, angle=0.0, 
     return route(splits[0], False)[0]
 
 
+def fixed_loops(points, start, orders, square=False, angle=0.0):
+    """Loops through the devices in the orders given ([[device indices]],
+    one list a loop, e.g. in address order), not routed: each loop goes
+    from the start through its devices in order and back. start: as for
+    plan_loops; when the start device is on a loop, that loop begins there
+    and goes on in order round to the device before it. Lengths are
+    measured along the grid turned by `angle` when square."""
+    if isinstance(start, tuple):
+        first, origin = None, (float(start[0]), float(start[1]))
+    else:
+        first, origin = start, points[start]
+    measure = _distance
+    if square:
+        points = [_rotate(p, -angle) for p in points]
+        origin = _rotate(origin, -angle)
+        measure = _grid_length
+    loops = []
+    for order in orders:
+        order = list(order)
+        if not order:
+            continue
+        if first is not None and first in order:
+            k = order.index(first)
+            stops = order[k:] + order[:k]
+        else:
+            stops = [START] + order
+        where = [origin if s == START else points[s] for s in stops]
+        length = sum(measure(where[i], where[(i + 1) % len(where)]) for i in range(len(where)))
+        loops.append(Loop(stops, length))
+    return loops
+
+
 def crossings(loop, points, start=None):
     """Pairs of lines of the loop that cross (for checks)."""
     def where(node):

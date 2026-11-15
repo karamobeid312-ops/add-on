@@ -187,11 +187,18 @@ plan (one floor) at a time.
    modules... everything but sirens and flashers) or a **sounder loop**
    (sirens and flashers only: bells, sounders, horns, strobes, beacons,
    bell + strobe, horn + strobe). Only those devices go on it.
-3. Click the start: the fire alarm panel, or the first device.
-4. The loops are drawn, and a summary gives each loop's devices and
+3. When some devices already have addresses in their **Mark**
+   (L1/SD-01, L1/MCP-02...), choose how the loop goes:
+   - *Follow the addresses in Mark*: each loop number in the Marks is one
+     loop, connected device to device in address number order (01, 02,
+     03...) and back to the start. Devices of this kind without an address
+     are left off and listed in the summary, as are addresses used twice.
+   - *Shortest route*: the route is found as below, with new loop numbers.
+4. Click the start: the fire alarm panel, or the first device.
+5. The loops are drawn, and a summary gives each loop's devices and
    length of line.
-5. Give the devices their addresses with **Address Devices**
-   ([Addresses](#addresses)).
+6. After a shortest-route loop, give the devices their addresses with
+   **Address Devices** ([Addresses](#addresses)).
 
 ![Sample loops](docs/loop-preview.png)
 
@@ -200,6 +207,8 @@ thick circle a start device. Bottom right: an open space on a grid and a
 core of small rooms.*
 
 ### How the route is found
+
+(For *Shortest route*; *Follow the addresses in Mark* keeps the address order.)
 
 - **Up to 120 devices** (FA Settings) make one loop. More devices are
   split into as few loops as possible, of equal size (250 devices: 83 +

@@ -25,7 +25,7 @@ from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
 
 from firealarm.addresses import DETECTION, SOUNDER
-from firealarm.loops import grid_angle, loop_lines, loop_numbers, plan_loops
+from firealarm.loops import fixed_loops, grid_angle, loop_lines, loop_numbers, plan_loops
 from firealarm.riser_symbols import is_panel_name
 
 M_PER_FOOT = 0.3048
@@ -325,9 +325,10 @@ class Plan(object):
     """The loops of `devices` from `start` (an element; one of the devices,
     or the panel), as Draw FA Loop routes them: loops (firealarm.loops.Loop,
     their devices in route order as indices into `devices`) and what
-    drawing them needs."""
+    drawing them needs. orders: [[indices into `devices`]], one list a
+    loop, to follow as given (address order) instead of routing."""
 
-    def __init__(self, view, devices, start, max_devices, gap_mm, square=True):
+    def __init__(self, view, devices, start, max_devices, gap_mm, square=True, orders=None):
         self.devices = devices
         self.square = square
         self.points = [(p.X * M_PER_FOOT, p.Y * M_PER_FOOT) for p in (_point(d) for d in devices)]
@@ -340,8 +341,12 @@ class Plan(object):
         self.gap = gap_mm / 1000.0 * view.Scale                 # m in the model
         right = view.RightDirection
         self.angle = grid_angle(self.points, math.atan2(right.Y, right.X)) if square else 0.0
-        self.loops = plan_loops(self.points, first if first is not None else self.start_xy,
-                                max_devices, square, self.angle, _band(self.boxes, self.gap))
+        origin = first if first is not None else self.start_xy
+        if orders is not None:
+            self.loops = fixed_loops(self.points, origin, orders, square, self.angle)
+        else:
+            self.loops = plan_loops(self.points, origin, max_devices, square, self.angle,
+                                    _band(self.boxes, self.gap))
 
     def routes(self):
         """[[devices of a loop in route order]]."""
@@ -349,13 +354,15 @@ class Plan(object):
 
 
 def draw_loops(doc, view, devices, start, max_devices, gap_mm, numbers=None, old=(),
-               square=True, kind=DETECTION):
+               square=True, kind=DETECTION, orders=None):
     """Plan the loops of `devices` from `start` (an element; one of the
     devices, or the panel) and draw them in `view` as detail lines, one
     undo. numbers: the loop numbers to give them (loops.loop_numbers);
     `old`: ids of loop lines to delete. square: lines at right angles
-    along the devices' grid. Returns [LoopResult]."""
-    plan = Plan(view, devices, start, max_devices, gap_mm, square)
+    along the devices' grid. orders: the devices of each loop in the
+    order to connect them (indices into `devices`, e.g. by address), with
+    `numbers` giving their loop numbers. Returns [LoopResult]."""
+    plan = Plan(view, devices, start, max_devices, gap_mm, square, orders)
     level = getattr(view, "GenLevel", None)
     z = level.ProjectElevation if level is not None else 0.0
 

@@ -279,3 +279,42 @@ def test_square_settings_switch():
     assert _coerce("loop_square", "True") is True
     assert _coerce("loop_devices", "80") == 80
     assert _coerce("loop_devices", "0") == 120
+
+
+# ---------------------------------------------------------------- address order
+
+from firealarm.addresses import DETECTION, SOUNDER, address_order  # noqa: E402
+from firealarm.loops import fixed_loops  # noqa: E402
+
+
+def test_address_order_groups_loops_and_sorts_by_number():
+    marks = ["L2/SD-02", "L1/MCP-03", "L1/SD-01", "", "L2/SD-01", "L1/HD-02", "L1/BS-01", "224"]
+    groups, missing, duplicates = address_order(marks, DETECTION)
+    assert groups == [(1, [2, 5, 1]), (2, [4, 0])]
+    assert missing == [3, 6, 7]                 # no address, a sounder, a plain Mark
+    assert duplicates == []
+    sounders, _, _ = address_order(marks, SOUNDER)
+    assert sounders == [(1, [6])]
+
+
+def test_address_order_reports_repeated_addresses():
+    groups, _, duplicates = address_order(["L1/SD-01", "L1/HD-01", "L1/SD-02"], DETECTION)
+    assert duplicates == ["L1/HD-01"]
+    assert [n for n, _ in groups] == [1]
+
+
+def test_fixed_loops_follow_the_order_from_the_panel():
+    points = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    loops = fixed_loops(points, (-5.0, 0.0), [[2, 0, 3, 1]])
+    assert loops[0].stops == [START, 2, 0, 3, 1]
+    route = [(-5.0, 0.0)] + [points[i] for i in (2, 0, 3, 1)]
+    expected = sum(math.hypot(route[i][0] - route[(i + 1) % 5][0],
+                              route[i][1] - route[(i + 1) % 5][1]) for i in range(5))
+    assert loops[0].length == pytest.approx(expected)
+
+
+def test_fixed_loops_begin_at_the_start_device():
+    points = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
+    loops = fixed_loops(points, 1, [[0, 1, 2]], square=True)
+    assert loops[0].stops == [1, 2, 0]
+    assert loops[0].length == pytest.approx(40.0)
