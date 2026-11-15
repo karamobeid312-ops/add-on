@@ -14,7 +14,7 @@ Everything is on one **Electrical** ribbon tab, with five panels:
 | Panel | Buttons |
 | --- | --- |
 | **SLD** | Generate SLD, SLD Settings |
-| **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops, addresses them and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops), [Addresses](#addresses) and [Fire alarm riser](#fire-alarm-riser) |
+| **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, Loop to Wires, Address Devices, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops, addresses them and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops), [Addresses](#addresses) and [Fire alarm riser](#fire-alarm-riser) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
@@ -199,6 +199,16 @@ plan (one floor) at a time.
    length of line.
 6. After a shortest-route loop, give the devices their addresses with
    **Address Devices** ([Addresses](#addresses)).
+
+**Loop to Wires** (next to Draw FA Loop) swaps the FA Loop detail lines of
+the open plan for wires along the same path: one chamfer wire for each run
+of lines between two devices, shown in the loop's colour and line weight.
+Select some loop lines first to switch only their loops; with several wire
+types in the model you pick one. Each wire keeps its loop in its Comments
+(*FA Loop 1*, *FA Sounder Loop 2*...), so Address Devices, FA Riser and
+Draw FA Loop (*Replace them*) work with the wires as they do with the lines.
+The wires are drawn free, not connected to the devices. A loop whose wires
+Revit refuses keeps its lines.
 
 ![Sample loops](docs/loop-preview.png)
 

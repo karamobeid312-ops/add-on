@@ -4,7 +4,7 @@ from Autodesk.Revit.DB import ElementId
 from pyrevit import forms, revit
 from System.Collections.Generic import List
 
-from firealarm import revit_address, revit_loop, revit_riser, revit_routes, settings
+from firealarm import revit_address, revit_loop, revit_riser, revit_routes, revit_wires, settings
 from firealarm.addresses import DETECTION, SOUNDER, address_kind, address_order, on_loop
 from firealarm.loops import loop_count, loop_numbers
 from firealarm.report import (summarize, summarize_addresses, summarize_auto,
@@ -403,6 +403,48 @@ def draw_loop():
     headline, details = summarize_loops(
         view.Name, results, revit_loop.label(start), counted, replaced=len(replace), kind=kind,
         notes=notes)
+    forms.alert(headline, expanded=details, title=TITLE)
+
+
+def loop_to_wires():
+    """Swap the FA Loop detail lines of the active plan (or the selected
+    ones) for wires along the same path."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model first.", title=TITLE)
+        return
+    view = doc.ActiveView
+    if not revit_loop.is_plan(view):
+        forms.alert("Open the floor or ceiling plan with the loop lines.", title=TITLE)
+        return
+    selected = set(revit_loop.id_int(i) for i in uidoc.Selection.GetElementIds())
+    groups = revit_wires.loop_lines(doc, view, selected or None)
+    if selected and not groups:             # the selection holds no loop lines: all of them
+        groups = revit_wires.loop_lines(doc, view)
+    if not groups:
+        forms.alert("This view has no FA Loop lines to switch to wires. Draw them with "
+                    "Draw FA Loop first.", title=TITLE)
+        return
+    types, best = revit_wires.wire_types(doc)
+    if not types:
+        forms.alert("The model has no wire types.", title=TITLE)
+        return
+    if len(types) == 1:
+        wire_type = types[best]
+    else:
+        names = [best] + sorted(n for n in types if n != best)
+        count = sum(len(c) for c in groups.values())
+        choice = forms.SelectFromList.show(
+            names, title=u"Wire type for %d loop line%s (%s)" % (
+                count, "" if count == 1 else "s",
+                ", ".join(("Sounder L%d" if kind == SOUNDER else "L%d") % number
+                          for number, kind in sorted(groups))),
+            button_name="Switch to wires", multiselect=False)
+        if not choice:
+            return
+        wire_type = types[choice]
+    results = revit_wires.lines_to_wires(doc, view, wire_type, groups)
+    headline, details = revit_wires.summarize(view.Name, results)
     forms.alert(headline, expanded=details, title=TITLE)
 
 

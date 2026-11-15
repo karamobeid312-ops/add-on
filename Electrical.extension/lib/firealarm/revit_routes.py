@@ -53,9 +53,15 @@ def _panels(doc, view, shown):
 
 
 def _segments(curves):
+    """((x0, y0), (x1, y1)) of every straight piece of the loop's lines,
+    and of its wires vertex to vertex."""
     found = []
     for curve in curves:
         try:
+            if hasattr(curve, "NumberOfVertices"):          # a wire
+                points = [curve.GetVertex(i) for i in range(curve.NumberOfVertices)]
+                found.extend(((a.X, a.Y), (b.X, b.Y)) for a, b in zip(points, points[1:]))
+                continue
             geometry = curve.GeometryCurve
             a, b = geometry.GetEndPoint(0), geometry.GetEndPoint(1)
         except Exception:

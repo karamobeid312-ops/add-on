@@ -20,7 +20,8 @@ from Autodesk.Revit.DB import (
 )
 
 from firealarm.revit_address import symbol_of
-from firealarm.revit_loop import device_reach, id_int, label, level_of, loop_curves, model_levels
+from firealarm.revit_loop import (device_reach, id_int, label, level_of, line_ends, loop_curves,
+                                  model_levels)
 from firealarm.riser import Segment, riser_layout
 from firealarm.riser_symbols import is_panel_name
 from sld.revit_sld import line_style, render
@@ -83,7 +84,7 @@ def loop_of_devices(doc, devices, gap_mm):
             reach.append((id_int(element.Id), p.X, p.Y, device_reach(element, view, gap)))
         for number, curve in lines:
             try:
-                ends = [curve.GeometryCurve.GetEndPoint(0), curve.GeometryCurve.GetEndPoint(1)]
+                ends = line_ends(curve)
             except Exception:
                 continue
             for end in ends:

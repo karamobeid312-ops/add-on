@@ -341,3 +341,38 @@ def test_fixed_loops_begin_at_the_start_device():
     loops = fixed_loops(points, 1, [[0, 1, 2]], square=True)
     assert loops[0].stops == [1, 2, 0]
     assert loops[0].length == pytest.approx(40.0)
+
+
+# ---------------------------------------------------------------- loop to wires
+
+from firealarm.wire_paths import runs  # noqa: E402
+
+
+def test_runs_join_lines_between_devices_and_drop_straight_joints():
+    lines = [((0.25, 0.0), (3.0, 0.0)), ((3.0, 0.0), (5.0, 0.0)),     # straight on, one run
+             ((5.0, 0.0), (5.0, 4.75)),                                # bend up to a device
+             ((5.25, 5.0), (8.0, 5.0)), ((8.0, 5.0), (8.0, 9.75))]     # next device, an L
+    found = sorted(runs(lines))
+    assert found == [[(0.25, 0.0), (5.0, 0.0), (5.0, 4.75)],
+                     [(5.25, 5.0), (8.0, 5.0), (8.0, 9.75)]]
+
+
+def test_runs_follow_lines_drawn_either_way_round():
+    lines = [((5.0, 4.75), (5.0, 0.0)), ((0.25, 0.0), (5.0, 0.0))]
+    run, = runs(lines)
+    assert run in ([(5.0, 4.75), (5.0, 0.0), (0.25, 0.0)], [(0.25, 0.0), (5.0, 0.0), (5.0, 4.75)])
+
+
+def test_runs_stop_where_three_lines_meet():
+    lines = [((0.0, 0.0), (1.0, 0.0)), ((1.0, 0.0), (2.0, 0.0)), ((1.0, 0.0), (1.0, 1.0))]
+    assert len(runs(lines)) == 3
+
+
+def test_runs_of_the_square_loop_lines():
+    points = [(0.0, 0.0), (5.0, 5.0), (10.0, 0.0)]
+    boxes = [box(p) for p in points]
+    loop = plan_loops(points, 0, square=True)[0]
+    lines = loop_lines(loop, points, points[0], boxes, None, 0.0, True, 0.0, None)
+    found = runs(lines)
+    assert len(found) == 3                       # one wire device to device, round the loop
+    assert sum(len(r) - 1 for r in found) <= len(lines)

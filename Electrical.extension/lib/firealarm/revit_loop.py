@@ -20,6 +20,7 @@ from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, Color, CurveElement, ElementId, FamilyInstance,
     FilteredElementCollector, GraphicsStyleType, Level, Line, Transaction, ViewPlan, XYZ,
 )
+from Autodesk.Revit.DB.Electrical import Wire
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
@@ -192,19 +193,42 @@ def pick_start(uidoc):
 
 # ---------------------------------------------------------------- lines
 
+def loop_name(element):
+    """'FA Loop 1'... of a loop line (its line style) or of a loop wire
+    (its Comments, written by Loop to Wires); '' for anything else."""
+    try:
+        if isinstance(element, Wire):
+            p = element.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+            return ((p.AsString() if p is not None else "") or "").strip()
+        return element.LineStyle.Name
+    except Exception:
+        return ""
+
+
 def _loop_style(curve):
-    """(loop number, kind) of a loop line, or None."""
-    match = _STYLE_NAME.match(curve.LineStyle.Name)
+    """(loop number, kind) of a loop line or loop wire, or None."""
+    match = _STYLE_NAME.match(loop_name(curve))
     if not match:
         return None
     return int(match.group(2)), (SOUNDER if match.group(1) else DETECTION)
 
 
-def loop_curves(doc):
-    """[(loop number, owner view id (int), curve, kind)] of every FA Loop
-    and FA Sounder Loop line."""
+def _loop_elements(collector):
+    """Detail lines and wires from a collector maker (called with a class)."""
     found = []
-    for curve in FilteredElementCollector(doc).OfClass(CurveElement):
+    for cls in (CurveElement, Wire):
+        try:
+            found.extend(collector(cls))
+        except Exception:
+            pass
+    return found
+
+
+def loop_curves(doc):
+    """[(loop number, owner view id (int), curve or wire, kind)] of every
+    FA Loop and FA Sounder Loop line, and of the wires made from them."""
+    found = []
+    for curve in _loop_elements(lambda cls: FilteredElementCollector(doc).OfClass(cls)):
         try:
             owner = id_int(curve.OwnerViewId)
             if owner == id_int(ElementId.InvalidElementId):
@@ -232,11 +256,20 @@ def loop_views(doc, kind=None):
     return found
 
 
+def line_ends(element):
+    """[XYZ, XYZ]: the two ends of a loop line, or of a loop wire (its
+    first and last vertex)."""
+    if isinstance(element, Wire):
+        return [element.GetVertex(0), element.GetVertex(element.NumberOfVertices - 1)]
+    geometry = element.GeometryCurve
+    return [geometry.GetEndPoint(0), geometry.GetEndPoint(1)]
+
+
 def existing_loop_lines(doc, view, kind=None):
-    """{loop number: [ElementId]} of the loop lines drawn in the view, of
-    one kind of loop or of both."""
+    """{loop number: [ElementId]} of the loop lines (and loop wires) drawn
+    in the view, of one kind of loop or of both."""
     found = {}
-    for curve in FilteredElementCollector(doc, view.Id).OfClass(CurveElement):
+    for curve in _loop_elements(lambda cls: FilteredElementCollector(doc, view.Id).OfClass(cls)):
         try:
             if id_int(curve.OwnerViewId) != id_int(view.Id):
                 continue
