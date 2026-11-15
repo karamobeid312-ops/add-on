@@ -255,10 +255,33 @@ def test_devices_nearly_in_line_get_one_straight_line():
 
 def test_l_bends_on_the_free_side():
     points = [(0.0, 0.0), (5.0, 5.0), (5.0, 0.0)]         # a device where one L would bend
-    lines = _pair(points, [box(p) for p in points])
-    first = lines[:2]
-    assert first[0][1] == pytest.approx((0.0, 5.0))       # up first, bend at (0, 5)
-    assert first[1][0] == pytest.approx((0.0, 5.0))
+    boxes = [box(p) for p in points]
+    lines = _pair(points, boxes)
+    third = _Box(points[2], boxes[2], 0.0, 0.0)
+    assert not any(third.hit(s) for s in lines)            # never through (5, 0)
+    assert not any(_clash(s, t) == 2 for i, s in enumerate(lines) for t in lines[i + 1:])
+
+
+def _overlaps(lines):
+    return [(s, t) for i, s in enumerate(lines) for t in lines[i + 1:] if _clash(s, t) == 2]
+
+
+def test_address_order_lines_do_not_run_back_over_each_other():
+    """The office plan of 2026-11-15: lines ran back over the next line
+    (SD-14 up and across to SD-15, then SD-15 across to SD-16), and into
+    SD-17 along the line leaving it."""
+    from firealarm.loops import fixed_loops
+    points = [(313, 135), (208, 207), (186, 207), (165, 207), (110, 265), (162, 280), (313, 277),
+              (346, 367), (433, 265), (433, 125), (533, 125), (533, 277), (685, 277), (848, 277),
+              (693, 135), (868, 135), (1022, 118), (1022, 265), (1080, 262), (840, 367),
+              (593, 367), (1080, 462), (1080, 580), (875, 462), (666, 462), (666, 580),
+              (460, 580), (460, 462), (263, 520), (90, 520)]
+    points = [(float(x), -float(y)) for x, y in points]
+    boxes = [box(p, 6.0) for p in points]
+    loop = fixed_loops(points, 0, [list(range(len(points)))], square=True)[0]
+    lines = loop_lines(loop, points, points[0], boxes, None, 0.0, True, 0.0, None)
+    assert _overlaps(lines) == []
+    assert len(lines) >= len(points)
 
 
 def test_z_when_both_ls_are_blocked():
