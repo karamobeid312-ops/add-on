@@ -87,7 +87,10 @@ def test_office_symbols():
     assert Device("L1/FD-21").symbol().code == "FD"
     assert Device("L1/SB-01", name="Sounder : Standard").symbol().code == "SB"
     assert Device("L1/SB-02", name="Sounder : W/P with beacon").symbol().code == "SBW"
-    assert Device("L1/SB-03", code="BELLS").symbol().code == "SBW"
+    # a sounder with a strobe or beacon, not weatherproof: the plain sounder
+    assert Device("L6/SB-05", code="BELLS", name="Sounder Strobe : Red").symbol().code == "SB"
+    assert Device("L1/BS-04", code="HS", name="Horn Strobe").symbol().code == "SB"
+    assert Device("L1/SB-06", name="Sounder Beacon : IP65").symbol().code == "SBW"
     assert Device("L1/CM-01").symbol().code == "CM"     # floor riser symbol
 
 

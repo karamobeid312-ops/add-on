@@ -397,9 +397,9 @@ line colours, cable notes and panel):
   (Type Comments, Description, Model...) and the ticked Yes/No parameters.
   When any of them says W/P, WP, WEATHERPROOF or IP65/66/67, a call point
   gets the weatherproof symbol (solid red box, white dot, as on the plans)
-  and a sounder the W/P sounder with beacon (also for STROBE, BEACON,
-  FLASH or the bell-with-strobe symbol). Other types use the floor riser
-  symbols.
+  and a sounder the W/P sounder with beacon. Every other sounder (with a
+  strobe or beacon or not) gets the plain sounder on its base. Other types
+  use the floor riser symbols.
 - The panel is titled SUB MAIN (Panel Name starting SFACP) or MAIN (MFACP)
   FIRE ALARM CONTROL PANEL with its Panel Name (else Mark). The panel box
   lines, the cable notes (SLC on the detection lines to the right, NAC on

@@ -91,7 +91,7 @@ DEFAULT_PER_ROW = 15
 
 # address type -> office loop symbol
 _LOOP_BY_ADDRESS = {"SD": "SD", "HD": "HD", "FD": "FD", "HY": "HY", "MCP": "MCP", "MM": "MM",
-                    "SB": "SB", "B": "SB", "BS": "SBW"}
+                    "SB": "SB", "B": "SB", "BS": "SB"}
 # address type -> riser symbol, for the types the office drawing has no symbol of
 _BY_ADDRESS = {
     "DD": "DD", "TX": "BTX", "RX": "BRX", "ST": "STW", "HS": "HS", "J": "J",
@@ -101,10 +101,10 @@ _BY_ADDRESS = {
 _KNOWN = set(s.code for s in ALL_SYMBOLS)
 # a sounder whose family or type says one of these is the W/P sounder with beacon
 # a device whose family, type or any parameter (FA Riser reads them all) says
-# one of these is weatherproof; a sounder that says a _BEACON word has a beacon
+# a device whose text says one of these is weatherproof: the W/P sounder
+# (drawn with its beacon, as in the office drawing) or the W/P call point
 _WEATHERPROOF = ("W/P", "WP", "WEATHERPROOF", "WEATHER PROOF", "WEATHER-PROOF",
                  "IP65", "IP66", "IP67")
-_BEACON = ("STROBE", "BEACON", "FLASH", "FLASHER", "VAD")
 
 
 class _RiserSymbol(object):
@@ -131,9 +131,8 @@ class Device(object):
 
     def symbol(self):
         loop_code = _LOOP_BY_ADDRESS.get(self.kind)
-        if loop_code == "SB" and (self.code in ("BELLS", "HS", "STW", "STC") or
-                                  _has(self.name, *(_WEATHERPROOF + _BEACON))):
-            loop_code = "SBW"
+        if loop_code == "SB" and _has(self.name, *_WEATHERPROOF):
+            loop_code = "SBW"           # a beacon or strobe alone keeps the plain sounder
         elif loop_code == "MCP" and _has(self.name, *_WEATHERPROOF):
             loop_code = "MCPW"
         if loop_code:
