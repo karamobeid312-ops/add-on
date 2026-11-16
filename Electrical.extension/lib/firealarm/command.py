@@ -4,10 +4,12 @@ from Autodesk.Revit.DB import ElementId
 from pyrevit import forms, revit
 from System.Collections.Generic import List
 
-from firealarm import revit_address, revit_loop, revit_riser, revit_routes, settings
-from firealarm.addresses import DETECTION, SOUNDER, on_loop
+from firealarm import revit_address, revit_loop, revit_riser, revit_routes, revit_wires, settings
+from firealarm.addresses import DETECTION, SOUNDER, address_kind, address_order, on_loop
 from firealarm.loops import loop_count, loop_numbers
-from firealarm.report import summarize, summarize_addresses, summarize_loops, summarize_riser
+from firealarm.report import (summarize, summarize_addresses, summarize_auto,
+                              summarize_loop_diagram, summarize_loops, summarize_riser)
+from firealarm.room_rules import HEAT, SMOKE, decide, is_corridor, rules_from
 from firealarm.riser_symbols import SYMBOLS, guess, resolve, symbol
 from firealarm.revit_fa import (by_level, detector_types, linked_models,
                                 pick_linked_spaces, pick_spaces, place_detectors,
@@ -103,6 +105,7 @@ def run(kind):
     spaces = _choose_spaces(doc, uidoc)
     if not spaces:
         return
+    _mark_corridors(spaces, values)
     symbol = _detector_type(doc, kind, values)
     if symbol is None:
         return
@@ -127,6 +130,73 @@ def run(kind):
     if placed:
         uidoc.Selection.SetElementIds(List[ElementId](placed))
     headline, details = summarize(plans, kind, replaced=bool(answers and answers[0]))
+    forms.alert(headline, expanded=details, title=TITLE)
+
+
+def _mark_corridors(spaces, values):
+    """Corridors, lobbies and halls (by name) are laid out leg by leg."""
+    rules = rules_from(values)
+    for ref in spaces:
+        ref.corridor = is_corridor(ref.name(), rules)
+
+
+def run_auto():
+    """Smoke or heat detectors in each selected room, from its name (UAE
+    Fire Code Table 8.14, see room_rules)."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model to place detectors.", title=TITLE)
+        return
+    values = settings.load()
+
+    spaces = _choose_spaces(doc, uidoc)
+    if not spaces:
+        return
+    rules = rules_from(values)
+    _mark_corridors(spaces, values)
+    decisions = [(ref, decide(ref.name(), ref.area(), ref.height(), rules,
+                              values["bath_heat_area"])) for ref in spaces]
+
+    symbols = {}
+    for kind in (SMOKE, HEAT):
+        if not any(d.kind == kind for _, d in decisions):
+            continue
+        symbol = _detector_type(doc, kind, values)
+        if symbol is None:
+            return
+        if placement_kind(symbol) is None:
+            forms.alert("'%s' cannot be placed on a ceiling.\n\nUse a face-based, "
+                        "ceiling-hosted or level-based family (change it in FA Settings)."
+                        % values[kind + "_type"], title=TITLE)
+            return
+        symbols[kind] = symbol
+
+    answers = []
+
+    def ask_replace(count, space_count):
+        answers.append(_ask_replace(count, space_count))
+        return answers[-1]
+
+    plans = {}
+    for kind in (SMOKE, HEAT):
+        refs = [ref for ref, d in decisions if d.kind == kind]
+        if not refs:
+            continue
+        done = place_detectors(doc, refs, symbols[kind], values[kind + "_spacing"],
+                               values["clearance"], "Place %s Detectors" % kind.title(),
+                               ask_replace)
+        if done is None:
+            if not plans:
+                return
+            break
+        for ref, plan in zip(refs, done):
+            plans[ref.key] = plan
+
+    placed = [i for p in plans.values() for i in p.placed]
+    if placed:
+        uidoc.Selection.SetElementIds(List[ElementId](placed))
+    rooms = [(ref.label, d, plans.get(ref.key)) for ref, d in decisions]
+    headline, details = summarize_auto(rooms, replaced=any(answers))
     forms.alert(headline, expanded=details, title=TITLE)
 
 
@@ -215,13 +285,49 @@ def _address_tag(doc, values):
     if saved in types:
         return types[saved]
     options = sorted(types) + [settings.NO_TAG]
-    choice = forms.SelectFromList.show(options, title="Tag for the addresses (FA Address)",
+    choice = forms.SelectFromList.show(options, title="Tag for the addresses (Mark)",
                                        button_name="Use this tag", multiselect=False)
     if not choice:
         return None
     values["address_tag"] = choice
     settings.save(values)
     return types.get(choice)
+
+
+ROUTE_ADDRESS = "Follow the addresses in Mark (L1/SD-01, L1/MCP-02... in number order)"
+ROUTE_SHORTEST = "Shortest route (new loop numbers, address the devices afterwards)"
+
+
+def _route_by_address(devices, chosen, kind):
+    """Whether to connect the devices in their Mark address order, and the
+    devices for it: (True, devices with an address of `kind`), (False,
+    chosen) for the shortest route, (None, []) cancelled. Asked only when
+    some devices have such an address."""
+    addressed = [d for d in devices if address_kind(revit_address.read_address(d)) == kind]
+    if not addressed:
+        return False, chosen
+    choice = forms.CommandSwitchWindow.show([ROUTE_ADDRESS, ROUTE_SHORTEST],
+                                            message="How should the loop go from device to device?")
+    if not choice:
+        return None, []
+    if choice == ROUTE_ADDRESS:
+        return True, addressed
+    return False, chosen
+
+
+def _address_notes_for_loop(devices, chosen, kind, duplicates):
+    """Notes for a loop drawn in address order: the order used, the devices
+    left off (no address of this kind) and repeated addresses."""
+    notes = [u"Devices connected in their Mark address order, loop by loop."]
+    on = set(revit_loop.id_int(d.Id) for d in devices)
+    left = [d for d in chosen if revit_loop.id_int(d.Id) not in on]
+    if left:
+        notes.append(u"Not connected, no %s address in Mark (%d): %s" % (
+            kind, len(left), ", ".join(revit_loop.label(d) for d in left[:15])
+            + (u"..." if len(left) > 15 else u"")))
+    if duplicates:
+        notes.append(u"Same address on more than one device: %s" % ", ".join(sorted(set(duplicates))))
+    return notes
 
 
 def draw_loop():
@@ -242,7 +348,11 @@ def draw_loop():
     chosen_symbols = settings.chosen_symbols(values)
     codes = dict((revit_loop.id_int(d.Id), revit_address.symbol_of(d, chosen_symbols))
                  for d in devices)
-    kind, devices = _loop_kind(devices, codes)
+    picked = devices
+    kind, chosen = _loop_kind(picked, codes)
+    if kind is None:
+        return
+    by_address, devices = _route_by_address(picked, chosen, kind)
     if not devices:
         return
     start = revit_loop.pick_start(uidoc)
@@ -271,19 +381,81 @@ def draw_loop():
         if answer.startswith("Replace"):
             replace = [i for ids in old.values() for i in ids]
 
-    # the addresses of this floor's devices are redone after the loops
-    shown = set(revit_loop.id_int(d.Id) for d in revit_loop.view_devices(doc, view))
-    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
-                            kept=list(other_kind) + ([] if replace else list(old)),
-                            skip=shown | set(revit_loop.id_int(d.Id) for d in devices))
-    if numbers is None:
-        return
+    orders = None
+    if by_address:                          # the loops and their order come from Mark
+        groups, _, duplicates = address_order(
+            [revit_address.read_address(d) for d in devices], kind)
+        numbers = [number for number, _ in groups]
+        orders = [indices for _, indices in groups]
+        notes = _address_notes_for_loop(devices, chosen, kind, duplicates)
+    else:
+        # the addresses of this floor's devices are redone after the loops
+        shown = set(revit_loop.id_int(d.Id) for d in revit_loop.view_devices(doc, view))
+        numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
+                                kept=list(other_kind) + ([] if replace else list(old)),
+                                skip=shown | set(revit_loop.id_int(d.Id) for d in devices))
+        if numbers is None:
+            return
+        notes = [u"Give the devices their addresses (Mark and tags) with Address Devices."]
     results = revit_loop.draw_loops(doc, view, devices, start, values["loop_devices"],
                                     values["loop_gap"], numbers, replace,
-                                    square=values["loop_square"], kind=kind)
+                                    square=values["loop_square"], kind=kind, orders=orders)
     headline, details = summarize_loops(
         view.Name, results, revit_loop.label(start), counted, replaced=len(replace), kind=kind,
-        notes=[u"Give the devices their addresses (FA Address and tags) with Address Devices."])
+        notes=notes)
+    forms.alert(headline, expanded=details, title=TITLE)
+
+
+def loop_to_wires():
+    """Swap detail lines of the active plan, of the line styles chosen (of
+    the selected lines when some are selected), for wires along the same
+    path."""
+    doc, uidoc = revit.doc, revit.uidoc
+    if doc is None or doc.IsFamilyDocument:
+        forms.alert("Open a project model first.", title=TITLE)
+        return
+    view = doc.ActiveView
+    if not revit_loop.is_plan(view):
+        forms.alert("Open the floor or ceiling plan with the lines.", title=TITLE)
+        return
+    selected = set(revit_loop.id_int(i) for i in uidoc.Selection.GetElementIds())
+    groups = revit_wires.view_lines(doc, view, selected or None)
+    if selected and not groups:             # the selection holds no lines: all of the view's
+        groups = revit_wires.view_lines(doc, view)
+    if not groups:
+        forms.alert("This view has no detail lines to switch to wires.", title=TITLE)
+        return
+    loops = sorted(n for n in groups if revit_loop.is_loop_style(n))
+    others = sorted((n for n in groups if n not in loops), key=lambda n: n.lower())
+    labels, styles = [], {}
+    for name in loops + others:
+        count = len(groups[name])
+        text = u"%s  (%d line%s)" % (name, count, "" if count == 1 else "s")
+        labels.append(text)
+        styles[text] = name
+    picked = forms.SelectFromList.show(
+        labels, title="Line types to switch to wires", button_name="Next: wire type",
+        multiselect=True)
+    if not picked:
+        return
+    groups = dict((styles[text], groups[styles[text]]) for text in picked)
+    types, best = revit_wires.wire_types(doc)
+    if not types:
+        forms.alert("The model has no wire types.", title=TITLE)
+        return
+    if len(types) == 1:
+        wire_type = types[best]
+    else:
+        count = sum(len(c) for c in groups.values())
+        choice = forms.SelectFromList.show(
+            [best] + sorted(n for n in types if n != best),
+            title=u"Wire type for %d line%s" % (count, "" if count == 1 else "s"),
+            button_name="Switch to wires", multiselect=False)
+        if not choice:
+            return
+        wire_type = types[choice]
+    results = revit_wires.lines_to_wires(doc, view, wire_type, groups)
+    headline, details = revit_wires.summarize(view.Name, results)
     forms.alert(headline, expanded=details, title=TITLE)
 
 
@@ -292,12 +464,11 @@ def draw_loop():
 ADDRESS_VIEW = "Loops drawn in this plan"
 ADDRESS_ALL = "Loops drawn in all plans"
 ADDRESS_FREE = "Devices without a loop line"
+ADDRESS_ORDER = "Pick devices in my order (click one by one, Esc to finish)"
 
 
 def _address_notes(addresser, tag_loaded):
     notes = []
-    if addresser.parameter_added:
-        notes.append(u"The FA Address parameter was added to Fire Alarm Devices.")
     if addresser.tag_type is not None:
         notes.append(u"Address tags placed: %d%s." % (
             addresser.tagged, " (%d device%s had one already, kept)" % (
@@ -305,7 +476,7 @@ def _address_notes(addresser, tag_loaded):
             if addresser.already_tagged else ""))
     elif not tag_loaded:
         notes.append(u"No fire alarm device tag is loaded: make one with a label showing "
-                     u"FA Address (see the README) to tag the addresses.")
+                     u"Mark (see the README) to tag the addresses.")
     else:
         notes.append(u"No address tags (choose one in FA Settings > Address tag).")
     for problem in sorted(set(addresser.problems)):
@@ -399,8 +570,36 @@ def _free_loops(doc, uidoc, view, values):
     return loops, note
 
 
+def _ordered_loops(doc, uidoc, view, values):
+    """Devices clicked one by one, numbered in the order clicked ->
+    (loops for Addresser.run, a note); (None, None) when cancelled."""
+    picked = revit_loop.pick_in_order(uidoc)
+    if not picked:
+        return None, None
+    chosen_symbols = settings.chosen_symbols(values)
+    codes = dict((revit_loop.id_int(d.Id), revit_address.symbol_of(d, chosen_symbols))
+                 for d in picked)
+    kind, devices = _loop_kind(picked, codes)
+    if not devices:
+        return None, None
+    left = len(picked) - len(devices)
+    numbers = _loop_numbers(doc, view, len(devices), values["loop_devices"], kind,
+                            kept=list(revit_loop.existing_loop_lines(doc, view)),
+                            skip=set(revit_loop.id_int(d.Id) for d in devices), here_too=True)
+    if numbers is None:
+        return None, None
+    size = max(1, int(values["loop_devices"]))
+    chunks = [devices[k:k + size] for k in range(0, len(devices), size)]
+    numbers = list(numbers) + loop_numbers(len(chunks) - len(numbers), numbers)
+    loops = [(number, kind, [(view, chunk)]) for number, chunk in zip(numbers, chunks)]
+    note = u"Numbered in the order you clicked them (%s)." % _plural(len(devices), "device")
+    if left:
+        note += u" %s not on a %s loop left out." % (_plural(left, "device"), kind)
+    return loops, note
+
+
 def address_devices():
-    """Write FA Address on the fire alarm devices, loop by loop in route
+    """Write the addresses in the Mark of the fire alarm devices, loop by loop in route
     order (L1/SD-01...), and tag them."""
     doc, uidoc = revit.doc, revit.uidoc
     if doc is None or doc.IsFamilyDocument:
@@ -410,7 +609,7 @@ def address_devices():
     plan = revit_loop.is_plan(view)
     owners = set(owner for _, owner, _, _ in revit_loop.loop_curves(doc))
     options = ([ADDRESS_VIEW] if plan and revit_loop.id_int(view.Id) in owners else []) + \
-        ([ADDRESS_ALL] if owners else []) + ([ADDRESS_FREE] if plan else [])
+        ([ADDRESS_ALL] if owners else []) + ([ADDRESS_FREE, ADDRESS_ORDER] if plan else [])
     if not options:
         forms.alert("No loop lines are drawn in this model.\n\nDraw the loops with Draw FA "
                     "Loop, or open a floor or ceiling plan to address its devices without "
@@ -428,6 +627,12 @@ def address_devices():
         if loops is None:
             return
         skip, keep_ranges, warnings, notes = (), True, [], [note]
+    elif choice == ADDRESS_ORDER:
+        loops, note = _ordered_loops(doc, uidoc, view, values)
+        if loops is None:
+            return
+        # numbered afresh in the order clicked, after the loop's other devices
+        skip, keep_ranges, warnings, notes = (), False, [], [note]
     else:
         loops, skip, warnings, notes, look = _drawn_loops(
             doc, view if choice == ADDRESS_VIEW else None, values)
@@ -464,12 +669,30 @@ def draw_riser():
         forms.alert("Open a project model to draw the riser.", title=TITLE)
         return
     values = settings.load()
+    choice = forms.CommandSwitchWindow.show([RISER_LOOPS, RISER_FLOORS],
+                                            message="Which riser?")
+    if not choice:
+        return
+    if choice == RISER_LOOPS:
+        view, run = revit_riser.generate_loops(
+            doc, settings.chosen_symbols(values), values["riser_panel_lines"],
+            values["riser_cable"], values["riser_per_row"], values["riser_network"],
+            values["riser_links"], values["riser_nac_cable"])
+        if view is not None:
+            revit.uidoc.ActiveView = view
+        headline, details = summarize_loop_diagram(run)
+        forms.alert(headline, expanded=details, title=TITLE)
+        return
     view, run = revit_riser.generate(doc, settings.chosen_symbols(values), values["loop_gap"],
                                      values["loop_devices"])
     if view is not None:
         revit.uidoc.ActiveView = view
     headline, details = summarize_riser(run, lambda code: symbol(code).description)
     forms.alert(headline, expanded=details, title=TITLE)
+
+
+RISER_LOOPS = "Loop diagram: every device in address order (addresses in Comments)"
+RISER_FLOORS = "Floor riser: devices counted per floor (loop lines in the plans)"
 
 
 AUTOMATIC = u"Automatic: %s"
@@ -513,7 +736,81 @@ _SETTINGS = [
     ("loop_gap", "Loop line gap at devices", "mm"),
     ("riser_symbols", "Riser symbols", ""),
     ("address_tag", "Address tag", ""),
+    ("room_rules", "Auto Detectors room rules", ""),
+    ("riser_panel_lines", "Loop diagram panel lines", ""),
+    ("riser_cable", "Loop diagram cable note (detection, SLC)", ""),
+    ("riser_nac_cable", "Loop diagram cable note (sounders, NAC)", ""),
+    ("riser_per_row", "Loop diagram devices per row", ""),
+    ("riser_network", "Loop diagram network box", ""),
+    ("riser_links", "Loop diagram links right of the panel", ""),
 ]
+
+_TEXT_PROMPTS = {
+    "riser_panel_lines": "Lines in the panel box, separated by ;",
+    "riser_cable": "Note on the detection loop lines (split onto two lines at the last comma)",
+    "riser_nac_cable": "Note on the sounder loop lines (split onto two lines at the last comma)",
+    "riser_network": "Box left of the panel, lines separated by ; (empty: no box)",
+    "riser_links": "Lines out of the panel's right side, separated by ; "
+                   "(e.g. FROM ... ; TO ...; empty: none)",
+}
+
+_RULES = [
+    ("rules_heat", "Heat detector rooms"),
+    ("rules_bath", "Toilets and bathrooms (heat when bigger, else none)"),
+    ("bath_heat_area", "Bathroom area for heat"),
+    ("rules_none", "No detector rooms"),
+    ("rules_flag", "Rooms to do by hand (multi-sensor, beam...)"),
+    ("rules_corridor", "Corridors (a row of detectors along each leg)"),
+]
+
+_RULE_PROMPT = ("Words in the room name, comma separated. A word also matches longer words\n"
+                "(KITCHEN matches KITCHENETTE); words of 3 letters or less match whole words.\n"
+                "Rooms that match nothing get smoke detectors.")
+
+
+def _edit_room_rules(values):
+    from firealarm.room_rules import DEFAULT_RULES, keywords
+    while True:
+        options = []
+        for key, name in _RULES:
+            if key == "bath_heat_area":
+                value = "over %s m2" % _number(values[key])
+            else:
+                value = ", ".join(keywords(values[key])) or "(none)"
+            options.append(u"%s: %s" % (name, value))
+        options.append("Reset all to the UAE Fire Code defaults")
+        choice = forms.CommandSwitchWindow.show(options, message="Click a rule to change it:")
+        if not choice:
+            return
+        if choice == options[-1]:
+            values.update(DEFAULT_RULES)
+            values["bath_heat_area"] = settings.DEFAULTS["bath_heat_area"]
+            settings.save(values)
+            continue
+        key, name = _RULES[options.index(choice)]
+        if key == "bath_heat_area":
+            text = forms.ask_for_string(default=_number(values[key]),
+                                        prompt="Bathrooms bigger than this (m2) get a heat "
+                                               "detector, smaller ones none.",
+                                        title="%s Settings" % TITLE)
+            if text is None:
+                continue
+            try:
+                value = float(text.replace(",", ".").replace("m2", "").strip())
+            except ValueError:
+                forms.alert("'%s' is not a number." % text, title=TITLE)
+                continue
+            if value < 0:
+                forms.alert("Enter a positive number.", title=TITLE)
+                continue
+            values[key] = value
+        else:
+            text = forms.ask_for_string(default=", ".join(keywords(values[key])),
+                                        prompt=_RULE_PROMPT, title=name)
+            if text is None:
+                continue
+            values[key] = ", ".join(keywords(text))
+        settings.save(values)
 
 _PROMPTS = {
     "smoke_spacing": "Max distance between smoke detectors (m).\n"
@@ -524,6 +821,8 @@ _PROMPTS = {
                  "Relaxed only in spaces too narrow for it.",
     "loop_devices": "Most devices on one fire alarm loop.\n"
                     "More devices are split into several loops.",
+    "riser_per_row": "Devices in one row of the loop diagram; a longer loop\n"
+                     "comes back on the next row.",
     "loop_gap": "Gap between a loop line and the centre of a device, at least\n"
                 "(mm on the printed sheet). Lines also stop at the edge of the device.",
 }
@@ -539,11 +838,13 @@ def edit_settings():
         values = settings.load()
         options = []
         for key, name, unit in _SETTINGS:
-            value = values[key]
+            value = values.get(key)
             if key == "loop_square":
                 value = "square (right angles)" if value else "straight device to device"
             elif key == "address_tag":
                 value = value or "asked on first use"
+            elif key == "room_rules":
+                value = "heat, none and by-hand rooms by name"
             elif key == "riser_symbols":
                 count = len(settings.chosen_symbols(values))
                 value = "%d type%s set by you, the rest automatic" % (count, "" if count == 1 else "s")
@@ -565,14 +866,24 @@ def edit_settings():
             types = revit_address.tag_types(doc)
             if not types:
                 forms.alert("No fire alarm device tag is loaded in this model.\n\nMake one "
-                            "with a label showing FA Address (see the README) and load it.",
+                            "with a label showing Mark (see the README) and load it.",
                             title=TITLE)
                 continue
             choice = forms.SelectFromList.show(sorted(types) + [settings.NO_TAG],
-                                               title="Tag for the addresses (FA Address)",
+                                               title="Tag for the addresses (Mark)",
                                                button_name="Use this tag", multiselect=False)
             if choice:
                 values[key] = choice
+                settings.save(values)
+            continue
+        if key == "room_rules":
+            _edit_room_rules(values)
+            continue
+        if key in _TEXT_PROMPTS:
+            text = forms.ask_for_string(
+                default=values[key], title="%s Settings" % TITLE, prompt=_TEXT_PROMPTS[key])
+            if text is not None:
+                values[key] = text.strip()
                 settings.save(values)
             continue
         if key == "riser_symbols":
@@ -599,7 +910,7 @@ def edit_settings():
         if value < 0 or (value == 0 and key not in ("clearance", "loop_gap")):
             forms.alert("Enter a positive number.", title=TITLE)
             continue
-        if key == "loop_devices":
+        if key in ("loop_devices", "riser_per_row"):
             value = max(1, int(round(value)))
         values[key] = value
         settings.save(values)

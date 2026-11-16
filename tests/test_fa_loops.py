@@ -255,10 +255,33 @@ def test_devices_nearly_in_line_get_one_straight_line():
 
 def test_l_bends_on_the_free_side():
     points = [(0.0, 0.0), (5.0, 5.0), (5.0, 0.0)]         # a device where one L would bend
-    lines = _pair(points, [box(p) for p in points])
-    first = lines[:2]
-    assert first[0][1] == pytest.approx((0.0, 5.0))       # up first, bend at (0, 5)
-    assert first[1][0] == pytest.approx((0.0, 5.0))
+    boxes = [box(p) for p in points]
+    lines = _pair(points, boxes)
+    third = _Box(points[2], boxes[2], 0.0, 0.0)
+    assert not any(third.hit(s) for s in lines)            # never through (5, 0)
+    assert not any(_clash(s, t) == 2 for i, s in enumerate(lines) for t in lines[i + 1:])
+
+
+def _overlaps(lines):
+    return [(s, t) for i, s in enumerate(lines) for t in lines[i + 1:] if _clash(s, t) == 2]
+
+
+def test_address_order_lines_do_not_run_back_over_each_other():
+    """The office plan of 2026-11-15: lines ran back over the next line
+    (SD-14 up and across to SD-15, then SD-15 across to SD-16), and into
+    SD-17 along the line leaving it."""
+    from firealarm.loops import fixed_loops
+    points = [(313, 135), (208, 207), (186, 207), (165, 207), (110, 265), (162, 280), (313, 277),
+              (346, 367), (433, 265), (433, 125), (533, 125), (533, 277), (685, 277), (848, 277),
+              (693, 135), (868, 135), (1022, 118), (1022, 265), (1080, 262), (840, 367),
+              (593, 367), (1080, 462), (1080, 580), (875, 462), (666, 462), (666, 580),
+              (460, 580), (460, 462), (263, 520), (90, 520)]
+    points = [(float(x), -float(y)) for x, y in points]
+    boxes = [box(p, 6.0) for p in points]
+    loop = fixed_loops(points, 0, [list(range(len(points)))], square=True)[0]
+    lines = loop_lines(loop, points, points[0], boxes, None, 0.0, True, 0.0, None)
+    assert _overlaps(lines) == []
+    assert len(lines) >= len(points)
 
 
 def test_z_when_both_ls_are_blocked():
@@ -279,3 +302,84 @@ def test_square_settings_switch():
     assert _coerce("loop_square", "True") is True
     assert _coerce("loop_devices", "80") == 80
     assert _coerce("loop_devices", "0") == 120
+
+
+# ---------------------------------------------------------------- address order
+
+from firealarm.addresses import DETECTION, SOUNDER, address_order  # noqa: E402
+from firealarm.loops import fixed_loops  # noqa: E402
+
+
+def test_address_order_groups_loops_and_sorts_by_number():
+    marks = ["L2/SD-02", "L1/MCP-03", "L1/SD-01", "", "L2/SD-01", "L1/HD-02", "L1/BS-01", "224"]
+    groups, missing, duplicates = address_order(marks, DETECTION)
+    assert groups == [(1, [2, 5, 1]), (2, [4, 0])]
+    assert missing == [3, 6, 7]                 # no address, a sounder, a plain Mark
+    assert duplicates == []
+    sounders, _, _ = address_order(marks, SOUNDER)
+    assert sounders == [(1, [6])]
+
+
+def test_address_order_reports_repeated_addresses():
+    groups, _, duplicates = address_order(["L1/SD-01", "L1/HD-01", "L1/SD-02"], DETECTION)
+    assert duplicates == ["L1/HD-01"]
+    assert [n for n, _ in groups] == [1]
+
+
+def test_fixed_loops_follow_the_order_from_the_panel():
+    points = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
+    loops = fixed_loops(points, (-5.0, 0.0), [[2, 0, 3, 1]])
+    assert loops[0].stops == [START, 2, 0, 3, 1]
+    route = [(-5.0, 0.0)] + [points[i] for i in (2, 0, 3, 1)]
+    expected = sum(math.hypot(route[i][0] - route[(i + 1) % 5][0],
+                              route[i][1] - route[(i + 1) % 5][1]) for i in range(5))
+    assert loops[0].length == pytest.approx(expected)
+
+
+def test_fixed_loops_begin_at_the_start_device():
+    points = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
+    loops = fixed_loops(points, 1, [[0, 1, 2]], square=True)
+    assert loops[0].stops == [1, 2, 0]
+    assert loops[0].length == pytest.approx(40.0)
+
+
+# ---------------------------------------------------------------- loop to wires
+
+from firealarm.wire_paths import runs  # noqa: E402
+
+
+def test_runs_join_lines_between_devices_and_drop_straight_joints():
+    lines = [((0.25, 0.0), (3.0, 0.0)), ((3.0, 0.0), (5.0, 0.0)),     # straight on, one run
+             ((5.0, 0.0), (5.0, 4.75)),                                # bend up to a device
+             ((5.25, 5.0), (8.0, 5.0)), ((8.0, 5.0), (8.0, 9.75))]     # next device, an L
+    found = sorted(runs(lines))
+    assert found == [[(0.25, 0.0), (5.0, 0.0), (5.0, 4.75)],
+                     [(5.25, 5.0), (8.0, 5.0), (8.0, 9.75)]]
+
+
+def test_runs_follow_lines_drawn_either_way_round():
+    lines = [((5.0, 4.75), (5.0, 0.0)), ((0.25, 0.0), (5.0, 0.0))]
+    run, = runs(lines)
+    assert run in ([(5.0, 4.75), (5.0, 0.0), (0.25, 0.0)], [(0.25, 0.0), (5.0, 0.0), (5.0, 4.75)])
+
+
+def test_runs_stop_where_three_lines_meet():
+    lines = [((0.0, 0.0), (1.0, 0.0)), ((1.0, 0.0), (2.0, 0.0)), ((1.0, 0.0), (1.0, 1.0))]
+    assert len(runs(lines)) == 3
+
+
+def test_runs_of_the_square_loop_lines():
+    points = [(0.0, 0.0), (5.0, 5.0), (10.0, 0.0)]
+    boxes = [box(p) for p in points]
+    loop = plan_loops(points, 0, square=True)[0]
+    lines = loop_lines(loop, points, points[0], boxes, None, 0.0, True, 0.0, None)
+    found = runs(lines)
+    assert len(found) == 3                       # one wire device to device, round the loop
+    assert sum(len(r) - 1 for r in found) <= len(lines)
+
+
+def test_legs_are_straight_wires_with_lines_in_line_joined():
+    from firealarm.wire_paths import legs
+    lines = [((0.25, 0.0), (3.0, 0.0)), ((3.0, 0.0), (5.0, 0.0)), ((5.0, 0.0), (5.0, 4.75))]
+    assert legs(lines) == [((0.25, 0.0), (5.0, 0.0)), ((5.0, 0.0), (5.0, 4.75))] or \
+        legs(lines) == [((5.0, 4.75), (5.0, 0.0)), ((5.0, 0.0), (0.25, 0.0))]

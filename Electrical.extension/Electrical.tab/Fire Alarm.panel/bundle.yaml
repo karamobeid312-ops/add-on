@@ -1,7 +1,9 @@
 layout:
+  - Auto Detectors
   - Smoke Detectors
   - Heat Detectors
   - Draw FA Loop
+  - Loop to Wires
   - Address Devices
   - FA Riser
   - Settings

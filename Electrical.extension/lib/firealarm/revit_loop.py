@@ -20,12 +20,13 @@ from Autodesk.Revit.DB import (
     BuiltInCategory, BuiltInParameter, Color, CurveElement, ElementId, FamilyInstance,
     FilteredElementCollector, GraphicsStyleType, Level, Line, Transaction, ViewPlan, XYZ,
 )
+from Autodesk.Revit.DB.Electrical import Wire
 from Autodesk.Revit.Exceptions import OperationCanceledException
 from Autodesk.Revit.UI.Selection import ISelectionFilter, ObjectType
 from System.Collections.Generic import List
 
 from firealarm.addresses import DETECTION, SOUNDER
-from firealarm.loops import grid_angle, loop_lines, loop_numbers, plan_loops
+from firealarm.loops import fixed_loops, grid_angle, loop_lines, loop_numbers, plan_loops
 from firealarm.riser_symbols import is_panel_name
 
 M_PER_FOOT = 0.3048
@@ -154,6 +155,32 @@ def pick_devices(uidoc):
     return [doc.GetElement(r.ElementId) for r in refs]
 
 
+def pick_in_order(uidoc):
+    """Devices clicked one by one, in the order clicked, until Esc (a device
+    clicked twice counts once). Those clicked so far stay selected."""
+    from System.Collections.Generic import List
+    from Autodesk.Revit.DB import ElementId
+    doc = uidoc.Document
+    picked, ids = [], []
+    while True:
+        try:
+            ref = uidoc.Selection.PickObject(
+                ObjectType.Element, _LoopDeviceFilter(),
+                "Click the devices in address order (%d so far), Esc to finish" % len(picked))
+        except OperationCanceledException:
+            break
+        element = doc.GetElement(ref.ElementId)
+        if element is None or id_int(element.Id) in [id_int(i) for i in ids]:
+            continue
+        picked.append(element)
+        ids.append(element.Id)
+        try:
+            uidoc.Selection.SetElementIds(List[ElementId](ids))
+        except Exception:
+            pass
+    return picked
+
+
 def pick_start(uidoc):
     try:
         ref = uidoc.Selection.PickObject(
@@ -166,19 +193,47 @@ def pick_start(uidoc):
 
 # ---------------------------------------------------------------- lines
 
+def loop_name(element):
+    """'FA Loop 1'... of a loop line (its line style) or of a loop wire
+    (its Comments, written by Loop to Wires); '' for anything else."""
+    try:
+        if isinstance(element, Wire):
+            p = element.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+            return ((p.AsString() if p is not None else "") or "").strip()
+        return element.LineStyle.Name
+    except Exception:
+        return ""
+
+
+def is_loop_style(name):
+    """True for 'FA Loop 1', 'FA Sounder Loop 2'..."""
+    return bool(_STYLE_NAME.match(name or ""))
+
+
 def _loop_style(curve):
-    """(loop number, kind) of a loop line, or None."""
-    match = _STYLE_NAME.match(curve.LineStyle.Name)
+    """(loop number, kind) of a loop line or loop wire, or None."""
+    match = _STYLE_NAME.match(loop_name(curve))
     if not match:
         return None
     return int(match.group(2)), (SOUNDER if match.group(1) else DETECTION)
 
 
-def loop_curves(doc):
-    """[(loop number, owner view id (int), curve, kind)] of every FA Loop
-    and FA Sounder Loop line."""
+def _loop_elements(collector):
+    """Detail lines and wires from a collector maker (called with a class)."""
     found = []
-    for curve in FilteredElementCollector(doc).OfClass(CurveElement):
+    for cls in (CurveElement, Wire):
+        try:
+            found.extend(collector(cls))
+        except Exception:
+            pass
+    return found
+
+
+def loop_curves(doc):
+    """[(loop number, owner view id (int), curve or wire, kind)] of every
+    FA Loop and FA Sounder Loop line, and of the wires made from them."""
+    found = []
+    for curve in _loop_elements(lambda cls: FilteredElementCollector(doc).OfClass(cls)):
         try:
             owner = id_int(curve.OwnerViewId)
             if owner == id_int(ElementId.InvalidElementId):
@@ -206,11 +261,20 @@ def loop_views(doc, kind=None):
     return found
 
 
+def line_ends(element):
+    """[XYZ, XYZ]: the two ends of a loop line, or of a loop wire (its
+    first and last vertex)."""
+    if isinstance(element, Wire):
+        return [element.GetVertex(0), element.GetVertex(element.NumberOfVertices - 1)]
+    geometry = element.GeometryCurve
+    return [geometry.GetEndPoint(0), geometry.GetEndPoint(1)]
+
+
 def existing_loop_lines(doc, view, kind=None):
-    """{loop number: [ElementId]} of the loop lines drawn in the view, of
-    one kind of loop or of both."""
+    """{loop number: [ElementId]} of the loop lines (and loop wires) drawn
+    in the view, of one kind of loop or of both."""
     found = {}
-    for curve in FilteredElementCollector(doc, view.Id).OfClass(CurveElement):
+    for curve in _loop_elements(lambda cls: FilteredElementCollector(doc, view.Id).OfClass(cls)):
         try:
             if id_int(curve.OwnerViewId) != id_int(view.Id):
                 continue
@@ -299,9 +363,10 @@ class Plan(object):
     """The loops of `devices` from `start` (an element; one of the devices,
     or the panel), as Draw FA Loop routes them: loops (firealarm.loops.Loop,
     their devices in route order as indices into `devices`) and what
-    drawing them needs."""
+    drawing them needs. orders: [[indices into `devices`]], one list a
+    loop, to follow as given (address order) instead of routing."""
 
-    def __init__(self, view, devices, start, max_devices, gap_mm, square=True):
+    def __init__(self, view, devices, start, max_devices, gap_mm, square=True, orders=None):
         self.devices = devices
         self.square = square
         self.points = [(p.X * M_PER_FOOT, p.Y * M_PER_FOOT) for p in (_point(d) for d in devices)]
@@ -314,8 +379,12 @@ class Plan(object):
         self.gap = gap_mm / 1000.0 * view.Scale                 # m in the model
         right = view.RightDirection
         self.angle = grid_angle(self.points, math.atan2(right.Y, right.X)) if square else 0.0
-        self.loops = plan_loops(self.points, first if first is not None else self.start_xy,
-                                max_devices, square, self.angle, _band(self.boxes, self.gap))
+        origin = first if first is not None else self.start_xy
+        if orders is not None:
+            self.loops = fixed_loops(self.points, origin, orders, square, self.angle)
+        else:
+            self.loops = plan_loops(self.points, origin, max_devices, square, self.angle,
+                                    _band(self.boxes, self.gap))
 
     def routes(self):
         """[[devices of a loop in route order]]."""
@@ -323,13 +392,15 @@ class Plan(object):
 
 
 def draw_loops(doc, view, devices, start, max_devices, gap_mm, numbers=None, old=(),
-               square=True, kind=DETECTION):
+               square=True, kind=DETECTION, orders=None):
     """Plan the loops of `devices` from `start` (an element; one of the
     devices, or the panel) and draw them in `view` as detail lines, one
     undo. numbers: the loop numbers to give them (loops.loop_numbers);
     `old`: ids of loop lines to delete. square: lines at right angles
-    along the devices' grid. Returns [LoopResult]."""
-    plan = Plan(view, devices, start, max_devices, gap_mm, square)
+    along the devices' grid. orders: the devices of each loop in the
+    order to connect them (indices into `devices`, e.g. by address), with
+    `numbers` giving their loop numbers. Returns [LoopResult]."""
+    plan = Plan(view, devices, start, max_devices, gap_mm, square, orders)
     level = getattr(view, "GenLevel", None)
     z = level.ProjectElevation if level is not None else 0.0
 

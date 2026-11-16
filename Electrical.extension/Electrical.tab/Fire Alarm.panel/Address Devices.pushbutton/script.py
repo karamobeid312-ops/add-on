@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Give the fire alarm devices their addresses (FA Address, e.g. L1/SD-01)
+"""Give the fire alarm devices their addresses (written in their Mark, e.g. L1/SD-01)
 and tag them, device after device along each loop from the panel: the
 loops drawn in this plan or in all plans (a loop going on over several
 floors counts on, the floor furthest from the panel first), or devices

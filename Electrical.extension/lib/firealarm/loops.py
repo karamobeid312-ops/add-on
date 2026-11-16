@@ -441,6 +441,38 @@ def plan_loops(points, start, max_devices=MAX_DEVICES, square=False, angle=0.0, 
     return route(splits[0], False)[0]
 
 
+def fixed_loops(points, start, orders, square=False, angle=0.0):
+    """Loops through the devices in the orders given ([[device indices]],
+    one list a loop, e.g. in address order), not routed: each loop goes
+    from the start through its devices in order and back. start: as for
+    plan_loops; when the start device is on a loop, that loop begins there
+    and goes on in order round to the device before it. Lengths are
+    measured along the grid turned by `angle` when square."""
+    if isinstance(start, tuple):
+        first, origin = None, (float(start[0]), float(start[1]))
+    else:
+        first, origin = start, points[start]
+    measure = _distance
+    if square:
+        points = [_rotate(p, -angle) for p in points]
+        origin = _rotate(origin, -angle)
+        measure = _grid_length
+    loops = []
+    for order in orders:
+        order = list(order)
+        if not order:
+            continue
+        if first is not None and first in order:
+            k = order.index(first)
+            stops = order[k:] + order[:k]
+        else:
+            stops = [START] + order
+        where = [origin if s == START else points[s] for s in stops]
+        length = sum(measure(where[i], where[(i + 1) % len(where)]) for i in range(len(where)))
+        loops.append(Loop(stops, length))
+    return loops
+
+
 def crossings(loop, points, start=None):
     """Pairs of lines of the loop that cross (for checks)."""
     def where(node):
@@ -594,6 +626,17 @@ def _zigzag_options(pa, pb, box_a, box_b):
     return options
 
 
+def _reach(points):
+    """(x0, y0, x1, y1) round the points."""
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _meets(r, t):
+    """Two (x0, y0, x1, y1) touch or overlap."""
+    return r[0] <= t[2] + 1e-6 and t[0] <= r[2] + 1e-6 and r[1] <= t[3] + 1e-6 and t[1] <= r[3] + 1e-6
+
+
 def _back(direction):
     return {"+x": "-x", "-x": "+x", "+y": "-y", "-y": "+y"}[direction]
 
@@ -634,7 +677,10 @@ def loop_lines(loop, points, start_xy, boxes=None, start_box=None, gap=0.0,
     def at(stop):
         return (start_frame, start_frame_box) if stop == START else (frame[stop], frame_boxes[stop])
 
-    found = []
+    # every line's ways (Ls, straight, Zs), then the cheapest, first in
+    # route order and then again knowing the lines after it, so a line does
+    # not run back over the next one or arrive along the line that leaves
+    segments = []                           # (a, b, [ways], others)
     for a, b in loop.segments():
         (pa, ba), (pb, bb) = at(a), at(b)
         if a == b or _distance(pa, pb) < EPS:
@@ -645,17 +691,42 @@ def loop_lines(loop, points, start_xy, boxes=None, start_box=None, gap=0.0,
             options = [[line]] if line else []
         if not options:
             continue
-        others = [k for k in range(len(points)) if k not in (a, b)]
+        if len(options[0]) == 2:
+            options = options + _zigzag_options(pa, pb, ba, bb)
+        reach = _reach([p for legs in options for leg in legs for p in leg])
+        others = [k for k in range(len(points)) if k not in (a, b)
+                  and _meets(reach, frame_boxes[k].bounds())]
+        segments.append((options, others, reach))
 
-        def cost(legs):
-            hits = sum(1 for k in others for leg in legs if frame_boxes[k].hit(leg))
-            clashes = [_clash(leg, old) for leg in legs for old in drawn]
-            return 10 * hits + 6 * clashes.count(2) + 3 * clashes.count(1) + (len(legs) - 1)
-        legs = min(options, key=cost)
-        if cost(legs) >= 10 and len(legs) == 2:     # both Ls run through a device: try a Z
-            legs = min([legs] + _zigzag_options(pa, pb, ba, bb), key=cost)
-        drawn.extend(legs)
-        found.extend(legs)
+    def cost(legs, others, around):
+        hits = sum(1 for k in others for leg in legs if frame_boxes[k].hit(leg))
+        clashes = [_clash(leg, old) for leg in legs for old in around]
+        return 10 * hits + 6 * clashes.count(2) + 3 * clashes.count(1) + (len(legs) - 1)
+
+    def near(i, legs):
+        """The lines among `legs` that come near segment i's ways."""
+        reach = segments[i][2]
+        return [leg for leg in legs if _meets(reach, _reach(leg))]
+
+    def cheapest(i, around):
+        options, others, _ = segments[i]
+        return min(options, key=lambda legs: cost(legs, others, around))
+
+    chosen = []
+    for i in range(len(segments)):          # in route order, knowing the lines before
+        chosen.append(cheapest(i, near(i, drawn + [leg for legs in chosen for leg in legs])))
+    for _ in range(3):                      # again, knowing all the others
+        changed = False
+        for i in range(len(segments)):
+            around = near(i, drawn + [leg for j, legs in enumerate(chosen) if j != i for leg in legs])
+            best = cheapest(i, around)
+            if cost(best, segments[i][1], around) < cost(chosen[i], segments[i][1], around) - EPS:
+                chosen[i] = best
+                changed = True
+        if not changed:
+            break
+    found = [leg for legs in chosen for leg in legs]
+    drawn.extend(found)
     return [(_rotate(p, angle), _rotate(q, angle)) for p, q in found]
 
 

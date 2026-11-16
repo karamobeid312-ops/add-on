@@ -91,3 +91,23 @@ def first_number(loop, count, others, own):
 def loop_addresses(loop, symbol_codes, first=1):
     """Addresses of a loop's devices, given their symbol codes in route order."""
     return [format_address(loop, address_code(c), first + k) for k, c in enumerate(symbol_codes)]
+
+
+def address_order(addresses, kind=None):
+    """Devices grouped into loops by their addresses: ([(loop number,
+    [indices in address order])] by loop number, [indices without an
+    address (of `kind`, when given)], [duplicate addresses]).
+    addresses: one text per device (its Mark)."""
+    loops, missing, seen, duplicates = {}, [], set(), []
+    for i, text in enumerate(addresses):
+        parsed = parse_address(text)
+        if not parsed or (kind is not None and address_kind(text) != kind):
+            missing.append(i)
+            continue
+        key = (parsed[0], parsed[2])
+        if key in seen:
+            duplicates.append(format_address(*parsed))
+        seen.add(key)
+        loops.setdefault(parsed[0], []).append((parsed[2], i))
+    return ([(n, [i for _, i in sorted(found)]) for n, found in sorted(loops.items())],
+            missing, duplicates)
