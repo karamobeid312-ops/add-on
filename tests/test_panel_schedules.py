@@ -119,3 +119,51 @@ def test_empty_sections_are_skipped():
     schedule = Schedule(u"P1", u"P1", [Section(HEADER, []), Section(BODY, [[u"1", u"X"]])])
     cells = _cells(_saved(build([schedule]))["xl/worksheets/sheet2.xml"])
     assert cells["A1"] == 1 and cells["B1"] == u"X"
+
+
+# ------------------------------------------------------------ Revit look
+
+def _styles_xml(parts):
+    return parts["xl/styles.xml"].decode("utf-8")
+
+
+def _revit_like():
+    from panelsched.workbook import CellStyle, FOOTER
+    box = CellStyle(borders=(True, True, True, True))
+    # header has 2 columns of its own; the body has 3 that do not line up
+    header = Section(HEADER, [[u"DB NO.:", u"DB-1"]], widths=[0.5, 0.25], heights=[0.02],
+                     styles={(0, 0): CellStyle(bold=True, halign="right")})
+    body = Section(BODY, [[u"CIR.", u"MCB", u"DESCRIPTION"], [u"R1", u"16", u"LIGHTING"]],
+                   widths=[0.25, 0.25, 0.25], heights=[0.04, 0.02],
+                   styles=dict(((r, c), box) for r in range(2) for c in range(3)))
+    summary = Section(SUMMARY, [[u"Load"]], widths=[0.75], heights=[0.02])
+    footer = Section(FOOTER, [[u"TOTAL", u"", u"14.7"]], merges=[(0, 0, 0, 1)],
+                     widths=[0.25, 0.25, 0.25], heights=[0.02])
+    return Schedule(u"DB-1", u"DB-1", [header, body, footer]), summary
+
+
+def test_revit_columns_are_put_on_one_ruler():
+    schedule, _ = _revit_like()
+    parts = _saved(build([schedule]))
+    sheet = parts["xl/worksheets/sheet2.xml"]
+    cells = _cells(sheet)
+    # edges 0, .25, .5, .75: the header's first cell spans two Excel columns
+    assert cells["A1"] == u"DB NO.:" and cells["C1"] == u"DB-1"
+    # sections stacked with no blank row, as in Revit
+    assert cells["A2"] == u"CIR." and cells["C3"] == u"LIGHTING" and cells["B3"] == 16
+    assert cells["A4"] == u"TOTAL" and cells["C4"] == 14.7
+    assert set(_merges(sheet)) == set([u"A1:B1", u"A4:B4"])
+    cols = [c for c in ET.fromstring(sheet).iter(NS + "col")]
+    assert len(cols) == 3
+    widths = [float(c.get("width")) for c in cols]
+    assert abs(widths[0] - widths[1]) < 0.01 and widths[0] > 5
+    rows = dict((r.get("r"), r.get("ht")) for r in ET.fromstring(sheet).iter(NS + "row"))
+    assert float(rows["2"]) > float(rows["3"])        # Revit row heights kept
+
+
+def test_revit_borders_bold_and_alignment_are_written():
+    schedule, _ = _revit_like()
+    styles = _styles_xml(_saved(build([schedule])))
+    assert '<left style="thin">' in styles
+    assert 'horizontal="right"' in styles
+    assert "<b/>" in styles

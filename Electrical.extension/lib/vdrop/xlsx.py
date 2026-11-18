@@ -158,6 +158,18 @@ class Style(object):
                 self.wrap, self.num_format, self.rotation)
 
 
+def _border_key(border):
+    """True/False (all sides or none) or (left, right, top, bottom)."""
+    if border in (True, False, None):
+        return bool(border)
+    sides = tuple(bool(b) for b in border)
+    if all(sides):
+        return True
+    if not any(sides):
+        return False
+    return sides
+
+
 class Highlight(object):
     """Format applied by a conditional format: text colour and fill."""
 
@@ -240,6 +252,8 @@ class Workbook(object):
                 fills.append(s.fill)
             if s.num_format and s.num_format not in num_formats:
                 num_formats.append(s.num_format)
+            if _border_key(s.border) not in borders:
+                borders.append(_border_key(s.border))
         out = [u'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
                u'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">']
         if num_formats:
@@ -260,10 +274,13 @@ class Workbook(object):
             out.append(u'<fill><patternFill patternType="solid"><fgColor rgb="FF%s"/>'
                        u'<bgColor indexed="64"/></patternFill></fill>' % color)
         out.append(u"</fills>")
-        out.append(u'<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>'
-                   u'<border><left style="thin"><color auto="1"/></left><right style="thin">'
-                   u'<color auto="1"/></right><top style="thin"><color auto="1"/></top>'
-                   u'<bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders>')
+        out.append(u'<borders count="%d">' % len(borders))
+        for b in borders:
+            sides = (b, b, b, b) if b in (True, False) else tuple(b)
+            out.append(u"<border>%s<diagonal/></border>" % u"".join(
+                (u'<%s style="thin"><color auto="1"/></%s>' % (n, n)) if on else (u"<%s/>" % n)
+                for n, on in zip((u"left", u"right", u"top", u"bottom"), sides)))
+        out.append(u"</borders>")
         out.append(u'<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
                    u"</cellStyleXfs>")
         out.append(u'<cellXfs count="%d">' % len(styles))
@@ -279,10 +296,10 @@ class Workbook(object):
             out.append(u'<xf numFmtId="%d" fontId="%d" fillId="%d" borderId="%d" xfId="0"'
                        u'%s%s%s%s%s>%s</xf>' % (
                            num_id, fonts.index(s._font()),
-                           fills.index(s.fill) if s.fill else 0, 1 if s.border else 0,
+                           fills.index(s.fill) if s.fill else 0, borders.index(_border_key(s.border)),
                            u' applyNumberFormat="1"' if num_id else u"",
                            u' applyFont="1"', u' applyFill="1"' if s.fill else u"",
-                           u' applyBorder="1"' if s.border else u"",
+                           u' applyBorder="1"' if _border_key(s.border) is not False else u"",
                            u' applyAlignment="1"' if align else u"", align))
         out.append(u"</cellXfs>")
         out.append(u'<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>')
