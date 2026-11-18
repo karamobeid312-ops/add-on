@@ -209,3 +209,29 @@ def test_wrong_total_is_left_as_a_number():
     schedule.sections[1].rows[0][2] = u"9.9"                 # not what the circuits add up to
     cells = _cells(_saved(build([schedule]))["xl/worksheets/sheet2.xml"])
     assert cells["C7"] == 9.9
+
+
+def test_phase_letters_borders_and_no_gridlines():
+    heads1 = [u"CIR.", u"DESCRIPTION", u"PHASE LOAD (W)", u"", u"", u"LOAD TYPE"]
+    heads2 = [u"", u"", u"", u"_", u"", u""]
+    body = Section(BODY, [heads1, heads2,
+                          [u"R1", u"LIGHT", u"1000", u"", u"", u"LTG"],
+                          [u"Y1", u"LIGHT", u"", u"700", u"", u"LTG"]],
+                   merges=[(0, 2, 0, 4), (1, 2, 1, 4), (0, 0, 1, 0)],
+                   widths=[0.1] * 6, heights=[0.02] * 4)
+    from panelsched.workbook import FOOTER
+    footer = Section(FOOTER, [[u"TOTAL LOAD PER PHASE (KW)", u"", u"1.0", u"0.7", u"0", u""]],
+                     widths=[0.1] * 6, heights=[0.02])
+    parts = _saved(build([Schedule(u"DB-1", u"DB-1", [body, footer])]))
+    sheet = parts["xl/worksheets/sheet2.xml"]
+    cells = _cells(sheet)
+    assert (cells["C2"], cells["D2"], cells["E2"]) == (u"R", u"Y", u"B")
+    assert u"C2:E2" not in _merges(sheet)
+    assert cells["C5"][0] == u"=SUM($C$3:$C$4)/1000"         # formulas found the phases
+    assert b'showGridLines="0"' in sheet
+    root = ET.fromstring(parts["xl/styles.xml"])
+    xfs = list(root.find(NS + "cellXfs"))
+    borders = list(root.find(NS + "borders"))
+    s = dict((c.get("r"), int(c.get("s") or 0)) for c in ET.fromstring(sheet).iter(NS + "c"))
+    box = borders[int(xfs[s["B4"]].get("borderId"))]       # an empty-looking body cell
+    assert all(box.find(NS + side).get("style") == "thin" for side in ("left", "right", "top", "bottom"))

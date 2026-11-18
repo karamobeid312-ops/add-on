@@ -247,11 +247,85 @@ def _outline(sheet, row1, row2, col1, col2):
             sheet.cells[(r, c)] = (value, style.copy(border=sides))
 
 
+BOX = (True, True, True, True)
+
+
+def _box(section, r, c):
+    style = section.styles.get((r, c))
+    if style is None:
+        style = section.styles[(r, c)] = CellStyle()
+    style.borders = BOX
+
+
+def _phase_letters(section):
+    """Revit draws the R | Y | B under PHASE LOAD itself and the API gives
+    no text for them: put the letters in."""
+    if section.kind != BODY:
+        return
+    spans = dict(((m[0], m[1]), m) for m in section.merges)
+    for r, cells in enumerate(section.rows):
+        for c, text in enumerate(cells):
+            if not _norm(text).startswith(u"PHASE LOAD"):
+                continue
+            m = spans.get((r, c))
+            if m is None or m[3] - m[1] != 2 or m[2] + 1 >= len(section.rows):
+                return
+            below = m[2] + 1
+            row = section.rows[below]
+            if any(_norm(row[x]) in PHASES for x in range(c, c + 3) if x < len(row)):
+                return
+            if len(row) < c + 3:
+                return
+            section.merges = [mm for mm in section.merges
+                              if not (mm[0] <= below <= mm[2] and mm[1] <= c + 2 and mm[3] >= c)]
+            for x, letter in zip(range(c, c + 3), PHASES):
+                row[x] = letter
+            return
+
+
+def _rule_lines(sections):
+    """Revit rules the panel schedule with thin black lines that the API
+    does not report cell by cell. Draw them as Revit shows them: every cell
+    of the circuit table; in the header the LOAD boxes; in the footer every
+    cell with text and the whole load type table."""
+    for section in sections:
+        rows = section.rows
+        if section.kind == BODY:
+            for r in range(len(rows)):
+                for c in range(section.columns):
+                    _box(section, r, c)
+            continue
+        table = None
+        for r, cells in enumerate(rows):
+            for c, text in enumerate(cells):
+                n = _norm(text)
+                if section.kind == HEADER:
+                    if n == u"LOAD":
+                        _box(section, r, c)
+                    continue
+                if n:
+                    _box(section, r, c)
+                if n == u"LOAD TYPE" and table is None:
+                    table = (r, c)
+        if table is None:
+            continue
+        r0, c0 = table
+        last = max([c for c, t in enumerate(rows[r0]) if _norm(t)] or [c0])
+        r = r0
+        while r < len(rows) and any(_norm(t) for t in rows[r][c0:last + 1]):
+            for c in range(c0, last + 1):
+                _box(section, r, c)
+            r += 1
+
+
 def write_schedule_like_revit(sheet, schedule):
     """Lay the schedule out as Revit draws it: sections stacked with no gap,
     Revit's column widths and row heights, merged cells, bold, alignment,
     fills and cell borders. Returns the last row used."""
     sections = [s for s in schedule.sections if s.rows]
+    for section in sections:
+        _phase_letters(section)
+    _rule_lines(sections)
     ruler = _edges(sections)
     index = dict((e, i) for i, e in enumerate(ruler))
     for i in range(1, len(ruler)):
@@ -309,6 +383,7 @@ def write_schedule_like_revit(sheet, schedule):
         _outline(sheet, row, row + len(section.rows) - 1, 1, starts[-1])
         row += len(section.rows)
     add_formulas(sheet, sections, where)
+    sheet.gridlines = False
     sheet.landscape = True
     sheet.paper = 9   # A4, fitted to one page wide
     sheet.footer = u"&L%s&RPage &P of &N" % schedule.panel.replace(u"&", u"&&")

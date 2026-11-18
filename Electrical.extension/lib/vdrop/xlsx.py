@@ -192,6 +192,7 @@ class Sheet(object):
         self.paper = 8            # A3
         self.print_rows = None    # (first, last) rows repeated on every page
         self.footer = None        # e.g. '&LTitle&RPage &P of &N'
+        self.gridlines = True     # False hides Excel's grey gridlines
 
     def write(self, row, col, value=None, style=None):
         self.cells[(row, col)] = (value, style)
@@ -347,7 +348,8 @@ class Workbook(object):
                u'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
                u'<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>',
                u'<dimension ref="A1:%s"/>' % ref(last_row, last_col),
-               u'<sheetViews><sheetView workbookViewId="0" zoomScale="85">']
+               u'<sheetViews><sheetView%s workbookViewId="0" zoomScale="85">' % (
+                   u"" if sheet.gridlines else u' showGridLines="0"')]
         if sheet.freeze:
             r, c = sheet.freeze
             out.append(u'<pane%s%s topLeftCell="%s" activePane="%s" state="frozen"/>' % (
