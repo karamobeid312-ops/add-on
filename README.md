@@ -9,13 +9,14 @@ every outgoing way, UPS, main boards with transformer and supply.
 
 *Preview of the built-in Al Yasat sample (`tools/preview_svg.py`), no Revit needed.*
 
-Everything is on one **Electrical** ribbon tab, with five panels:
+Everything is on one **Electrical** ribbon tab, with six panels:
 
 | Panel | Buttons |
 | --- | --- |
 | **SLD** | Generate SLD, SLD Settings |
 | **Fire Alarm** | Smoke Detectors, Heat Detectors, Draw FA Loop, Address Devices, FA Riser, FA Settings: places smoke and heat detectors in the selected spaces, connects the devices in loops, addresses them and draws the riser diagram, see [Fire alarm detectors](#fire-alarm-detectors), [Fire alarm loops](#fire-alarm-loops), [Addresses](#addresses) and [Fire alarm riser](#fire-alarm-riser) |
 | **Voltage Drop** | Calculate VD, VD Report, VD Settings: the voltage drop of every cable and the office voltage drop sheet, see [Voltage drop](#voltage-drop) |
+| **Schedules** | Export Panel Schedules: every panel schedule of the model in one Excel workbook, see [Panel schedules](#panel-schedules) |
 | **Dimensions** | Dimension Devices, Dim Settings: dimension strings from the nearest wall, device to device, in floor and ceiling plans, see [Dimensions](#dimensions) |
 | **Model Check** | Wall Fixtures, Check Settings: checks in 3D that sockets, switches and other wall fixtures sit on their wall face, see [Wall fixtures](#wall-fixtures) |
 
@@ -446,6 +447,26 @@ the tool differs from the sheet:
   the number of phases.
 - Only XLPE cables: the sheet's `ref_PVC` tab is a copy of the XLPE data.
 
+## Panel schedules
+
+**Electrical** tab → **Schedules** panel → **Export Panel Schedules** saves
+the panel schedules of the model to one Excel workbook:
+
+- Choose **All panel schedules**, or **Pick panel schedules** from a list.
+- An **Index** sheet lists every panel with its level, schedule view and
+  number of circuits; click a sheet name to jump to it.
+- Then one sheet per panel (named after the panel), laid out exactly as the
+  schedule in Revit: header, circuits, summary and footer, one under the
+  other, with merged cells kept (multi-pole circuits, titles).
+- Plain numbers (circuit numbers, poles, loads) are written as numbers so
+  Excel can add them up; `20 A`, `01`, `3P` stay text.
+- Each sheet prints landscape, one page wide, panel name in the footer.
+
+Templates are left out. The text is read cell by cell from the schedule view
+(`GetCellText`), so what you get is what the schedule template shows: change
+the columns in the template to change the export. Standard library only, so
+it runs in pyRevit's IronPython and CPython engines without Excel installed.
+
 ## Dimensions
 
 The **Dimensions** panel of the **Electrical** tab:
@@ -612,6 +633,7 @@ Electrical.extension/
                           FA Riser, FA Settings
   FA shared parameters.txt   the FA Address shared parameter
     Voltage Drop.panel/   Calculate VD, VD Report, VD Settings
+    Schedules.panel/      Export Panel Schedules
     Dimensions.panel/     Dimension Devices, Dim Settings
     Model Check.panel/    Wall Fixtures, Check Settings
   lib/sld/
@@ -649,6 +671,10 @@ Electrical.extension/
     revit_vd.py    panels and circuits to rows, results to parameters, setup
     settings.py    per-user settings
     command.py     button entry points
+  lib/panelsched/
+    workbook.py    schedules to the Index + one sheet per panel workbook (no Revit)
+    revit_panels.py  panel schedule views read cell by cell, merged cells
+    command.py     button entry point
   lib/dims/
     chains.py      rows, columns and walls to dimension strings (no Revit)
     report.py      summary shown after dimensioning
