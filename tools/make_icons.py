@@ -314,6 +314,19 @@ def check_settings(c, ink):
     settings_gear(c, ink, GREEN, glyph)
 
 
+def panel_schedules(c, ink):
+    sheet = rect(3, 3, 22, 27)
+    c.fill([sheet], WHITE)
+    c.fill([rect(3, 3, 22, 8)], LIGHT)
+    stroke(c, sheet, 1.4, ink, closed=True)
+    for y in (12, 16, 20, 24):
+        stroke(c, [(6, y), (19, y)], 1.1, GRAY)
+    stroke(c, [(12.5, 9), (12.5, 25)], 1.0, GRAY)
+    c.fill([rounded(15.5, 15.5, 30.5, 30.5, 2.5)], GREEN)
+    stroke(c, [(19.3, 19.3), (26.7, 26.7)], 2.2, WHITE)
+    stroke(c, [(26.7, 19.3), (19.3, 26.7)], 2.2, WHITE)
+
+
 TAB = "Electrical.extension/Electrical.tab/"
 ICONS = [
     (TAB + "SLD.panel/Generate SLD.pushbutton", generate_sld),
@@ -327,6 +340,7 @@ ICONS = [
     (TAB + "Voltage Drop.panel/Calculate VD.pushbutton", calculate_vd),
     (TAB + "Voltage Drop.panel/VD Report.pushbutton", vd_report),
     (TAB + "Voltage Drop.panel/Settings.pushbutton", vd_settings),
+    (TAB + "Schedules.panel/Export Panel Schedules.pushbutton", panel_schedules),
     (TAB + "Dimensions.panel/Dimension Devices.pushbutton", dimension_devices),
     (TAB + "Dimensions.panel/Settings.pushbutton", dim_settings),
     (TAB + "Model Check.panel/Wall Fixtures.pushbutton", wall_fixtures),
