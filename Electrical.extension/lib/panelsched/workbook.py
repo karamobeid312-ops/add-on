@@ -272,9 +272,10 @@ def _phase_letters(section):
                 return
             below = m[2] + 1
             row = section.rows[below]
-            if any(_norm(row[x]) in PHASES for x in range(c, c + 3) if x < len(row)):
-                return
             if len(row) < c + 3:
+                return
+            # only a sub-header row of its own with no text: never a circuit row
+            if any(re.search(r"[0-9A-Za-z]", row[x] or u"") for x in range(len(row))):
                 return
             section.merges = [mm for mm in section.merges
                               if not (mm[0] <= below <= mm[2] and mm[1] <= c + 2 and mm[3] >= c)]
@@ -452,6 +453,19 @@ def _find_body(sections):
     for si, section in enumerate(sections):
         if section.kind != BODY:
             continue
+        # PHASE LOAD header merged over three columns: R, Y, B under it
+        for r1, c1, r2, c2 in section.merges:
+            text = section.rows[r1][c1] if c1 < len(section.rows[r1]) else u""
+            if c2 - c1 == 2 and _norm(text).startswith(u"PHASE LOAD"):
+                first = r2 + 1
+                if first < len(section.rows) and _norm(section.rows[first][c1]) in PHASES:
+                    first += 1          # a row of R | Y | B letters
+                type_col = None
+                for rr in range(0, first):
+                    for cc, t in enumerate(section.rows[rr]):
+                        if _norm(t) == u"LOAD TYPE":
+                            type_col = cc
+                return _Body(si, section, dict(zip(PHASES, (c1, c1 + 1, c1 + 2))), type_col, first)
         for r, cells in enumerate(section.rows):
             texts = [_norm(t) for t in cells]
             for c in range(len(texts) - 2):

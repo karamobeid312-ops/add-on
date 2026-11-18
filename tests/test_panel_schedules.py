@@ -235,3 +235,21 @@ def test_phase_letters_borders_and_no_gridlines():
     s = dict((c.get("r"), int(c.get("s") or 0)) for c in ET.fromstring(sheet).iter(NS + "c"))
     box = borders[int(xfs[s["B4"]].get("borderId"))]       # an empty-looking body cell
     assert all(box.find(NS + side).get("style") == "thin" for side in ("left", "right", "top", "bottom"))
+
+
+def test_phase_header_in_one_row_keeps_first_circuit():
+    # Revit draws R | Y | B inside the one header row: the first circuit row
+    # must be left alone and still be summed
+    heads = [u"CIR.", u"PHASE LOAD (W)\n_", u"", u"", u"LOAD TYPE"]
+    body = Section(BODY, [heads,
+                          [u"R1", u"1000", u"", u"", u"LTG"],
+                          [u"Y1", u"", u"700", u"", u"LTG"],
+                          [u"R2", u"250", u"", u"", u"LTG"]],
+                   merges=[(0, 1, 0, 3)], widths=[0.1] * 5, heights=[0.03, 0.02, 0.02, 0.02])
+    from panelsched.workbook import FOOTER
+    footer = Section(FOOTER, [[u"TOTAL LOAD PER PHASE (KW)", u"1.3", u"0.7", u"0", u""]],
+                     widths=[0.1] * 5, heights=[0.02])
+    cells = _cells(_saved(build([Schedule(u"DB-1", u"DB-1", [body, footer])]))["xl/worksheets/sheet2.xml"])
+    assert cells["B2"] == 1000 and cells["C3"] == 700 and cells["B4"] == 250
+    assert cells["B5"][0] == u"=SUM($B$2:$B$4)/1000"
+    assert cells["C5"][0] == u"=SUM($C$2:$C$4)/1000"
