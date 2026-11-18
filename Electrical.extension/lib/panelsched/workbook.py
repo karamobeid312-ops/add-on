@@ -258,7 +258,8 @@ def write_schedule_like_revit(sheet, schedule):
         sheet.widths[i] = max(round((ruler[i] - ruler[i - 1]) * FEET_TO_CHARS, 2), 0.5)
 
     row = 1
-    for section in sections:
+    where = {}          # (section index, row, col) -> top-left Excel cell
+    for si, section in enumerate(sections):
         starts, x = [], 0.0
         for w in section.widths[:section.columns]:
             starts.append(index[round(x, _EDGE_ROUND)])
@@ -302,11 +303,220 @@ def write_schedule_like_revit(sheet, schedule):
                                  top and xr == x1, bottom and xr == x2)
                         value = cell_value(text) if (xr, xc) == (x1, g1) else None
                         sheet.write(xr, xc, value, _xl_style(style, sides, wrap))
+                where[(si, r, c)] = (x1, g1)
                 if (x1, g1) != (x2, g2):
                     sheet.merges.append(u"%s:%s" % (ref(x1, g1), ref(x2, g2)))
         _outline(sheet, row, row + len(section.rows) - 1, 1, starts[-1])
         row += len(section.rows)
+    add_formulas(sheet, sections, where)
     sheet.landscape = True
     sheet.paper = 9   # A4, fitted to one page wide
     sheet.footer = u"&L%s&RPage &P of &N" % schedule.panel.replace(u"&", u"&&")
     return row - 1
+
+
+
+# ---------------------------------------------------------------- formulas
+#
+# Revit only gives the text it shows, so the totals of the office panel
+# schedule are found by their labels and written back as Excel formulas
+# over the circuit rows. A formula is only used when it gives the number
+# Revit shows; otherwise the number is kept as it is.
+
+PHASES = (u"R", u"Y", u"B")
+_SKIP = set([u"", u"--", u"-"])
+
+
+def _norm(text):
+    return re.sub(r"\s+", u" ", (text or u"").strip()).upper()
+
+
+def _num(text):
+    value = cell_value(text)
+    return value if isinstance(value, (int, float)) else None
+
+
+def _decimals(text):
+    text = (text or u"").strip()
+    return len(text.split(u".")[1]) if u"." in text else 0
+
+
+def _shows(value, text):
+    """True when `value` shown with the decimals of `text` reads as `text`."""
+    shown = _num(text)
+    if shown is None:
+        return False
+    return abs(value - shown) <= 0.5 * 10 ** -_decimals(text) + 1e-9
+
+
+def _number_format(text):
+    d = _decimals(text)
+    return u"0.%s" % (u"0" * d) if d else u"0"
+
+
+class _Body(object):
+    """Where the circuit table's phase and load type columns are."""
+
+    def __init__(self, si, section, phase_cols, type_col, first_row):
+        self.si = si
+        self.section = section
+        self.phase_cols = phase_cols          # {'R': col, 'Y': col, 'B': col}
+        self.type_col = type_col              # LOAD TYPE column or None
+        self.rows = range(first_row, len(section.rows))
+
+    def number(self, r, c):
+        cells = self.section.rows[r]
+        return (_num(cells[c]) if c < len(cells) else None) or 0
+
+    def load_type(self, r):
+        cells = self.section.rows[r]
+        return _norm(cells[self.type_col]) if self.type_col is not None and self.type_col < len(cells) else u""
+
+
+def _find_body(sections):
+    for si, section in enumerate(sections):
+        if section.kind != BODY:
+            continue
+        for r, cells in enumerate(section.rows):
+            texts = [_norm(t) for t in cells]
+            for c in range(len(texts) - 2):
+                if tuple(texts[c:c + 3]) == PHASES:
+                    type_col = None
+                    for rr in range(0, r + 1):
+                        for cc, t in enumerate(section.rows[rr]):
+                            if _norm(t) == u"LOAD TYPE":
+                                type_col = cc
+                    return _Body(si, section, dict(zip(PHASES, (c, c + 1, c + 2))), type_col, r + 1)
+    return None
+
+
+def _column_range(where, body, col):
+    rows = [where.get((body.si, r, col)) for r in body.rows]
+    rows = [p for p in rows if p]
+    if not rows:
+        return None
+    return u"%s:%s" % (ref(rows[0][0], rows[0][1], True), ref(rows[-1][0], rows[-1][1], True))
+
+
+def _numbers_right_of(cells, c0):
+    return [(c, cells[c]) for c in range(c0 + 1, len(cells)) if _num(cells[c]) is not None]
+
+
+def _scale(raw, text):
+    """Revit shows W as kW in the footer: find the divisor that matches."""
+    for factor in (1000, 1):
+        if _shows(raw / factor, text):
+            return factor
+    return None
+
+
+def _set_formula(sheet, at, text, value, shown):
+    cur = sheet.cells.get(at, (None, None))[1] or Style()
+    sheet.cells[at] = (Formula(text, value), cur.copy(num_format=_number_format(shown)))
+
+
+def add_formulas(sheet, sections, where):
+    """Turn the office schedule totals into formulas. Returns how many."""
+    body = _find_body(sections)
+    if body is None:
+        return 0
+    ranges = dict((p, _column_range(where, body, c)) for p, c in body.phase_cols.items())
+    if not all(ranges.values()):
+        return 0
+    type_range = _column_range(where, body, body.type_col) if body.type_col is not None else None
+    sums = dict((p, sum(body.number(r, c) for r in body.rows)) for p, c in body.phase_cols.items())
+    count = 0
+
+    for si, section in enumerate(sections):
+        if si == body.si:
+            continue
+        rows = section.rows
+        # TOTAL LOAD PER PHASE: three numbers, R then Y then B
+        for r, cells in enumerate(rows):
+            for c, t in enumerate(cells):
+                if u"TOTAL LOAD PER PHASE" not in _norm(t):
+                    continue
+                for p, (cc, text) in zip(PHASES, _numbers_right_of(cells, c)[:3]):
+                    factor = _scale(sums[p], text)
+                    at = where.get((si, r, cc))
+                    if factor and at:
+                        f = u"SUM(%s)" % ranges[p] + (u"/%d" % factor if factor != 1 else u"")
+                        _set_formula(sheet, at, f, sums[p] / factor, text)
+                        count += 1
+        # LOAD TYPE table: connected = SUMIF over R, Y, B; demanded = connected x DF
+        if type_range is None:
+            continue
+        head = None
+        labels = {}
+        for r, cells in enumerate(rows):
+            for c, t in enumerate(cells):
+                n = _norm(t)
+                if n == u"LOAD TYPE" and head is None:
+                    head = (r, c)
+                elif n.startswith(u"CONNECTED LOAD"):
+                    labels["connected"] = r
+                elif n.startswith(u"DEMAND FACTOR"):
+                    labels["factor"] = r
+                elif n.startswith(u"DEMANDED LOAD") or n.startswith(u"DEMAND LOAD"):
+                    labels["demanded"] = r
+        if head is None or "connected" not in labels:
+            continue
+        hr, hc = head
+        types = [(c, _norm(t)) for c, t in enumerate(rows[hr]) if c > hc and _norm(t) not in _SKIP]
+        total_col = None
+        connected = {}
+        rc = labels["connected"]
+        for c, name in types:
+            text = rows[rc][c] if c < len(rows[rc]) else u""
+            at = where.get((si, rc, c))
+            if name == u"TOTAL":
+                total_col = c
+                continue
+            if _num(text) is None or at is None:
+                continue
+            raw = sum(body.number(r, pc) for r in body.rows if body.load_type(r) == name
+                      for pc in body.phase_cols.values())
+            factor = _scale(raw, text)
+            if not factor:
+                continue
+            parts = u"+".join(u'SUMIF(%s,"%s",%s)' % (type_range, name.replace(u'"', u'""'), ranges[p])
+                              for p in PHASES)
+            f = u"(%s)/%d" % (parts, factor) if factor != 1 else parts
+            _set_formula(sheet, at, f, raw / factor, text)
+            connected[c] = (at, raw / factor)
+            count += 1
+        demanded = {}
+        if "factor" in labels and "demanded" in labels:
+            rf, rd = labels["factor"], labels["demanded"]
+            for c, (at, value) in connected.items():
+                df_text = rows[rf][c] if c < len(rows[rf]) else u""
+                d_text = rows[rd][c] if c < len(rows[rd]) else u""
+                df_at, d_at = where.get((si, rf, c)), where.get((si, rd, c))
+                df = _num(df_text)
+                if df is None or df_at is None or d_at is None or _num(d_text) is None:
+                    continue
+                if not _shows(value * df, d_text):
+                    continue
+                _set_formula(sheet, d_at, u"%s*%s" % (ref(*at), ref(*df_at)), value * df, d_text)
+                demanded[c] = (d_at, value * df)
+                count += 1
+        if total_col is not None:
+            for row_label, done in ((rc, connected), (labels.get("demanded"), demanded)):
+                if row_label is None or not done:
+                    continue
+                done = dict(done)
+                for c, name in types:       # numbers left as they are count too
+                    text = rows[row_label][c] if c < len(rows[row_label]) else u""
+                    at = where.get((si, row_label, c))
+                    if c != total_col and c not in done and at and _num(text) is not None:
+                        done[c] = (at, _num(text))
+                text = rows[row_label][total_col] if total_col < len(rows[row_label]) else u""
+                at = where.get((si, row_label, total_col))
+                value = sum(v for _, v in done.values())
+                if at is None or not _shows(value, text):
+                    continue
+                cells = sorted(a for a, _ in done.values())
+                f = u"SUM(%s)" % u",".join(ref(*a) for a in cells)
+                _set_formula(sheet, at, f, value, text)
+                count += 1
+    return count

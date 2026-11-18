@@ -167,3 +167,45 @@ def test_revit_borders_bold_and_alignment_are_written():
     assert '<left style="thin">' in styles
     assert 'horizontal="right"' in styles
     assert "<b/>" in styles
+
+
+def _office_schedule():
+    from panelsched.workbook import CellStyle, FOOTER
+    heads = [u"CIR.", u"DESCRIPTION", u"R", u"Y", u"B", u"LOAD TYPE", u"DIVERS. FACTOR"]
+    body = Section(BODY, [heads,
+                          [u"R1", u"LIGHT", u"1000", u"", u"", u"LTG", u"0.9"],
+                          [u"Y1", u"LIGHT", u"", u"700", u"", u"LTG", u"0.9"],
+                          [u"B1", u"SPARE", u"--", u"--", u"--", u"--", u"--"],
+                          [u"R2", u"SITE", u"1150", u"", u"", u"Motor", u"0.7"],
+                          [u"Y2", u"PWR", u"", u"", u"3200", u"SO", u"0.7"]],
+                   widths=[0.1] * 7, heights=[0.02] * 6)
+    footer = Section(FOOTER, [
+        [u"TOTAL LOAD PER PHASE (KW)", u"", u"2.2", u"0.7", u"3.2", u"", u""],
+        [u"LOAD TYPE", u"LTG", u"Motor", u"SO", u"WH", u"TOTAL", u""],
+        [u"CONNECTED LOAD (KW)", u"1.7", u"1.2", u"3.2", u"0", u"6.0", u""],
+        [u"DEMAND FACTOR", u"0.9", u"0.7", u"0.7", u"0.7", u"-", u""],
+        [u"DEMANDED LOAD (KW)", u"1.5", u"0.8", u"2.2", u"0", u"4.6", u""],
+    ], merges=[(0, 0, 0, 1)], widths=[0.1] * 7, heights=[0.02] * 5)
+    return Schedule(u"DB-1", u"DB-1", [body, footer])
+
+
+def test_totals_become_formulas():
+    cells = _cells(_saved(build([_office_schedule()]))["xl/worksheets/sheet2.xml"])
+    # body rows 2-6; R/Y/B in C/D/E; LOAD TYPE in F; footer starts row 7
+    assert cells["C7"] == (u"=SUM($C$2:$C$6)/1000", u"2.15")
+    assert cells["E7"][0] == u"=SUM($E$2:$E$6)/1000"
+    assert cells["B9"][0] == (u'=(SUMIF($F$2:$F$6,"LTG",$C$2:$C$6)+SUMIF($F$2:$F$6,"LTG",$D$2:$D$6)'
+                              u'+SUMIF($F$2:$F$6,"LTG",$E$2:$E$6))/1000')
+    assert cells["C9"][0].startswith(u'=(SUMIF($F$2:$F$6,"MOTOR"')
+    assert cells["F9"][0] == u"=SUM(B9,C9,D9,E9)"          # the WH 0 counts too
+    assert cells["B11"][0] == u"=B9*B10"
+    assert cells["F11"][0] == u"=SUM(B11,C11,D11,E11)"
+    assert cells["E9"][1] == u"0.0"                          # no WH loads yet: still a formula
+    assert cells["E10"] == 0.7                               # demand factors stay typed values
+
+
+def test_wrong_total_is_left_as_a_number():
+    schedule = _office_schedule()
+    schedule.sections[1].rows[0][2] = u"9.9"                 # not what the circuits add up to
+    cells = _cells(_saved(build([schedule]))["xl/worksheets/sheet2.xml"])
+    assert cells["C7"] == 9.9
